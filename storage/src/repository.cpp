@@ -1,6 +1,8 @@
 #include "dake/storage/repository.hpp"
 
 #include <QDateTime>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QSqlDatabase>
 #include <QSqlError>
 #include <QSqlQuery>
@@ -8,6 +10,7 @@
 
 #include "dake/core/demo.hpp"
 #include "dake/core/uuid.hpp"
+#include "dake/storage/wire.hpp"
 
 namespace dake::storage {
 namespace {
@@ -133,8 +136,10 @@ std::vector<core::Movement> Repository::loadMovements(bool includeDeleted) {
 
 // ----------------------------------------------------------------- Escrituras
 
-void Repository::save(const core::Pocket& pocket) {
-    QSqlQuery query(db_.handle());
+namespace {
+
+void insertOrReplace(Database& db, const core::Pocket& pocket) {
+    QSqlQuery query(db.handle());
     query.prepare(QStringLiteral(
         "INSERT OR REPLACE INTO pockets "
         "(id, name, kind, opening_minor, archived, hlc, device_id, deleted) "
@@ -151,8 +156,8 @@ void Repository::save(const core::Pocket& pocket) {
     run(query);
 }
 
-void Repository::save(const core::Job& job) {
-    QSqlQuery query(db_.handle());
+void insertOrReplace(Database& db, const core::Job& job) {
+    QSqlQuery query(db.handle());
     query.prepare(QStringLiteral(
         "INSERT OR REPLACE INTO jobs (id, name, client, opened, closed, hlc, device_id, deleted) "
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?)"));
@@ -167,19 +172,11 @@ void Repository::save(const core::Job& job) {
     run(query);
 }
 
-void Repository::save(const core::Movement& movement) {
-    // La forma se verifica ANTES de escribir. Una fila con un traspaso sin
-    // destino, o un importe en cero, no se puede arreglar despues mirandola:
-    // ya no se sabe que quiso decir.
-    if (!movement.isWellFormed()) {
-        throw StorageError(QStringLiteral("El movimiento '") + qs(movement.name) +
-                           QStringLiteral("' no tiene la forma que su tipo exige."));
-    }
-
+void insertOrReplace(Database& db, const core::Movement& movement) {
     const auto kindText = core::toString(movement.kind);
     const auto recurrenceText = core::toString(movement.recurrence);
 
-    QSqlQuery query(db_.handle());
+    QSqlQuery query(db.handle());
     query.prepare(QStringLiteral(
         "INSERT OR REPLACE INTO movements "
         "(id, date, name, kind, amount_minor, pocket_id, target_pocket_id, category, job_id, "
@@ -204,7 +201,20 @@ void Repository::save(const core::Movement& movement) {
     run(query);
 }
 
-namespace {
+template <typename T>
+void enqueueOutbox(Database& db, const QString& tableName, const QString& op, const T& record) {
+    QSqlQuery outbox(db.handle());
+    outbox.prepare(QStringLiteral(
+        "INSERT INTO outbox (table_name, record_id, op, payload, hlc, sent) "
+        "VALUES (?, ?, ?, ?, ?, ?)"));
+    outbox.addBindValue(tableName);
+    outbox.addBindValue(qs(record.id));
+    outbox.addBindValue(op);
+    outbox.addBindValue(QString::fromUtf8(QJsonDocument(toJson(record)).toJson(QJsonDocument::Compact)));
+    outbox.addBindValue(qs(record.hlc));
+    outbox.addBindValue(0);
+    run(outbox);
+}
 
 void tombstone(Database& db, const QString& table, const std::string& id) {
     QSqlQuery query(db.handle());
@@ -215,16 +225,240 @@ void tombstone(Database& db, const QString& table, const std::string& id) {
 
 } // namespace
 
+void Repository::save(const core::Pocket& pocket) {
+    const bool ownTx = db_.handle().transaction();
+    try {
+        insertOrReplace(db_, pocket);
+        enqueueOutbox(db_, QStringLiteral("pockets"), QStringLiteral("Upsert"), pocket);
+    } catch (...) {
+        if (ownTx) db_.handle().rollback();
+        throw;
+    }
+    if (ownTx && !db_.handle().commit()) {
+        throw StorageError(QStringLiteral("No se pudo confirmar la transaccion."));
+    }
+}
+
+void Repository::save(const core::Job& job) {
+    const bool ownTx = db_.handle().transaction();
+    try {
+        insertOrReplace(db_, job);
+        enqueueOutbox(db_, QStringLiteral("jobs"), QStringLiteral("Upsert"), job);
+    } catch (...) {
+        if (ownTx) db_.handle().rollback();
+        throw;
+    }
+    if (ownTx && !db_.handle().commit()) {
+        throw StorageError(QStringLiteral("No se pudo confirmar la transaccion."));
+    }
+}
+
+void Repository::save(const core::Movement& movement) {
+    if (!movement.isWellFormed()) {
+        throw StorageError(QStringLiteral("El movimiento '") + qs(movement.name) +
+                           QStringLiteral("' no tiene la forma que su tipo exige."));
+    }
+
+    const bool ownTx = db_.handle().transaction();
+    try {
+        insertOrReplace(db_, movement);
+        enqueueOutbox(db_, QStringLiteral("movements"), QStringLiteral("Upsert"), movement);
+    } catch (...) {
+        if (ownTx) db_.handle().rollback();
+        throw;
+    }
+    if (ownTx && !db_.handle().commit()) {
+        throw StorageError(QStringLiteral("No se pudo confirmar la transaccion."));
+    }
+}
+
 void Repository::remove(const core::Movement& movement) {
-    tombstone(db_, QStringLiteral("movements"), movement.id);
+    const bool ownTx = db_.handle().transaction();
+    try {
+        tombstone(db_, QStringLiteral("movements"), movement.id);
+        core::Movement tomb = movement;
+        tomb.deleted = true;
+        enqueueOutbox(db_, QStringLiteral("movements"), QStringLiteral("Delete"), tomb);
+    } catch (...) {
+        if (ownTx) db_.handle().rollback();
+        throw;
+    }
+    if (ownTx && !db_.handle().commit()) {
+        throw StorageError(QStringLiteral("No se pudo confirmar la transaccion."));
+    }
 }
 
 void Repository::remove(const core::Job& job) {
-    tombstone(db_, QStringLiteral("jobs"), job.id);
+    const bool ownTx = db_.handle().transaction();
+    try {
+        tombstone(db_, QStringLiteral("jobs"), job.id);
+        core::Job tomb = job;
+        tomb.deleted = true;
+        enqueueOutbox(db_, QStringLiteral("jobs"), QStringLiteral("Delete"), tomb);
+    } catch (...) {
+        if (ownTx) db_.handle().rollback();
+        throw;
+    }
+    if (ownTx && !db_.handle().commit()) {
+        throw StorageError(QStringLiteral("No se pudo confirmar la transaccion."));
+    }
 }
 
 void Repository::remove(const core::Pocket& pocket) {
-    tombstone(db_, QStringLiteral("pockets"), pocket.id);
+    const bool ownTx = db_.handle().transaction();
+    try {
+        tombstone(db_, QStringLiteral("pockets"), pocket.id);
+        core::Pocket tomb = pocket;
+        tomb.deleted = true;
+        enqueueOutbox(db_, QStringLiteral("pockets"), QStringLiteral("Delete"), tomb);
+    } catch (...) {
+        if (ownTx) db_.handle().rollback();
+        throw;
+    }
+    if (ownTx && !db_.handle().commit()) {
+        throw StorageError(QStringLiteral("No se pudo confirmar la transaccion."));
+    }
+}
+
+// --------------------------------------------------------------- Sincronizacion
+
+bool Repository::applyRemote(const core::Pocket& incoming) {
+    QSqlQuery check(db_.handle());
+    check.prepare(QStringLiteral("SELECT hlc FROM pockets WHERE id = ?"));
+    check.addBindValue(qs(incoming.id));
+    run(check);
+
+    if (check.next()) {
+        QString localHlc = check.value(0).toString();
+        if (qs(incoming.hlc) <= localHlc) {
+            return false;
+        }
+    }
+
+    const bool ownTx = db_.handle().transaction();
+    try {
+        insertOrReplace(db_, incoming);
+    } catch (...) {
+        if (ownTx) db_.handle().rollback();
+        throw;
+    }
+    if (ownTx && !db_.handle().commit()) {
+        throw StorageError(QStringLiteral("No se pudo confirmar la transaccion."));
+    }
+    return true;
+}
+
+bool Repository::applyRemote(const core::Job& incoming) {
+    QSqlQuery check(db_.handle());
+    check.prepare(QStringLiteral("SELECT hlc FROM jobs WHERE id = ?"));
+    check.addBindValue(qs(incoming.id));
+    run(check);
+
+    if (check.next()) {
+        QString localHlc = check.value(0).toString();
+        if (qs(incoming.hlc) <= localHlc) {
+            return false;
+        }
+    }
+
+    const bool ownTx = db_.handle().transaction();
+    try {
+        insertOrReplace(db_, incoming);
+    } catch (...) {
+        if (ownTx) db_.handle().rollback();
+        throw;
+    }
+    if (ownTx && !db_.handle().commit()) {
+        throw StorageError(QStringLiteral("No se pudo confirmar la transaccion."));
+    }
+    return true;
+}
+
+bool Repository::applyRemote(const core::Movement& incoming) {
+    QSqlQuery check(db_.handle());
+    check.prepare(QStringLiteral("SELECT hlc FROM movements WHERE id = ?"));
+    check.addBindValue(qs(incoming.id));
+    run(check);
+
+    if (check.next()) {
+        QString localHlc = check.value(0).toString();
+        if (qs(incoming.hlc) <= localHlc) {
+            return false;
+        }
+    }
+
+    const bool ownTx = db_.handle().transaction();
+    try {
+        insertOrReplace(db_, incoming);
+    } catch (...) {
+        if (ownTx) db_.handle().rollback();
+        throw;
+    }
+    if (ownTx && !db_.handle().commit()) {
+        throw StorageError(QStringLiteral("No se pudo confirmar la transaccion."));
+    }
+    return true;
+}
+
+std::vector<Repository::OutboxEntry> Repository::pendingOutbox(int limit) {
+    QSqlQuery query(db_.handle());
+    query.prepare(QStringLiteral(
+        "SELECT rowid_pk, table_name, record_id, op, payload, hlc "
+        "FROM outbox "
+        "WHERE sent = 0 "
+        "ORDER BY CASE table_name "
+        "  WHEN 'pockets' THEN 1 "
+        "  WHEN 'jobs' THEN 2 "
+        "  WHEN 'movements' THEN 3 "
+        "  ELSE 4 END, rowid_pk ASC "
+        "LIMIT ?"
+    ));
+    query.addBindValue(limit);
+    run(query);
+
+    std::vector<OutboxEntry> out;
+    while (query.next()) {
+        OutboxEntry entry;
+        entry.rowId = query.value(0).toLongLong();
+        entry.tableName = query.value(1).toString();
+        entry.recordId = query.value(2).toString();
+        entry.op = query.value(3).toString();
+        entry.payload = query.value(4).toString();
+        entry.hlc = query.value(5).toString();
+        out.push_back(std::move(entry));
+    }
+    return out;
+}
+
+int Repository::pendingOutboxCount() {
+    QSqlQuery query(db_.handle());
+    query.prepare(QStringLiteral("SELECT COUNT(*) FROM outbox WHERE sent = 0"));
+    run(query);
+    if (query.next()) {
+        return query.value(0).toInt();
+    }
+    return 0;
+}
+
+void Repository::markOutboxSent(const std::vector<qint64>& rowIds) {
+    if (rowIds.empty()) {
+        return;
+    }
+    const bool ownTx = db_.handle().transaction();
+    try {
+        QSqlQuery query(db_.handle());
+        query.prepare(QStringLiteral("UPDATE outbox SET sent = 1 WHERE rowid_pk = ?"));
+        for (qint64 id : rowIds) {
+            query.addBindValue(id);
+            run(query);
+        }
+    } catch (...) {
+        if (ownTx) db_.handle().rollback();
+        throw;
+    }
+    if (ownTx && !db_.handle().commit()) {
+        throw StorageError(QStringLiteral("No se pudo confirmar la transaccion."));
+    }
 }
 
 // ------------------------------------------------------------------- Ajustes

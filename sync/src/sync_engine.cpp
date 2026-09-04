@@ -27,9 +27,17 @@
 //   2. Agrupar por `tableName` y mandar un POST por grupo a
 //        /rest/v1/<tabla remota>
 //      con cabecera  Prefer: resolution=merge-duplicates  (upsert).
-//   3. A CADA objeto del cuerpo agregarle "user_id" con client_.userId() antes
-//      de mandarlo. El payload guardado en la outbox NO lo trae: la base local
-//      no sabe de usuarios.
+//   3. A CADA objeto del cuerpo, ANTES de mandarlo:
+//        - QUITARLE la clave "t". La pone toJson() como discriminador de tipo
+//          para el archivo de importar y exportar, donde las tres entidades
+//          conviven en un mismo renglon. En Postgres no existe esa columna y
+//          PostgREST rechaza el upsert entero con un 400 si la ve. Aca el tipo
+//          ya lo dice la tabla a la que se manda.
+//        - AGREGARLE "user_id" con client_.userId(). El payload de la outbox
+//          no lo trae: la base local no sabe de usuarios.
+//      Al bajar, la operacion inversa no hace falta: pocketFrom y compania
+//      ignoran las claves que no conocen, asi que "user_id" y "updated_at" que
+//      vienen del servidor se descartan solos.
 //   4. Con la respuesta 2xx, repository_.markOutboxSent(los rowId del grupo).
 //      Nunca antes.
 //   5. Repetir hasta que pendingOutbox venga vacia.
