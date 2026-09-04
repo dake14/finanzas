@@ -38,7 +38,6 @@ qt_add_qml_module(dake_movil
         qml/Estilo.qml
         qml/Selector.qml
         qml/Fila.qml
-        qml/Teclado.qml
 )
 
 target_include_directories(dake_movil PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})

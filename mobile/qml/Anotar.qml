@@ -15,7 +15,7 @@ Item {
     id: pagina
 
     // --- Estado del formulario -------------------------------------------
-    property string monto: ""
+    property alias monto: montoCampo.text
     property int tipo: Estilo.gasto
     property string fecha: App.today
     property string pocketId: ""
@@ -46,7 +46,10 @@ Item {
         }
     }
 
-    Component.onCompleted: primerBolsillo()
+    Component.onCompleted: {
+        primerBolsillo()
+        montoCampo.forceActiveFocus()
+    }
 
     function limpiar() {
         // Se limpian el monto y el nombre; el resto se conserva. Cargar cinco
@@ -54,7 +57,7 @@ Item {
         // mismo bolsillo.
         monto = ""
         nombre.text = ""
-        nombre.forceActiveFocus()
+        montoCampo.forceActiveFocus()
     }
 
     function guardar() {
@@ -128,21 +131,61 @@ Item {
         }
 
         // --- Monto --------------------------------------------------------
+        // Campo de texto normal, con el teclado del sistema. Antes habia un
+        // teclado numerico propio y siempre visible; se saco a pedido del
+        // usuario, que prefiere el teclado que ya sabe usar.
+        //
+        // El separador decimal no es problema: Money::parse acepta tanto
+        // "1.234,56" como "1234.56", asi que da igual cual traiga el teclado.
         Rectangle {
             Layout.fillWidth: true
             Layout.preferredHeight: 74
             color: Estilo.tarjeta
             radius: Estilo.radio
-            border.color: Estilo.borde
+            border.color: montoCampo.activeFocus ? Estilo.acento : Estilo.borde
 
+            // El cero de fondo se dibuja a mano y no con placeholderText: la
+            // aplicacion usa el estilo Material, y ahi el placeholder es una
+            // etiqueta flotante que se va al borde de arriba en cuanto el campo
+            // toma el foco. Con una caja de 74 y letra de 40 no entra, y se ve
+            // cortada.
             Label {
                 anchors.centerIn: parent
-                text: pagina.monto === "" ? "0" : pagina.monto
-                color: pagina.monto === ""
-                       ? Estilo.textoTenue
-                       : Estilo.colorMovimiento(pagina.tipo)
+                visible: montoCampo.text === ""
+                text: "0"
+                color: Estilo.textoTenue
                 font.pixelSize: 40
                 font.weight: Font.Bold
+            }
+
+            TextField {
+                id: montoCampo
+
+                anchors.fill: parent
+                // Sin esto Material dibuja su propia linea debajo del numero.
+                background: null
+
+                horizontalAlignment: Text.AlignHCenter
+                verticalAlignment: TextInput.AlignVCenter
+                topPadding: 0
+                bottomPadding: 0
+
+                font.pixelSize: 40
+                font.weight: Font.Bold
+                color: Estilo.colorMovimiento(pagina.tipo)
+
+                // Pide el teclado numerico con separador decimal.
+                inputMethodHints: Qt.ImhFormattedNumbersOnly
+
+                // Nueve enteros y dos decimales. Ese limite lo hacia antes el
+                // manejador de teclas del teclado propio; el validador ademas
+                // cubre el pegado desde el portapapeles.
+                validator: RegularExpressionValidator {
+                    regularExpression: /^[0-9]{0,9}([.,][0-9]{0,2})?$/
+                }
+
+                // Enter pasa al nombre en vez de guardar a medias.
+                onAccepted: nombre.forceActiveFocus()
             }
         }
 
@@ -230,34 +273,6 @@ Item {
                     onClicked: pagina.pagado = !pagina.pagado
                 }
             }
-        }
-
-        // --- Teclado ------------------------------------------------------
-        Teclado {
-            Layout.fillWidth: true
-            Layout.fillHeight: false
-            Layout.preferredHeight: 4 * 52
-            Layout.maximumHeight: 4 * 52
-
-            onDigito: function(valor) {
-                // Dos decimales como maximo: mas alla de eso el monto ya no se
-                // puede representar en centavos y el nucleo lo rechazaria.
-                var coma = pagina.monto.indexOf(",")
-                if (coma >= 0 && pagina.monto.length - coma > 2) {
-                    return
-                }
-                if (pagina.monto === "0") {
-                    pagina.monto = valor
-                } else {
-                    pagina.monto += valor
-                }
-            }
-            onComa: {
-                if (pagina.monto.indexOf(",") < 0) {
-                    pagina.monto = (pagina.monto === "" ? "0" : pagina.monto) + ","
-                }
-            }
-            onBorrar: pagina.monto = pagina.monto.slice(0, -1)
         }
 
         // --- Guardar ------------------------------------------------------
