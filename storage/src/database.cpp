@@ -72,6 +72,27 @@ CREATE TABLE IF NOT EXISTS settings (
     key   TEXT PRIMARY KEY NOT NULL,
     value TEXT NOT NULL
 );
+
+-- La cola de salida. Cada cambio local deja una fila aca, dentro de la misma
+-- transaccion que lo escribio, y recien se marca `sent` cuando el servidor lo
+-- confirmo. Es lo que hace que un corte de red no pierda nada.
+--
+-- `table_name` existe porque aca hay tres tablas que sincronizar y no una:
+-- pockets, jobs y movements. El motor las recorre siempre en ese orden.
+--
+-- No hay tabla `sync_meta`: el estado del sincronizador vive en `settings` con
+-- el prefijo "sync.", que es la misma forma clave/valor y ya la usa deviceId().
+CREATE TABLE IF NOT EXISTS outbox (
+    rowid_pk   INTEGER PRIMARY KEY AUTOINCREMENT,
+    table_name TEXT NOT NULL,
+    record_id  TEXT NOT NULL,
+    op         TEXT NOT NULL,
+    payload    TEXT NOT NULL,
+    hlc        TEXT NOT NULL,
+    sent       INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS outbox_pending ON outbox(sent, rowid_pk);
 )SQL";
 
 } // namespace
@@ -85,7 +106,7 @@ QString Database::defaultPath() {
         return QString::fromLocal8Bit(override);
     }
     const QString dir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
-    return dir + QStringLiteral("/pruebas.db");
+    return dir + QStringLiteral("/" DAKE_DB_FILE);
 }
 
 Database::Database(const QString& path) {

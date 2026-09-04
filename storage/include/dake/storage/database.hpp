@@ -21,7 +21,11 @@ public:
 
 class Database {
 public:
-    /// %APPDATA%\DakeLabs\<nombre de la app>\pruebas.db
+    /// %APPDATA%\DakeLabs\<nombre de la app>\<DAKE_DB_FILE>
+    ///
+    /// El nombre del archivo lo fija CMake y NO es finanzas.db: en esa misma
+    /// carpeta esta la base de la aplicacion que se descontinua, con otro
+    /// esquema, y abrirla desde aca corromperia datos reales.
     ///
     /// La variable de entorno DAKE_TEST_DB_PATH la reemplaza. Tiene que ser
     /// esa variable y no APPDATA: QStandardPaths resuelve las carpetas del
