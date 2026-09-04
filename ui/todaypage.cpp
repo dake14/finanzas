@@ -150,6 +150,18 @@ void TodayPage::buildUi() {
     }
     layout->addLayout(kpiRow);
 
+    // --- Segunda fila de indicadores --------------------------------------
+    auto* kpiRow2 = new QHBoxLayout();
+    kpiRow2->setSpacing(12);
+    kpiBreakEven_ = new KpiCard(QStringLiteral("PARA NO PERDER"), theme::kTextMuted, page);
+    kpiRunway_ = new KpiCard(QStringLiteral("MESES DE RESERVA"), theme::kTextMuted, page);
+    kpiTicket_ = new KpiCard(QStringLiteral("TICKET PROMEDIO"), theme::kTextMuted, page);
+    kpiCollection_ = new KpiCard(QStringLiteral("DIAS EN COBRAR"), theme::kTextMuted, page);
+    for (KpiCard* card : {kpiBreakEven_, kpiRunway_, kpiTicket_, kpiCollection_}) {
+        kpiRow2->addWidget(card);
+    }
+    layout->addLayout(kpiRow2);
+
     // --- La pregunta ------------------------------------------------------
     auto* fundingCard = new Card(QStringLiteral("CON QUE SE PAGO ESTE MES"), page);
     fundingCard->setSubtitle(
@@ -198,6 +210,50 @@ void TodayPage::buildUi() {
     twoNumbersDetail_ = muted(QString(), twoCard, 10);
     twoCard->addContent(twoNumbersDetail_);
     layout->addWidget(twoCard);
+
+    // --- Graficas ---------------------------------------------------------
+    auto* chartsCard = new Card(QStringLiteral("GRAFICAS"), page);
+    
+    chartsCard->addContent(muted(QStringLiteral("RESULTADO POR MES"), chartsCard, 10));
+    chartResult_ = new BarChart(chartsCard);
+    chartResult_->setSigned(true);
+    chartsCard->addContent(chartResult_);
+
+    chartsCard->addContent(muted(QStringLiteral("INGRESOS CONTRA COSTOS"), chartsCard, 10));
+    chartIncomeCost_ = new BarChart(chartsCard);
+    chartIncomeCost_->setSeries(QStringLiteral("Ingresos"), QStringLiteral("Costos"));
+    chartsCard->addContent(chartIncomeCost_);
+
+    chartsCard->addContent(muted(QStringLiteral("CAJA ACUMULADA"), chartsCard, 10));
+    chartCash_ = new LineChart(chartsCard);
+    chartsCard->addContent(chartCash_);
+
+    chartsCard->addContent(muted(QStringLiteral("GASTOS POR CATEGORIA"), chartsCard, 10));
+    chartCategories_ = new RankChart(chartsCard);
+    chartsCard->addContent(chartCategories_);
+
+    chartsCard->addContent(muted(QStringLiteral("MARGEN POR TRABAJO"), chartsCard, 10));
+    chartJobs_ = new RankChart(chartsCard);
+    chartsCard->addContent(chartJobs_);
+
+    layout->addWidget(chartsCard);
+
+    // --- Costo de estructura ----------------------------------------------
+    auto* overheadCard = new Card(QStringLiteral("COSTO DE ESTRUCTURA"), page);
+    
+    auto* overheadBody = new QWidget(overheadCard);
+    auto* overheadLayout = new QVBoxLayout(overheadBody);
+    overheadLayout->setContentsMargins(0, 6, 0, 0);
+
+    overheadValue_ = new QLabel(overheadBody);
+    overheadValue_->setFont(theme::numericFont(24, QFont::Bold));
+    overheadLayout->addWidget(overheadValue_);
+
+    overheadDetail_ = muted(QString(), overheadBody, 10);
+    overheadLayout->addWidget(overheadDetail_);
+
+    overheadCard->addContent(overheadBody);
+    layout->addWidget(overheadCard);
 
     // --- Avisos -----------------------------------------------------------
     auto* alertsCard = new Card(QStringLiteral("LO QUE HAY QUE MIRAR"), page);
@@ -255,6 +311,38 @@ void TodayPage::setSnapshot(const Snapshot& snapshot) {
     kpiPrepaid_->setValue(theme::formatMoney(prepaid));
     kpiPrepaid_->setNote(QStringLiteral("material ya pagado, sin consumir"), theme::kTextMuted);
 
+    // --- Segunda fila de indicadores --------------------------------------
+    const core::BreakEven be = core::breakEven(snapshot.jobs, snapshot.movements, currency, from, to);
+    if (be.unknown()) {
+        kpiBreakEven_->setValue(QStringLiteral("—"));
+        kpiBreakEven_->setNote(QStringLiteral("hacen falta trabajos con margen para saberlo"), theme::kTextMuted);
+    } else {
+        kpiBreakEven_->setValue(theme::formatMoney(be.revenueNeeded));
+        kpiBreakEven_->setNote(QStringLiteral("facturacion minima"), theme::kTextMuted);
+    }
+
+    const int runway = fund.monthsOfRunway(monthsBetween(from, to));
+    if (runway == -1) {
+        kpiRunway_->setValue(QStringLiteral("—"));
+        kpiRunway_->setNote(QStringLiteral("no estas consumiendo reservas"), theme::kTextMuted);
+    } else {
+        kpiRunway_->setValue(QString::number(runway));
+        kpiRunway_->setNote(QStringLiteral("a este ritmo"), theme::kTextMuted);
+    }
+
+    const core::TicketStats ts = core::ticketStats(snapshot.jobs, snapshot.movements, currency, from, to);
+    kpiTicket_->setValue(theme::formatMoney(ts.averageIncome));
+    kpiTicket_->setNote(QStringLiteral("sobre %1 trabajos").arg(ts.jobCount), theme::kTextMuted);
+
+    const core::CollectionStats cs = core::collectionStats(snapshot.movements, from, to);
+    if (cs.sampled == 0) {
+        kpiCollection_->setValue(QStringLiteral("—"));
+        kpiCollection_->setNote(QStringLiteral("todavia no hay cobros con fecha"), theme::kTextMuted);
+    } else {
+        kpiCollection_->setValue(QString::number(cs.averageDays));
+        kpiCollection_->setNote(QStringLiteral("sobre %1 cobros").arg(cs.sampled), theme::kTextMuted);
+    }
+
     // --- La pregunta ------------------------------------------------------
     fundingBar_->setValues(flow.incomeCash, fund.fromReserves);
 
@@ -264,7 +352,8 @@ void TodayPage::setSnapshot(const Snapshot& snapshot) {
                 .arg(theme::formatMoney(fund.net)));
         theme::setLabelColor(fundingHeadline_, theme::kNegative);
 
-        const int runway = fund.monthsOfRunway(monthsBetween(from, to));
+        // El de la linea 324, sin recalcular: es el mismo numero, y tenerlo
+        // dos veces invita a que un dia uno cambie y el otro no.
         QString detail =
             QStringLiteral("Eso no es una perdida ni una ganancia: es capital tuyo tapando "
                            "un hueco, y por eso no aparece en ningun estado de resultados. "
@@ -309,6 +398,75 @@ void TodayPage::setSnapshot(const Snapshot& snapshot) {
                            "lo llama utilidad, y con esa utilidad reparte ahorro e "
                            "inversion.")
                 .arg(theme::formatMoney(difference)));
+    }
+
+    // --- Graficas ---------------------------------------------------------
+    const std::vector<core::MonthSummary> months = core::summarizeByMonth(snapshot.pockets, snapshot.movements, currency);
+    std::vector<ChartPoint> resultPoints;
+    std::vector<ChartPoint> incomeCostPoints;
+    std::vector<ChartPoint> cashPoints;
+    core::Money accumulatedCash = core::Money::zero(currency);
+
+    for (const core::MonthSummary& ms : months) {
+        ChartPoint ptResult;
+        ptResult.label = QString::fromStdString(ms.label());
+        ptResult.primary = ms.result.minor() / 100.0;
+        ptResult.primaryText = theme::formatMoney(ms.result);
+        resultPoints.push_back(ptResult);
+
+        ChartPoint ptIC;
+        ptIC.label = QString::fromStdString(ms.label());
+        ptIC.primary = ms.incomeAccrued.minor() / 100.0;
+        ptIC.secondary = ms.cost.minor() / 100.0;
+        ptIC.primaryText = theme::formatMoney(ms.incomeAccrued);
+        incomeCostPoints.push_back(ptIC);
+
+        accumulatedCash += (ms.incomeAccrued - ms.cost);
+        ChartPoint ptCash;
+        ptCash.label = QString::fromStdString(ms.label());
+        ptCash.primary = accumulatedCash.minor() / 100.0;
+        ptCash.primaryText = theme::formatMoney(accumulatedCash);
+        cashPoints.push_back(ptCash);
+    }
+    chartResult_->setData(resultPoints);
+    chartIncomeCost_->setData(incomeCostPoints);
+    chartCash_->setData(cashPoints);
+
+    const std::vector<core::CategoryTotal> cats = core::costByCategory(snapshot.movements, currency, from, to);
+    std::vector<ChartPoint> catPoints;
+    for (const core::CategoryTotal& ct : cats) {
+        ChartPoint pt;
+        pt.label = QString::fromStdString(ct.category);
+        pt.primary = ct.total.minor() / 100.0;
+        pt.primaryText = theme::formatMoney(ct.total);
+        catPoints.push_back(pt);
+    }
+    chartCategories_->setData(catPoints);
+
+    const std::vector<core::JobResult> jrs = core::jobResults(snapshot.jobs, snapshot.movements, currency);
+    std::vector<ChartPoint> jobPoints;
+    for (const core::JobResult& jr : jrs) {
+        ChartPoint pt;
+        pt.label = QString::fromStdString(jr.name);
+        pt.primary = jr.margin.minor() / 100.0;
+        pt.primaryText = QStringLiteral("%1 (%2)").arg(theme::formatMoney(jr.margin), theme::formatBps(jr.marginBps));
+        jobPoints.push_back(pt);
+    }
+    chartJobs_->setData(jobPoints);
+
+    // --- Costo de estructura ----------------------------------------------
+    const core::Money ov = core::overhead(snapshot.movements, currency, from, to);
+    overheadValue_->setText(theme::formatMoney(ov));
+    if (flow.incomeAccrued.isZero()) {
+        overheadDetail_->setText(QStringLiteral("Este mes no hubo ingresos para absorber la estructura."));
+    } else {
+        const double pct = static_cast<double>(ov.minor()) * 100.0 / static_cast<double>(flow.incomeAccrued.minor());
+        // Con formatBps y no con arg(double): esa funcion ya cambia el punto por
+        // coma, que es el separador decimal del resto de la aplicacion. Un
+        // "13.3%" al lado de un "27,91" delata que dos partes del programa no
+        // se hablan.
+        overheadDetail_->setText(QStringLiteral("Se come el %1 de los ingresos del mes.")
+                                     .arg(theme::formatBps(static_cast<int>(pct * 100.0))));
     }
 
     // --- Avisos -----------------------------------------------------------

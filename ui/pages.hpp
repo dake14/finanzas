@@ -18,6 +18,8 @@ class QLineEdit;
 class QTableWidget;
 class QVBoxLayout;
 
+#include "charts.hpp"
+
 namespace dake::ui {
 
 class Card;
@@ -73,6 +75,25 @@ private:
     QLabel* cashValue_ = nullptr;
     QLabel* resultValue_ = nullptr;
     QLabel* twoNumbersDetail_ = nullptr;
+
+    // --- Segunda fila de indicadores -------------------------------------
+    //
+    // Los cuatro de arriba contestan "cuanta plata hay". Estos contestan "como
+    // anda el negocio", que es otra pregunta y por eso van en su propia fila.
+    KpiCard* kpiBreakEven_ = nullptr;  ///< cuanto facturar por mes para no perder
+    KpiCard* kpiRunway_ = nullptr;     ///< meses que aguantan las reservas
+    KpiCard* kpiTicket_ = nullptr;     ///< cuanto deja un trabajo, en promedio
+    KpiCard* kpiCollection_ = nullptr; ///< dias que tardas en cobrar
+
+    // --- Graficas ---------------------------------------------------------
+    BarChart* chartResult_ = nullptr;    ///< resultado por mes, con signo
+    BarChart* chartIncomeCost_ = nullptr;///< ingresos contra costos
+    LineChart* chartCash_ = nullptr;     ///< caja acumulada
+    RankChart* chartCategories_ = nullptr;///< en que se va la plata
+    RankChart* chartJobs_ = nullptr;     ///< margen por trabajo
+
+    QLabel* overheadValue_ = nullptr;    ///< costo de la estructura
+    QLabel* overheadDetail_ = nullptr;   ///< y que porcentaje se come
 
     QVBoxLayout* alertsLayout_ = nullptr;
 };

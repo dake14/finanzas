@@ -36,6 +36,39 @@ class AppBridge : public QObject {
     Q_PROPERTY(QVariantList recent READ recent NOTIFY dataChanged)
     Q_PROPERTY(QVariantList alerts READ alerts NOTIFY dataChanged)
     Q_PROPERTY(QVariantMap summary READ summary NOTIFY dataChanged)
+
+    // --- Lo que alimenta las graficas y los indicadores de Hoy -------------
+    //
+    // Van como listas de mapas y no como modelos propios, igual que el resto
+    // del puente: son doce meses y un punado de categorias, no millones de
+    // filas, y un QAbstractListModel por cada una seria complejidad comprada
+    // de mas.
+    //
+    // Los numeros para dibujar van en `valor` como double; el texto ya
+    // formateado va aparte, en `texto`. QML NO formatea plata: el formato vive
+    // en dake::core::format y en ningun otro lado, para que el telefono y la
+    // computadora no puedan escribir el mismo importe distinto.
+
+    /// Un punto por mes con actividad, del mas viejo al mas nuevo. Claves:
+    /// etiqueta, resultado, ingresos, costos, caja (acumulada), y sus textos
+    /// resultadoTexto / cajaTexto.
+    Q_PROPERTY(QVariantList months READ months NOTIFY dataChanged)
+
+    /// Gastos del mes por categoria, de mayor a menor. Claves: etiqueta,
+    /// valor, texto.
+    Q_PROPERTY(QVariantList categories READ categories NOTIFY dataChanged)
+
+    /// Margen por trabajo, del que mas dejo al que menos. Claves: etiqueta,
+    /// valor, texto (importe y porcentaje).
+    Q_PROPERTY(QVariantList jobMargins READ jobMargins NOTIFY dataChanged)
+
+    /// Los cuatro indicadores nuevos, ya formateados y listos para mostrar.
+    /// Claves: equilibrio, equilibrioNota, reserva, reservaNota, ticket,
+    /// ticketNota, cobro, cobroNota, estructura, estructuraNota.
+    ///
+    /// Cuando un numero no se puede saber, su clave trae "—" y la nota explica
+    /// por que. Un dato ausente disfrazado de cifra es peor que un guion.
+    Q_PROPERTY(QVariantMap stats READ stats NOTIFY dataChanged)
     Q_PROPERTY(QString today READ today CONSTANT)
     Q_PROPERTY(QString dbPath READ dbPath CONSTANT)
 
@@ -60,6 +93,10 @@ public:
     [[nodiscard]] QVariantList recent() const { return recent_; }
     [[nodiscard]] QVariantList alerts() const { return alerts_; }
     [[nodiscard]] QVariantMap summary() const { return summary_; }
+    [[nodiscard]] QVariantList months() const { return months_; }
+    [[nodiscard]] QVariantList categories() const { return categories_; }
+    [[nodiscard]] QVariantList jobMargins() const { return jobMargins_; }
+    [[nodiscard]] QVariantMap stats() const { return stats_; }
     [[nodiscard]] QString today() const;
     [[nodiscard]] QString dbPath() const;
 
@@ -132,6 +169,10 @@ private:
     QVariantList recent_;
     QVariantList alerts_;
     QVariantMap summary_;
+    QVariantList months_;
+    QVariantList categories_;
+    QVariantList jobMargins_;
+    QVariantMap stats_;
 };
 
 } // namespace dake::mobile

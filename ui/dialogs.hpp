@@ -112,6 +112,12 @@ private:
     QComboBox* job_ = nullptr;
     QComboBox* spread_ = nullptr;
     QCheckBox* settled_ = nullptr;
+    /// Cuando se cobro o se pago. Solo se habilita con `settled_` marcado, y
+    /// arranca en la fecha del movimiento y no en la de hoy: el caso comun es
+    /// anotar algo que ya estaba cobrado, y ofrecer hoy invitaria a dejar una
+    /// fecha equivocada de un clic.
+    QDateEdit* settledDate_ = nullptr;
+    class QLabel* settledDateLabel_ = nullptr;
     QLabel* error_ = nullptr;
 };
 

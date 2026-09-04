@@ -327,16 +327,28 @@ void RankChart::paintEvent(QPaintEvent* event) {
     painter.setFont(font);
     
     int y = 0;
+    // Se reserva una franja a la derecha para el valor, y la barra NO entra ahi.
+    // Sin eso, la fila mas larga pinta la barra debajo de su propio numero y el
+    // numero queda ilegible justo en la fila que mas importa, que es la de
+    // arriba. El ancho sale de medir el texto mas largo, no de un numero magico.
+    const QFontMetrics metrics(theme::bodyFont(9));
+    int gutter = 0;
+    for (const auto& r : rows) {
+        gutter = std::max(gutter, metrics.horizontalAdvance(r.primaryText));
+    }
+    gutter += 12;
+    const int barArea = std::max(20, width() - gutter);
+
     for (const auto& r : rows) {
         double ratio = std::abs(r.primary) / max_val;
-        int barW = static_cast<int>(width() * ratio);
-        
+        int barW = static_cast<int>(barArea * ratio);
+
         QColor barColor = theme::kAccent;
         barColor.setAlphaF(0.60F);   // el sufijo F: setAlphaF toma float, y sin el /W4 avisa
         painter.fillRect(QRectF(0, y, barW, 24), barColor);
         
         painter.setPen(theme::kText);
-        painter.drawText(QRectF(6, y, width() - 12, 24), Qt::AlignLeft | Qt::AlignVCenter, r.label);
+        painter.drawText(QRectF(6, y, barArea - 12, 24), Qt::AlignLeft | Qt::AlignVCenter, r.label);
         
         if (!r.primaryText.isEmpty()) {
             painter.setPen(theme::kTextMuted);

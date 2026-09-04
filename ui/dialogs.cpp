@@ -325,6 +325,24 @@ MovementEditor::MovementEditor(const core::Movement& original, const Snapshot& s
                              this);
     settled_->setChecked(original.settled);
 
+    settledDateLabel_ = new QLabel(original.kind == core::MovementKind::Gasto
+                                       ? QStringLiteral("Cuando lo pague")
+                                       : QStringLiteral("Cuando me pagaron"),
+                                   this);
+
+    const core::Date initialSettledDate =
+        original.settledDate.has_value() ? *original.settledDate : original.date;
+    settledDate_ = new QDateEdit(toQDate(initialSettledDate), this);
+    settledDate_->setCalendarPopup(true);
+    settledDate_->setDisplayFormat(QStringLiteral("dd/MM/yyyy"));
+
+    const auto updateSettledDateEnabled = [this](bool checked) {
+        settledDate_->setEnabled(checked);
+        settledDateLabel_->setEnabled(checked);
+    };
+    connect(settled_, &QCheckBox::toggled, this, updateSettledDateEnabled);
+    updateSettledDateEnabled(settled_->isChecked());
+
     auto* form = new QFormLayout();
     form->addRow(QStringLiteral("Que fue"), name_);
     form->addRow(QStringLiteral("Monto"), amount_);
@@ -338,6 +356,7 @@ MovementEditor::MovementEditor(const core::Movement& original, const Snapshot& s
     form->addRow(QStringLiteral("Trabajo"), job_);
     form->addRow(QStringLiteral("Cuanto dura"), spread_);
     form->addRow(QString(), settled_);
+    form->addRow(settledDateLabel_, settledDate_);
 
     error_ = new QLabel(this);
     error_->setFont(theme::bodyFont(9));
@@ -384,6 +403,8 @@ void MovementEditor::applyKind() {
     job_->setVisible(!transfer);
     spread_->setVisible(expense);
     settled_->setVisible(!transfer);
+    settledDateLabel_->setVisible(!transfer);
+    settledDate_->setVisible(!transfer);
 }
 
 void MovementEditor::save() {
@@ -429,6 +450,11 @@ void MovementEditor::save() {
             category.isEmpty() ? std::string(core::kUncategorized) : category.toStdString();
         edited_.jobId = job_->currentData().toString().toStdString();
         edited_.settled = settled_->isChecked();
+        if (edited_.settled) {
+            edited_.settledDate = fromQDate(settledDate_->date());
+        } else {
+            edited_.settledDate = std::nullopt;
+        }
         if (base_.kind == core::MovementKind::Gasto) {
             edited_.spreadMonths = spread_->currentData().toInt();
         }
