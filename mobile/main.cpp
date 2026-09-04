@@ -34,7 +34,10 @@
 namespace {
 
 [[nodiscard]] QString valorDe(const QStringList& args, const QString& bandera) {
-    const int i = args.indexOf(bandera);
+    // indexOf devuelve qsizetype (64 bits). El cast es explicito porque el
+    // compilador de Android avisa, y tiene razon aunque aca no pueda pasar: un
+    // argv con dos mil millones de argumentos no existe.
+    const int i = static_cast<int>(args.indexOf(bandera));
     return (i >= 0 && i + 1 < args.size()) ? args.at(i + 1) : QString();
 }
 

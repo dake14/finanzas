@@ -233,7 +233,11 @@ void SyncEngine::handleAuthExpiry(std::function<void()> retry) {
     auto failure = new QMetaObject::Connection;
 
     *success = connect(&client_, &SupabaseClient::signedIn, this,
-                       [this, retry, success, failure](const QString&) {
+                       // Sin capturar `this`: el cuerpo no lo usa, y el
+                       // compilador de Android lo avisa. Capturar de mas en una
+                       // lambda que sobrevive a la llamada es como se alarga la
+                       // vida de un puntero sin querer.
+                       [retry, success, failure](const QString&) {
                            QObject::disconnect(*success);
                            QObject::disconnect(*failure);
                            delete success;

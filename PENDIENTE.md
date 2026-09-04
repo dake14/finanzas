@@ -27,22 +27,41 @@ enteros.
 
 ## Qué falta
 
-**1. Instalar el APK nuevo en el teléfono.**
+**1. Correr `supabase_v3_fecha_cobro.sql`** en el panel. Agrega la columna de
+la fecha de cobro del lado del servidor. Sin eso, el teléfono y la computadora
+van a discrepar en esa columna al sincronizar. Es un `add column if not
+exists`: no borra ni pierde nada.
 
-```
-apk\FinanzasDakeLabs.apk
-```
+**2. Instalar el APK nuevo** (`apk\FinanzasDakeLabs.apk`). Se instala encima
+del anterior sin perder lo anotado.
 
-Conserva el nombre de paquete anterior, así que se instala encima sin perder lo
-anotado. Pestaña **Datos** → sección **NUBE** → tu correo y contraseña. Después
-sincroniza solo cada vez que abrís.
+**3. Los "días en cobrar" van a decir `—` al principio**, y está bien. Ninguno
+de tus movimientos tiene fecha de cobro porque el campo no existía hasta hoy.
+Se va a ir llenando a medida que edites movimientos y marques cuándo cobraste.
+Preferí eso antes que rellenar con la fecha de hoy, que te habría dado un
+promedio inventado desde el primer día.
 
-**2. Probarlo en el teléfono de verdad.** Es lo único que no puedo verificar
-desde acá: el render offscreen no dibuja las barras del sistema ni el teclado.
+**4. Probar en el teléfono de verdad.** Es lo único que no puedo verificar: el
+render offscreen no dibuja las barras del sistema ni el teclado.
 
-**3. Mirar los dos botones nuevos de la barra lateral del escritorio.**
-`dake_uipreview` renderiza páginas sueltas, no la ventana entera, y abrir la
-aplicación roba el foco. Están bien cableados, pero no los vi.
+---
+
+## Lo que se agregó a Hoy
+
+En las dos aplicaciones, calculado por el mismo núcleo:
+
+| | |
+|---|---|
+| **PARA NO PERDER** | Cuánto facturar por mes para cubrir la estructura. El margen se **pondera por facturación**: un trabajo de 10 con 90% y uno de 1000 con 5% dan 5,84%, no el 47,5% que daría promediar. |
+| **MESES DE RESERVA** | Cuánto aguantás al ritmo actual. |
+| **TICKET PROMEDIO** | Cuánto deja un trabajo, y cuántos hubo. |
+| **DÍAS EN COBRAR** | Cuánto tardás en cobrar lo entregado. |
+| **COSTO DE ESTRUCTURA** | Cuánto cuesta el negocio existiendo, y qué % de los ingresos se come. |
+| **Cinco gráficas** | Resultado por mes, ingresos contra costos, caja acumulada, gastos por categoría y margen por trabajo. |
+
+Cuando un número no se puede saber, aparece un `—` con la explicación al lado.
+Nunca un cero ni un número inventado: un dato ausente disfrazado de cifra es
+peor que un guion, porque el guion se nota.
 
 ---
 

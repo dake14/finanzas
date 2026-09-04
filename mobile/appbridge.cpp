@@ -274,10 +274,10 @@ void AppBridge::reload() {
         accumulatedCash += (ms.incomeAccrued - ms.cost);
         QVariantMap row;
         row["etiqueta"] = qs(ms.label());
-        row["resultado"] = ms.result.minor() / 100.0;
-        row["ingresos"] = ms.incomeAccrued.minor() / 100.0;
-        row["costos"] = ms.cost.minor() / 100.0;
-        row["caja"] = accumulatedCash.minor() / 100.0;
+        row["resultado"] = static_cast<double>(ms.result.minor()) / 100.0;
+        row["ingresos"] = static_cast<double>(ms.incomeAccrued.minor()) / 100.0;
+        row["costos"] = static_cast<double>(ms.cost.minor()) / 100.0;
+        row["caja"] = static_cast<double>(accumulatedCash.minor()) / 100.0;
         row["resultadoTexto"] = qs(core::formatAmount(ms.result));
         row["cajaTexto"] = qs(core::formatAmount(accumulatedCash));
         months_.append(row);
@@ -288,7 +288,7 @@ void AppBridge::reload() {
     for (const core::CategoryTotal& ct : cats) {
         QVariantMap row;
         row["etiqueta"] = qs(ct.category);
-        row["valor"] = ct.total.minor() / 100.0;
+        row["valor"] = static_cast<double>(ct.total.minor()) / 100.0;
         row["texto"] = qs(core::formatAmount(ct.total));
         categories_.append(row);
     }
@@ -298,7 +298,7 @@ void AppBridge::reload() {
     for (const core::JobResult& jr : jrs) {
         QVariantMap row;
         row["etiqueta"] = qs(jr.name);
-        row["valor"] = jr.margin.minor() / 100.0;
+        row["valor"] = static_cast<double>(jr.margin.minor()) / 100.0;
         row["texto"] = QStringLiteral("%1 (%2)").arg(qs(core::formatAmount(jr.margin)), qs(core::formatBps(jr.marginBps)));
         jobMargins_.append(row);
     }
