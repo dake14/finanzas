@@ -48,8 +48,88 @@
 //
 #include "dake/sync/config.hpp"
 
+#include <QByteArray>
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QStandardPaths>
+#include <QString>
+
 namespace dake::sync {
 
-// TODO(agy): implementar segun el contrato de arriba.
+bool SupabaseConfig::isValid() const {
+    return url.startsWith(QStringLiteral("https://")) && !anonKey.isEmpty();
+}
+
+QString SupabaseConfig::defaultPath() {
+    QString directory = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    if (directory.isEmpty()) {
+        directory = QDir::homePath() + QStringLiteral("/.dakelabs");
+    }
+    return directory + QStringLiteral("/supabase.json");
+}
+
+SupabaseConfig SupabaseConfig::compiledIn() {
+    SupabaseConfig config;
+    config.url = QString::fromUtf8(DAKE_SUPABASE_URL).trimmed();
+    config.anonKey = QString::fromUtf8(DAKE_SUPABASE_ANON_KEY).trimmed();
+    while (config.url.endsWith(QLatin1Char('/'))) {
+        config.url.chop(1);
+    }
+    return config;
+}
+
+SupabaseConfig SupabaseConfig::load() {
+    QFile file(defaultPath());
+    if (file.open(QIODevice::ReadOnly)) {
+        QByteArray data = file.readAll();
+        // Tolerar BOM de UTF-8 (0xEF, 0xBB, 0xBF)
+        if (data.size() >= 3 &&
+            static_cast<unsigned char>(data[0]) == 0xEF &&
+            static_cast<unsigned char>(data[1]) == 0xBB &&
+            static_cast<unsigned char>(data[2]) == 0xBF) {
+            data.remove(0, 3);
+        }
+
+        const QJsonDocument document = QJsonDocument::fromJson(data);
+        if (document.isObject()) {
+            const QJsonObject object = document.object();
+            SupabaseConfig config;
+            config.url = object[QStringLiteral("url")].toString().trimmed();
+            config.anonKey = object[QStringLiteral("anon_key")].toString().trimmed();
+
+            while (config.url.endsWith(QLatin1Char('/'))) {
+                config.url.chop(1);
+            }
+
+            if (config.isValid()) {
+                return config;
+            }
+        }
+    }
+
+    return compiledIn();
+}
+
+bool SupabaseConfig::save(QString& error) const {
+    const QString path = defaultPath();
+    QDir().mkpath(QFileInfo(path).absolutePath());
+
+    QJsonObject object;
+    object[QStringLiteral("url")] = url;
+    object[QStringLiteral("anon_key")] = anonKey;
+
+    QFile file(path);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        error = QStringLiteral("No se pudo escribir %1: %2").arg(path, file.errorString());
+        return false;
+    }
+
+    file.write(QJsonDocument(object).toJson(QJsonDocument::Indented));
+    file.close();
+    return true;
+}
 
 } // namespace dake::sync

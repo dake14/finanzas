@@ -97,8 +97,374 @@
 //
 #include "dake/sync/sync_engine.hpp"
 
-namespace dake::sync {
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QNetworkReply>
+#include <QTimer>
 
-// TODO(agy): portar y generalizar segun el contrato de arriba.
+#include "dake/storage/wire.hpp"
+
+namespace dake::sync {
+namespace {
+
+constexpr int kPushBatch = 50;
+constexpr int kPullPage = 200;
+
+constexpr int kRetryDelaysMs[] = {2000, 5000, 10000};
+constexpr int kMaxRetries = 3;
+
+[[nodiscard]] QString errorMessage(const QByteArray& body, const QString& fallback) {
+    const QJsonDocument document = QJsonDocument::fromJson(body);
+    if (document.isObject()) {
+        const QJsonObject object = document.object();
+        for (const char* field : {"message", "msg", "error_description", "error", "hint"}) {
+            const QString value = object[QLatin1String(field)].toString();
+            if (!value.isEmpty()) {
+                return value;
+            }
+        }
+    }
+    return fallback;
+}
+
+[[nodiscard]] bool isTransientStatus(int status) {
+    return status == 0 || status >= 500;
+}
+
+[[nodiscard]] bool isExpiredTokenError(const QByteArray& body) {
+    return body.contains("PGRST301") || body.contains("JWT expired") ||
+           body.contains("jwt expired");
+}
+
+} // namespace
+
+QString remoteTableFor(const QString& localTable) {
+    return QStringLiteral("v2_") + localTable;
+}
+
+SyncEngine::SyncEngine(SupabaseClient& client,
+                       storage::Repository& repository,
+                       QObject* parent)
+    : QObject(parent), client_(client), repository_(repository) {
+    connect(&client_, &SupabaseClient::signedIn, this, [this]() {
+        repository_.setSetting(QStringLiteral("sync.refresh_token"), client_.refreshToken());
+        repository_.setSetting(QStringLiteral("sync.user_email"), client_.userEmail());
+    });
+    connect(&client_, &SupabaseClient::signedOut, this, [this]() {
+        repository_.setSetting(QStringLiteral("sync.refresh_token"), QString());
+        repository_.setSetting(QStringLiteral("sync.user_email"), QString());
+    });
+}
+
+bool SyncEngine::isRunning() const noexcept {
+    return running_;
+}
+
+int SyncEngine::pendingCount() const {
+    return const_cast<storage::Repository&>(repository_).pendingOutboxCount();
+}
+
+void SyncEngine::sync() {
+    if (running_) {
+        return;
+    }
+    if (!client_.isSignedIn()) {
+        emit finished(0, 0, QStringLiteral("No hay sesion iniciada."));
+        return;
+    }
+
+    running_ = true;
+    authRefreshAttempted_ = false;
+    retryCount_ = 0;
+    pushed_ = 0;
+    pulled_ = 0;
+    inFlight_.clear();
+
+    for (std::size_t i = 0; i < kTables.size(); ++i) {
+        const QString key = QStringLiteral("sync.cursor.") + QString::fromLatin1(kTables[i]);
+        const std::optional<QString> c = repository_.setting(key);
+        cursors_[i] = c.value_or(QString());
+    }
+
+    try {
+        totalToPush_ = repository_.pendingOutboxCount();
+    } catch (const std::exception&) {
+        totalToPush_ = 0;
+    }
+
+    emit progress(QStringLiteral("Subiendo cambios locales…"), 0, totalToPush_);
+    pushNextBatch();
+}
+
+void SyncEngine::fail(const QString& message) {
+    running_ = false;
+    emit finished(pushed_, pulled_, message);
+}
+
+void SyncEngine::succeed() {
+    running_ = false;
+    emit finished(pushed_, pulled_, QString());
+}
+
+bool SyncEngine::scheduleRetry(const QString& reasonForUser, std::function<void()> operation) {
+    if (retryCount_ >= kMaxRetries) {
+        return false;
+    }
+    const int delayMs = kRetryDelaysMs[retryCount_];
+    ++retryCount_;
+
+    emit progress(QStringLiteral("%1 Reintentando en %2 s… (intento %3 de %4)")
+                      .arg(reasonForUser)
+                      .arg(delayMs / 1000)
+                      .arg(retryCount_)
+                      .arg(kMaxRetries),
+                  pushed_, totalToPush_ > 0 ? totalToPush_ : -1);
+
+    QTimer::singleShot(delayMs, this, std::move(operation));
+    return true;
+}
+
+void SyncEngine::handleAuthExpiry(std::function<void()> retry) {
+    emit progress(QStringLiteral("La sesion expiro; renovandola…"), pushed_,
+                 totalToPush_ > 0 ? totalToPush_ : -1);
+
+    auto success = new QMetaObject::Connection;
+    auto failure = new QMetaObject::Connection;
+
+    *success = connect(&client_, &SupabaseClient::signedIn, this,
+                       [this, retry, success, failure](const QString&) {
+                           QObject::disconnect(*success);
+                           QObject::disconnect(*failure);
+                           delete success;
+                           delete failure;
+                           retry();
+                       });
+    *failure = connect(&client_, &SupabaseClient::authFailed, this,
+                       [this, success, failure](const QString& message) {
+                           QObject::disconnect(*success);
+                           QObject::disconnect(*failure);
+                           delete success;
+                           delete failure;
+                           client_.signOut();
+                           fail(QStringLiteral("La sesion expiro y no se pudo renovar: ") +
+                               message + QStringLiteral(" Inicia sesion de nuevo."));
+                       });
+
+    client_.refreshSession();
+}
+
+void SyncEngine::pushNextBatch() {
+    std::vector<storage::Repository::OutboxEntry> batch;
+    try {
+        batch = repository_.pendingOutbox(kPushBatch);
+    } catch (const std::exception& error) {
+        fail(QString::fromUtf8(error.what()));
+        return;
+    }
+
+    if (batch.empty()) {
+        startPull();
+        return;
+    }
+
+    const QString currentTable = batch.front().tableName;
+    QJsonArray rows;
+    inFlight_.clear();
+    const QString userId = client_.userId();
+
+    for (const storage::Repository::OutboxEntry& entry : batch) {
+        if (entry.tableName != currentTable) {
+            break;
+        }
+        QJsonObject row = QJsonDocument::fromJson(entry.payload.toUtf8()).object();
+        if (row.isEmpty()) {
+            inFlight_.push_back(entry.rowId);
+            continue;
+        }
+        row.remove(QStringLiteral("t"));
+        row[QStringLiteral("user_id")] = userId;
+
+        rows.append(row);
+        inFlight_.push_back(entry.rowId);
+    }
+
+    if (rows.isEmpty()) {
+        try {
+            repository_.markOutboxSent(inFlight_);
+        } catch (const std::exception& error) {
+            fail(QString::fromUtf8(error.what()));
+            return;
+        }
+        pushNextBatch();
+        return;
+    }
+
+    const QString remoteTable = remoteTableFor(currentTable);
+    QNetworkReply* reply = client_.restPost(
+        QStringLiteral("/rest/v1/") + remoteTable,
+        QJsonDocument(rows).toJson(QJsonDocument::Compact),
+        QByteArrayLiteral("resolution=merge-duplicates,return=minimal"));
+
+    connect(reply, &QNetworkReply::finished, this, [this, reply, count = rows.size()]() {
+        reply->deleteLater();
+
+        const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        const QByteArray body = reply->readAll();
+
+        if (status < 200 || status >= 300) {
+            if (status == 401 && isExpiredTokenError(body) && !authRefreshAttempted_) {
+                authRefreshAttempted_ = true;
+                handleAuthExpiry([this]() { pushNextBatch(); });
+                return;
+            }
+
+            if (isTransientStatus(status) &&
+                scheduleRetry(QStringLiteral("Sin conexion con el servidor."),
+                             [this]() { pushNextBatch(); })) {
+                return;
+            }
+
+            const QString detail =
+                status == 0 ? reply->errorString()
+                            : errorMessage(body, QStringLiteral("HTTP %1").arg(status));
+            fail(QStringLiteral("No se pudieron subir los cambios: ") + detail);
+            return;
+        }
+
+        retryCount_ = 0;
+
+        try {
+            repository_.markOutboxSent(inFlight_);
+        } catch (const std::exception& error) {
+            fail(QString::fromUtf8(error.what()));
+            return;
+        }
+
+        pushed_ += static_cast<int>(count);
+        emit progress(QStringLiteral("Subiendo cambios locales…"), pushed_, totalToPush_);
+        pushNextBatch();
+    });
+}
+
+void SyncEngine::startPull() {
+    pullTableIndex_ = 0;
+    retryCount_ = 0;
+    emit progress(QStringLiteral("Bajando cambios del servidor…"), pulled_, -1);
+    pullNextPage();
+}
+
+void SyncEngine::pullNextPage() {
+    if (pullTableIndex_ >= kTables.size()) {
+        succeed();
+        return;
+    }
+
+    const QString localTable = QString::fromLatin1(kTables[pullTableIndex_]);
+    const QString remoteTable = remoteTableFor(localTable);
+
+    QString path = QStringLiteral("/rest/v1/") + remoteTable +
+                   QStringLiteral("?select=*&user_id=eq.") + client_.userId() +
+                   QStringLiteral("&order=updated_at.asc&limit=%1").arg(kPullPage);
+
+    const QString currentCursor = cursors_[pullTableIndex_];
+    if (!currentCursor.isEmpty()) {
+        QString encodedCursor = currentCursor;
+        encodedCursor.replace(QLatin1Char('+'), QStringLiteral("%2B"));
+        path += QStringLiteral("&updated_at=gt.") + encodedCursor;
+    }
+
+    QNetworkReply* reply = client_.restGet(path);
+
+    connect(reply, &QNetworkReply::finished, this, [this, reply, localTable]() {
+        reply->deleteLater();
+
+        const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        const QByteArray body = reply->readAll();
+
+        if (status < 200 || status >= 300) {
+            if (status == 401 && isExpiredTokenError(body) && !authRefreshAttempted_) {
+                authRefreshAttempted_ = true;
+                handleAuthExpiry([this]() { pullNextPage(); });
+                return;
+            }
+
+            if (isTransientStatus(status) &&
+                scheduleRetry(QStringLiteral("Sin conexion con el servidor."),
+                             [this]() { pullNextPage(); })) {
+                return;
+            }
+
+            const QString detail =
+                status == 0 ? reply->errorString()
+                            : errorMessage(body, QStringLiteral("HTTP %1").arg(status));
+            fail(QStringLiteral("No se pudieron bajar los cambios: ") + detail);
+            return;
+        }
+
+        retryCount_ = 0;
+
+        const QJsonArray rows = QJsonDocument::fromJson(body).array();
+        if (rows.isEmpty()) {
+            ++pullTableIndex_;
+            pullNextPage();
+            return;
+        }
+
+        QString maxUpdatedAt = cursors_[pullTableIndex_];
+        int appliedHere = 0;
+
+        try {
+            for (const QJsonValue& value : rows) {
+                const QJsonObject row = value.toObject();
+
+                const QString updatedAt = row[QStringLiteral("updated_at")].toString();
+                if (updatedAt > maxUpdatedAt) {
+                    maxUpdatedAt = updatedAt;
+                }
+
+                bool applied = false;
+                if (localTable == QLatin1String(kTables[0])) {
+                    core::Pocket pocket = storage::pocketFrom(row);
+                    if (!pocket.id.empty()) {
+                        applied = repository_.applyRemote(pocket);
+                    }
+                } else if (localTable == QLatin1String(kTables[1])) {
+                    core::Job job = storage::jobFrom(row);
+                    if (!job.id.empty()) {
+                        applied = repository_.applyRemote(job);
+                    }
+                } else if (localTable == QLatin1String(kTables[2])) {
+                    core::Movement movement = storage::movementFrom(row);
+                    if (!movement.id.empty()) {
+                        applied = repository_.applyRemote(movement);
+                    }
+                }
+
+                if (applied) {
+                    ++appliedHere;
+                }
+            }
+
+            if (!maxUpdatedAt.isEmpty() && maxUpdatedAt != cursors_[pullTableIndex_]) {
+                cursors_[pullTableIndex_] = maxUpdatedAt;
+                const QString key = QStringLiteral("sync.cursor.") + localTable;
+                repository_.setSetting(key, maxUpdatedAt);
+            }
+        } catch (const std::exception& error) {
+            fail(QString::fromUtf8(error.what()));
+            return;
+        }
+
+        pulled_ += appliedHere;
+
+        if (rows.size() < kPullPage) {
+            ++pullTableIndex_;
+        }
+
+        emit progress(QStringLiteral("Bajando cambios del servidor…"), pulled_, -1);
+        pullNextPage();
+    });
+}
 
 } // namespace dake::sync
