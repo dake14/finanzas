@@ -154,6 +154,20 @@ Flickable {
             }
         }
 
+        // --- Nube ------------------------------------------------------------
+        Label {
+            text: "NUBE"
+            color: Estilo.textoSuave
+            font.pixelSize: 10
+            font.letterSpacing: 0.8
+            Layout.topMargin: 10
+        }
+
+        Nube {
+            Layout.fillWidth: true
+            onMensaje: (texto, tinte) => pagina.mensaje(texto, tinte)
+        }
+
         // --- Pasar los datos -------------------------------------------------
         Label {
             text: "PASAR LOS DATOS A LA COMPUTADORA"

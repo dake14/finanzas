@@ -23,6 +23,8 @@
 
 #include "dake/core/hlc.hpp"
 #include "dake/storage/repository.hpp"
+#include "dake/sync/supabase_client.hpp"
+#include "dake/sync/sync_engine.hpp"
 
 namespace dake::mobile {
 
@@ -36,6 +38,18 @@ class AppBridge : public QObject {
     Q_PROPERTY(QVariantMap summary READ summary NOTIFY dataChanged)
     Q_PROPERTY(QString today READ today CONSTANT)
     Q_PROPERTY(QString dbPath READ dbPath CONSTANT)
+
+    // --- Nube --------------------------------------------------------------
+    //
+    // Tres propiedades y dos acciones. El telefono no configura nada: la URL y
+    // la clave vienen incrustadas al compilar, porque en Android no hay forma
+    // comoda de dejarle un archivo a la aplicacion. Lo unico que no se puede
+    // saber solo es la contrasena.
+    Q_PROPERTY(bool signedIn READ signedIn NOTIFY cloudChanged)
+    Q_PROPERTY(QString userEmail READ userEmail NOTIFY cloudChanged)
+    Q_PROPERTY(QString cloudStatus READ cloudStatus NOTIFY cloudChanged)
+    Q_PROPERTY(int pendingCount READ pendingCount NOTIFY cloudChanged)
+    Q_PROPERTY(bool syncing READ syncing NOTIFY cloudChanged)
 
 public:
     explicit AppBridge(QObject* parent = nullptr);
@@ -74,12 +88,30 @@ public:
     /// mismo dia no se pisan sin que nadie lo note.
     Q_INVOKABLE QString suggestedFileName() const;
 
+    // --- Nube --------------------------------------------------------------
+
+    [[nodiscard]] bool signedIn() const;
+    [[nodiscard]] QString userEmail() const;
+    [[nodiscard]] QString cloudStatus() const { return cloudStatus_; }
+    [[nodiscard]] int pendingCount() const;
+    [[nodiscard]] bool syncing() const;
+
+    /// Inicia sesion. La contrasena se usa y se descarta: no se guarda en
+    /// disco, ni en un miembro, ni en un registro. Lo que se persiste es el
+    /// token de refresco, que se puede revocar desde Supabase.
+    Q_INVOKABLE void signIn(const QString& email, const QString& password);
+    Q_INVOKABLE void signOut();
+
+    /// Sube lo pendiente y baja lo que cambio. No hace nada si no hay sesion.
+    Q_INVOKABLE void sync();
+
     Q_INVOKABLE QString formatMinor(qlonglong minor) const;
     /// "hoy", "ayer" o la fecha, para las listas.
     Q_INVOKABLE QString relativeDate(const QString& isoDate) const;
 
 signals:
     void dataChanged();
+    void cloudChanged();
 
 private:
     void reload();
@@ -88,6 +120,9 @@ private:
     std::unique_ptr<storage::Database> db_;
     std::unique_ptr<storage::Repository> repository_;
     std::unique_ptr<core::HlcClock> clock_;
+    std::unique_ptr<sync::SupabaseClient> supabase_;
+    std::unique_ptr<sync::SyncEngine> syncEngine_;
+    QString cloudStatus_;
     QString deviceId_;
     core::Currency currency_;
     core::Date today_;

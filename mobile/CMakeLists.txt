@@ -9,7 +9,7 @@
 # produce una interfaz de escritorio metida en un telefono: objetivos de 20 px,
 # sin gestos, sin integracion con el boton atras.
 
-find_package(Qt6 REQUIRED COMPONENTS Core Gui Quick QuickControls2 Sql)
+find_package(Qt6 REQUIRED COMPONENTS Core Gui Network Quick QuickControls2 Sql)
 
 qt_standard_project_setup(REQUIRES 6.5)
 
@@ -35,6 +35,7 @@ qt_add_qml_module(dake_movil
         qml/Hoy.qml
         qml/Historial.qml
         qml/Datos.qml
+        qml/Nube.qml
         qml/Estilo.qml
         qml/Selector.qml
         qml/Fila.qml
@@ -44,6 +45,7 @@ target_include_directories(dake_movil PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(dake_movil PRIVATE
     dake::core
     dake::storage
+    dake_sync
     Qt6::Quick
     Qt6::QuickControls2
 )

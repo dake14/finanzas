@@ -9,6 +9,7 @@
 #include "dake/core/format.hpp"
 #include "dake/core/report.hpp"
 #include "dake/storage/exchange.hpp"
+#include "dake/sync/config.hpp"
 
 namespace dake::mobile {
 namespace {
@@ -62,6 +63,45 @@ AppBridge::AppBridge(QObject* parent)
     repository_ = std::make_unique<storage::Repository>(*db_);
     deviceId_ = storage::deviceId(*repository_);
     clock_ = std::make_unique<core::HlcClock>(deviceId_.toStdString());
+
+    supabase_ = std::make_unique<sync::SupabaseClient>(sync::SupabaseConfig::load(), this);
+    syncEngine_ = std::make_unique<sync::SyncEngine>(*supabase_, *repository_, this);
+
+    connect(supabase_.get(), &sync::SupabaseClient::signedIn, this, [this](const QString& email) {
+        repository_->setSetting(QStringLiteral("sync.refresh_token"), supabase_->refreshToken());
+        repository_->setSetting(QStringLiteral("sync.user_email"), email);
+        cloudStatus_ = QStringLiteral("Conectado.");
+        emit cloudChanged();
+        syncEngine_->sync();
+    });
+    connect(supabase_.get(), &sync::SupabaseClient::signedOut, this, [this]() {
+        cloudStatus_ = QStringLiteral("Sin conectar.");
+        emit cloudChanged();
+    });
+    connect(supabase_.get(), &sync::SupabaseClient::authFailed, this, [this](const QString& message) {
+        cloudStatus_ = message;
+        emit cloudChanged();
+    });
+
+    connect(syncEngine_.get(), &sync::SyncEngine::progress, this, [this](const QString& text, int, int) {
+        cloudStatus_ = text;
+        emit cloudChanged();
+    });
+    connect(syncEngine_.get(), &sync::SyncEngine::finished, this, [this](int uploaded, int downloaded, const QString& error) {
+        if (error.isEmpty()) {
+            cloudStatus_ = QStringLiteral("%1 ↑, %2 ↓").arg(uploaded).arg(downloaded);
+        } else {
+            cloudStatus_ = error;
+        }
+        reload();
+        emit dataChanged();
+        emit cloudChanged();
+    });
+
+    const auto token = repository_->setting(QStringLiteral("sync.refresh_token"));
+    if (token) {
+        supabase_->restoreSession(*token);
+    }
 
     const QDate now = QDate::currentDate();
     today_ = core::Date::fromYmd(now.year(), static_cast<unsigned>(now.month()),
@@ -471,6 +511,50 @@ QString AppBridge::importFrom(const QUrl& url) {
         return message + QStringLiteral(".");
     } catch (const std::exception& error) {
         return QStringLiteral("No se pudo importar: ") + QString::fromUtf8(error.what());
+    }
+}
+
+// ---------------------------------------------------------------- Nube ---
+
+bool AppBridge::signedIn() const {
+    return supabase_ && supabase_->isSignedIn();
+}
+
+QString AppBridge::userEmail() const {
+    return supabase_ ? supabase_->userEmail() : QString();
+}
+
+int AppBridge::pendingCount() const {
+    return repository_ ? repository_->pendingOutboxCount() : 0;
+}
+
+bool AppBridge::syncing() const {
+    return syncEngine_ && syncEngine_->isRunning();
+}
+
+void AppBridge::signIn(const QString& email, const QString& password) {
+    if (supabase_) {
+        supabase_->signInWithPassword(email, password);
+    }
+}
+
+void AppBridge::signOut() {
+    if (supabase_) {
+        supabase_->signOut();
+    }
+    if (repository_) {
+        repository_->setSetting(QStringLiteral("sync.refresh_token"), QString());
+    }
+}
+
+void AppBridge::sync() {
+    if (!supabase_ || !supabase_->isSignedIn()) {
+        cloudStatus_ = QStringLiteral("Conectate primero.");
+        emit cloudChanged();
+        return;
+    }
+    if (syncEngine_) {
+        syncEngine_->sync();
     }
 }
 

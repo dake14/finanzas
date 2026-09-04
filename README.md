@@ -1,13 +1,15 @@
-# Banco de pruebas — Finanzas DakeLabs
+# Finanzas DakeLabs
 
-Programa **hermano** de `finaldake-labs`, para probar un modelo distinto sin
-tocar la aplicación que ya usás.
+Nació como banco de pruebas de `finaldake-labs` —para probar un modelo distinto
+sin tocar la aplicación instalada— y pasó a ser la aplicación. `finaldake-labs`
+queda descontinuada; de ella solo se tomaron las credenciales de Supabase.
 
-- Base de datos propia: `%APPDATA%\DakeLabs\Finanzas DakeLabs Pruebas\pruebas.db`.
-  **La base real no se toca nunca**, ni por un bug: es otra carpeta y otro
-  nombre de aplicación.
-- Ejecutable propio: `dake_pruebas.exe`. No pisa ni el acceso directo ni la
-  instalación existente.
+- Base de datos: `%APPDATA%\DakeLabs\Finanzas DakeLabs\finanzas-v2.db`.
+  Comparte carpeta con la vieja, pero **nunca su archivo**: `finanzas.db` tiene
+  otro esquema, y abrirla desde acá corrompería datos reales.
+- Ejecutable: `dake_pruebas.exe`. No pisa ni el acceso directo ni la
+  instalación existente, así las dos pueden convivir mientras desinstalás
+  aquella.
 
 El porqué de cada cambio está en [DIAGNOSTICO.md](DIAGNOSTICO.md).
 
@@ -70,6 +72,46 @@ cmake --preset debug
 cmake --build --preset debug
 build\debug\bin\dake_pruebas.exe
 ```
+
+## La nube
+
+Las dos aplicaciones —la del escritorio y la del teléfono— sincronizan contra
+el mismo proyecto de Supabase, así que lo que anotás parado en la calle aparece
+en la computadora y al revés.
+
+Cómo está armado:
+
+- **Tres tablas remotas** con prefijo `v2_`: `v2_pockets`, `v2_jobs` y
+  `v2_movements`. Se crean corriendo `supabase_v2.sql` en el editor SQL del
+  panel. El prefijo existe para no tocar la `movements` de la aplicación vieja
+  mientras se la descontinúa.
+- **Seguridad por fila (RLS)**, con la política `auth.uid() = user_id`. Eso —y
+  no que la clave sea secreta— es lo que protege los datos: la clave publicable
+  viaja dentro del APK y es pública por diseño.
+- **Las credenciales las lee CMake** de `supabase.json` al configurar y las
+  incrusta en el binario, así el teléfono llega con todo puesto. Nunca entran
+  al repositorio.
+- **Nada se marca como enviado antes de que el servidor confirme.** Si se corta
+  la red a mitad de camino, esos cambios siguen pendientes y salen en la
+  próxima corrida.
+- **Un cursor por tabla**, no uno compartido: con uno solo, bajar movimientos
+  adelantaría el reloj de los bolsillos y los cambios de bolsillo hechos en el
+  medio no bajarían nunca.
+- **Los conflictos los resuelve el HLC**, no la fecha. Gana el reloj más alto,
+  que es lo que hace converger a dos equipos con relojes distintos.
+
+Para diagnosticar sin abrir ninguna ventana:
+
+```
+build\debug\bin\dake_synccheck                      proyecto y tablas
+build\debug\bin\dake_synccheck correo contrasena    ademas la sesion
+```
+
+Devuelve 0 si todo está bien. No entra en `ctest` a propósito: toca la red, y
+una prueba que falla porque se cayó internet enseña a ignorar las pruebas que
+fallan.
+
+---
 
 ## Compilar para el teléfono
 
@@ -145,7 +187,7 @@ transporte encima es trivial.
 
 ---
 
-## Lo que este banco de pruebas NO resuelve
+## Lo que NO resuelve
 
 Para no venderlo por más de lo que es:
 

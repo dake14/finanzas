@@ -36,9 +36,13 @@
       tres. Una aplicacion que pide acceso a internet y a los archivos sin
       necesitarlo es una promesa que no puede cumplir.
 
-      Si algun dia se le agrega la nube, el permiso de INTERNET vuelve aca
-      escrito a mano.
+      Ese dia llego: la sincronizacion con Supabase necesita INTERNET, y por
+      eso esta escrito abajo a mano. Los otros dos siguen fuera: la aplicacion
+      no consulta el estado de la red ni escribe fuera de su almacenamiento
+      privado.
     -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
     <!-- %%INSERT_FEATURES -->
 
     <supports-screens
