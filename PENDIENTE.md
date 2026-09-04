@@ -41,7 +41,27 @@ Se va a ir llenando a medida que edites movimientos y marques cuándo cobraste.
 Preferí eso antes que rellenar con la fecha de hoy, que te habría dado un
 promedio inventado desde el primer día.
 
-**4. Si no podés conectarte con tu usuario y contraseña**, lo más probable es
+**4. El teléfono no podía iniciar sesión: era OpenSSL, no tu contraseña.**
+
+Encontrado el 2026-09-04. Qt trae dos respaldos TLS para Android: `certonly`,
+que solo lee certificados y no abre conexiones, y `openssl`, que carga las
+bibliotecas con `dlopen` en tiempo de ejecución. Qt no las incluye y Android no
+expone las suyas desde API 24, así que `QSslSocket::supportsSsl()` daba falso y
+**toda petición HTTPS fallaba antes de salir del teléfono**.
+
+En Windows nada de eso pasa: Qt usa `qschannelbackend`, el TLS del sistema
+operativo. `dake_synccheck` ahora lo imprime — en esta computadora dice
+`TLS disponible: si (Secure Channel, Windows 10.0.26200)`.
+
+Ya está arreglado: el APK empaqueta `libssl_3.so` y `libcrypto_3.so`. Y si
+alguna vez vuelve a faltar, la app lo dice con todas las letras en vez de
+fallar como si fueran las credenciales.
+
+**Deuda que queda:** esas bibliotecas ahora las mantenemos nosotros. Cuando
+OpenSSL saque un parche de seguridad hay que bajarlas de nuevo. Los SHA-256 de
+las actuales están en `third_party/android_openssl/README.md`.
+
+**5. Si aun así no podés conectarte con tu usuario y contraseña**, lo más probable es
 que la cuenta nunca haya tenido una contraseña: si la creaste con un enlace por
 correo, Supabase no fija ninguna, y probar la de siempre falla con
 "credenciales inválidas" sin decir por qué.
@@ -54,7 +74,7 @@ contraseña equivocada —no "email sin confirmar" ni un error de formato—, as
 que la cuenta existe, está confirmada y el login funciona. Lo único que no
 coincide es la contraseña.
 
-**5. Probar en el teléfono de verdad.** Es lo único que no puedo verificar: el
+**6. Probar en el teléfono de verdad.** Es lo único que no puedo verificar: el
 render offscreen no dibuja las barras del sistema ni el teclado.
 
 ---

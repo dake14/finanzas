@@ -51,6 +51,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QNetworkReply>
+#include <QSslSocket>
 #include <QNetworkRequest>
 #include <QUrl>
 
@@ -82,6 +83,24 @@ namespace {
 /// mensaje, ademas de estar en ingles, no le dice al usuario que hacer, y el
 /// tercer caso es invisible: uno prueba su contrasena de siempre, falla, y
 /// concluye que el programa esta roto.
+/// Vacio si se puede hablar HTTPS; el motivo si no.
+///
+/// Existe porque cuando falta el respaldo TLS, Qt no falla al conectarse: falla
+/// mas adelante, con un error de red generico que se lee igual que "no hay
+/// internet" o que "la contrasena esta mal". Eso paso de verdad —el telefono no
+/// pudo iniciar sesion nunca y el diagnostico apunto a las credenciales— y
+/// costo bastante averiguarlo. Preguntarlo de entrada convierte medio dia de
+/// busqueda en una linea de texto.
+[[nodiscard]] QString razonSinTls() {
+    if (QSslSocket::supportsSsl()) {
+        return {};
+    }
+    return QStringLiteral(
+        "Este dispositivo no puede abrir conexiones seguras: falta la biblioteca "
+        "OpenSSL en la aplicacion. No es un problema de tu usuario ni de tu "
+        "contrasena. Hay que reinstalar una version que la incluya.");
+}
+
 [[nodiscard]] QString explicar(const QString& crudo) {
     const QString bajo = crudo.toLower();
 
@@ -168,6 +187,11 @@ QNetworkReply* SupabaseClient::restPost(const QString& pathWithQuery,
 }
 
 void SupabaseClient::probe() {
+    const QString sinTls = razonSinTls();
+    if (!sinTls.isEmpty()) {
+        emit probeFinished(false, false, sinTls);
+        return;
+    }
     if (!config_.isValid()) {
         emit probeFinished(false, false,
                            QStringLiteral("Faltan la URL o la clave del proyecto."));
@@ -256,6 +280,11 @@ void SupabaseClient::handleTokenReply(QNetworkReply* reply, const QString& failu
 }
 
 void SupabaseClient::signInWithPassword(const QString& email, const QString& password) {
+    const QString sinTls = razonSinTls();
+    if (!sinTls.isEmpty()) {
+        emit authFailed(sinTls);
+        return;
+    }
     if (!config_.isValid()) {
         emit authFailed(QStringLiteral("Faltan la URL o la clave del proyecto."));
         return;

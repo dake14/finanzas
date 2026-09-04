@@ -49,6 +49,7 @@
 // contra un proyecto con las tablas creadas, imprime que las encontro y sale 0.
 //
 #include <QCoreApplication>
+#include <QSslSocket>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -75,6 +76,15 @@ int main(int argc, char** argv) {
     QCoreApplication::setApplicationName(QString::fromUtf8(DAKE_APP_NAME));
 
     print(QStringLiteral("=== Diagnostico de Supabase ==="));
+
+    // Lo primero, antes que las credenciales: sin respaldo TLS no hay HTTPS, y
+    // todo lo que venga despues fallaria con errores que apuntan al lugar
+    // equivocado. En Windows sobra —Qt usa Schannel— pero en Android es LA
+    // pregunta.
+    print(QStringLiteral("TLS disponible: ") +
+          (QSslSocket::supportsSsl() ? QStringLiteral("si (") + QSslSocket::sslLibraryVersionString() +
+                                           QStringLiteral(")")
+                                     : QStringLiteral("NO -- ninguna peticion https va a funcionar")));
 
     const dake::sync::SupabaseConfig config = dake::sync::SupabaseConfig::load();
     if (!config.isValid()) {

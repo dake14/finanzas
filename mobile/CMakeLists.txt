@@ -91,6 +91,20 @@ if(ANDROID)
         QT_ANDROID_VERSION_CODE 1
         # 24 es Android 7. Por debajo de eso Qt 6.8 no corre, y arriba de esa
         # version esta practicamente todo lo que sigue encendido.
+        # OpenSSL, sin la cual el telefono no puede hacer NINGUNA peticion HTTPS.
+        #
+        # Qt trae dos respaldos TLS para Android: certonly, que solo lee
+        # certificados y no abre conexiones, y openssl, que carga las
+        # bibliotecas con dlopen en tiempo de ejecucion. Qt no las incluye y
+        # Android no expone las suyas desde API 24, asi que sin estas dos lineas
+        # QSslSocket::supportsSsl() es falso y sincronizar falla siempre.
+        #
+        # En Windows no hace falta nada porque ahi Qt usa Schannel, el TLS del
+        # sistema. Esa diferencia es la que hacia que el escritorio funcionara y
+        # el telefono no, con el mismo codigo y las mismas credenciales.
+        QT_ANDROID_EXTRA_LIBS
+            "${CMAKE_SOURCE_DIR}/third_party/android_openssl/arm64-v8a/libssl_3.so;${CMAKE_SOURCE_DIR}/third_party/android_openssl/arm64-v8a/libcrypto_3.so"
+
         QT_ANDROID_MIN_SDK_VERSION 24
         # 34 y no 35 a proposito. Apuntando a 35 (Android 15) el borde a borde
         # es obligatorio: la aplicacion se dibuja POR DEBAJO de las barras del
