@@ -2,3 +2,5 @@ build/
 *.log
 *.user
 apk/
+# Los agentes toman literal el nombre del criterio de aceptacion.
+salida.png

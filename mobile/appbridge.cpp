@@ -266,6 +266,85 @@ void AppBridge::reload() {
         summary_["headlineDetail"] = QStringLiteral("Ni entro ni salio plata de las reservas.");
     }
 
+    // --- Graficas e indicadores -------------------------------------------
+    months_.clear();
+    const std::vector<core::MonthSummary> months = core::summarizeByMonth(pockets, movements, currency_);
+    core::Money accumulatedCash = core::Money::zero(currency_);
+    for (const core::MonthSummary& ms : months) {
+        accumulatedCash += (ms.incomeAccrued - ms.cost);
+        QVariantMap row;
+        row["etiqueta"] = qs(ms.label());
+        row["resultado"] = ms.result.minor() / 100.0;
+        row["ingresos"] = ms.incomeAccrued.minor() / 100.0;
+        row["costos"] = ms.cost.minor() / 100.0;
+        row["caja"] = accumulatedCash.minor() / 100.0;
+        row["resultadoTexto"] = qs(core::formatAmount(ms.result));
+        row["cajaTexto"] = qs(core::formatAmount(accumulatedCash));
+        months_.append(row);
+    }
+
+    categories_.clear();
+    const std::vector<core::CategoryTotal> cats = core::costByCategory(movements, currency_, from, to);
+    for (const core::CategoryTotal& ct : cats) {
+        QVariantMap row;
+        row["etiqueta"] = qs(ct.category);
+        row["valor"] = ct.total.minor() / 100.0;
+        row["texto"] = qs(core::formatAmount(ct.total));
+        categories_.append(row);
+    }
+
+    jobMargins_.clear();
+    const std::vector<core::JobResult> jrs = core::jobResults(jobs, movements, currency_);
+    for (const core::JobResult& jr : jrs) {
+        QVariantMap row;
+        row["etiqueta"] = qs(jr.name);
+        row["valor"] = jr.margin.minor() / 100.0;
+        row["texto"] = QStringLiteral("%1 (%2)").arg(qs(core::formatAmount(jr.margin)), qs(core::formatBps(jr.marginBps)));
+        jobMargins_.append(row);
+    }
+
+    stats_.clear();
+    const core::BreakEven be = core::breakEven(jobs, movements, currency_, from, to);
+    if (be.unknown()) {
+        stats_["equilibrio"] = QStringLiteral("—");
+        stats_["equilibrioNota"] = QStringLiteral("hacen falta trabajos con margen para saberlo");
+    } else {
+        stats_["equilibrio"] = qs(core::formatAmount(be.revenueNeeded));
+        stats_["equilibrioNota"] = QStringLiteral("facturacion minima");
+    }
+
+    const int runway = fund.monthsOfRunway(1);
+    if (runway == -1) {
+        stats_["reserva"] = QStringLiteral("—");
+        stats_["reservaNota"] = QStringLiteral("no estas consumiendo reservas");
+    } else {
+        stats_["reserva"] = QString::number(runway);
+        stats_["reservaNota"] = QStringLiteral("a este ritmo");
+    }
+
+    const core::TicketStats ts = core::ticketStats(jobs, movements, currency_, from, to);
+    stats_["ticket"] = qs(core::formatAmount(ts.averageIncome));
+    stats_["ticketNota"] = QStringLiteral("sobre %1 trabajos").arg(ts.jobCount);
+
+    const core::CollectionStats cs = core::collectionStats(movements, from, to);
+    if (cs.sampled == 0) {
+        stats_["cobro"] = QStringLiteral("—");
+        stats_["cobroNota"] = QStringLiteral("todavia no hay cobros con fecha");
+    } else {
+        stats_["cobro"] = QString::number(cs.averageDays);
+        stats_["cobroNota"] = QStringLiteral("sobre %1 cobros").arg(cs.sampled);
+    }
+
+    const core::Money ov = core::overhead(movements, currency_, from, to);
+    stats_["estructura"] = qs(core::formatAmount(ov));
+    if (flow.incomeAccrued.isZero()) {
+        stats_["estructuraNota"] = QStringLiteral("Este mes no hubo ingresos para absorber la estructura.");
+    } else {
+        const double pct = static_cast<double>(ov.minor()) * 100.0 / static_cast<double>(flow.incomeAccrued.minor());
+        stats_["estructuraNota"] = QStringLiteral("Se come el %1 de los ingresos del mes.")
+                                       .arg(qs(core::formatBps(static_cast<int>(pct * 100.0))));
+    }
+
     // --- Avisos ---
     alerts_.clear();
     const auto list = core::alerts(pockets, movements, jobs, currency_, today_,

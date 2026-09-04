@@ -295,20 +295,30 @@ void RankChart::paintEvent(QPaintEvent* event) {
         return;
     }
 
+    // Se ordena aca y no en cada pantalla que la usa. charts.hpp promete
+    // "ordenadas de mayor a menor", y una promesa que cada usuario tiene que
+    // cumplir por su cuenta se rompe en el segundo usuario: costByCategory ya
+    // viene ordenado, pero jobResults viene por fecha de apertura.
+    std::vector<ChartPoint> ordenados = points_;
+    std::stable_sort(ordenados.begin(), ordenados.end(),
+                     [](const ChartPoint& a, const ChartPoint& b) {
+                         return std::abs(a.primary) > std::abs(b.primary);
+                     });
+
     std::vector<ChartPoint> rows;
     int safeLimit = std::max(1, limit_);
-    if (points_.size() > static_cast<size_t>(safeLimit)) {
+    if (ordenados.size() > static_cast<size_t>(safeLimit)) {
         for (int i = 0; i < safeLimit - 1; ++i) {
-            rows.push_back(points_[i]);
+            rows.push_back(ordenados[i]);
         }
         ChartPoint otros;
         otros.label = QStringLiteral("Otros");
-        for (size_t i = safeLimit - 1; i < points_.size(); ++i) {
-            otros.primary += points_[i].primary;
+        for (size_t i = safeLimit - 1; i < ordenados.size(); ++i) {
+            otros.primary += ordenados[i].primary;
         }
         rows.push_back(otros);
     } else {
-        rows = points_;
+        rows = ordenados;
     }
 
     double max_val = 0.0;

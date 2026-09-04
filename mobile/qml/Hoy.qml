@@ -222,6 +222,172 @@ Flickable {
             }
         }
 
+        // --- Segunda fila de indicadores -----------------------------------
+        GridLayout {
+            Layout.fillWidth: true
+            columns: 2
+            rowSpacing: Estilo.espacio
+            columnSpacing: Estilo.espacio
+
+            Cifra {
+                rotulo: "PARA NO PERDER"
+                valor: App.stats.equilibrio !== undefined ? App.stats.equilibrio : "—"
+                nota: App.stats.equilibrioNota !== undefined ? App.stats.equilibrioNota : ""
+                tinte: Estilo.textoSuave
+            }
+            Cifra {
+                rotulo: "MESES DE RESERVA"
+                valor: App.stats.reserva !== undefined ? App.stats.reserva : "—"
+                nota: App.stats.reservaNota !== undefined ? App.stats.reservaNota : ""
+                tinte: Estilo.textoSuave
+            }
+            Cifra {
+                rotulo: "TICKET PROMEDIO"
+                valor: App.stats.ticket !== undefined ? App.stats.ticket : "—"
+                nota: App.stats.ticketNota !== undefined ? App.stats.ticketNota : ""
+                tinte: Estilo.textoSuave
+            }
+            Cifra {
+                rotulo: "DIAS EN COBRAR"
+                valor: App.stats.cobro !== undefined ? App.stats.cobro : "—"
+                nota: App.stats.cobroNota !== undefined ? App.stats.cobroNota : ""
+                tinte: Estilo.textoSuave
+            }
+        }
+
+        // --- Graficas ---------------------------------------------------------
+        Tarjeta {
+            Layout.preferredHeight: graficas.height + 28
+
+            ColumnLayout {
+                id: graficas
+                x: 14
+                y: 14
+                width: parent.width - 28
+                spacing: 16
+
+                function mapear(lista, tipo) {
+                    if (!lista) return []
+                    var res = []
+                    for (var i = 0; i < lista.length; ++i) {
+                        var m = lista[i]
+                        if (tipo === "resultado") {
+                            res.push({etiqueta: m.etiqueta, valor: m.resultado, texto: m.resultadoTexto})
+                        } else if (tipo === "ingresosCostos") {
+                            res.push({etiqueta: m.etiqueta, valor: m.ingresos, valor2: m.costos, texto: ""})
+                        } else if (tipo === "caja") {
+                            res.push({etiqueta: m.etiqueta, valor: m.caja, texto: m.cajaTexto})
+                        }
+                    }
+                    return res
+                }
+
+                Label {
+                    text: "GRAFICAS"
+                    color: Estilo.textoSuave
+                    font.pixelSize: 10
+                    font.letterSpacing: 0.8
+                }
+
+                Label {
+                    text: "RESULTADO POR MES"
+                    color: Estilo.textoSuave
+                    font.pixelSize: 10
+                    Layout.topMargin: 4
+                }
+                Grafica {
+                    Layout.fillWidth: true
+                    modo: "barras"
+                    conSigno: true
+                    datos: graficas.mapear(App.months, "resultado")
+                }
+
+                Label {
+                    text: "INGRESOS CONTRA COSTOS"
+                    color: Estilo.textoSuave
+                    font.pixelSize: 10
+                    Layout.topMargin: 4
+                }
+                Grafica {
+                    Layout.fillWidth: true
+                    modo: "barras"
+                    serie1: "Ingresos"
+                    serie2: "Costos"
+                    datos: graficas.mapear(App.months, "ingresosCostos")
+                }
+
+                Label {
+                    text: "CAJA ACUMULADA"
+                    color: Estilo.textoSuave
+                    font.pixelSize: 10
+                    Layout.topMargin: 4
+                }
+                Grafica {
+                    Layout.fillWidth: true
+                    modo: "linea"
+                    datos: graficas.mapear(App.months, "caja")
+                }
+
+                Label {
+                    text: "GASTOS POR CATEGORIA"
+                    color: Estilo.textoSuave
+                    font.pixelSize: 10
+                    Layout.topMargin: 4
+                }
+                Grafica {
+                    Layout.fillWidth: true
+                    modo: "ranking"
+                    datos: App.categories !== undefined ? App.categories : []
+                }
+
+                Label {
+                    text: "MARGEN POR TRABAJO"
+                    color: Estilo.textoSuave
+                    font.pixelSize: 10
+                    Layout.topMargin: 4
+                }
+                Grafica {
+                    Layout.fillWidth: true
+                    modo: "ranking"
+                    datos: App.jobMargins !== undefined ? App.jobMargins : []
+                }
+            }
+        }
+
+        // --- Costo de estructura ----------------------------------------------
+        Tarjeta {
+            Layout.preferredHeight: estructura.height + 28
+
+            ColumnLayout {
+                id: estructura
+                x: 14
+                y: 14
+                width: parent.width - 28
+                spacing: 6
+
+                Label {
+                    text: "COSTO DE ESTRUCTURA"
+                    color: Estilo.textoSuave
+                    font.pixelSize: 10
+                    font.letterSpacing: 0.8
+                }
+                Label {
+                    Layout.fillWidth: true
+                    text: App.stats.estructura !== undefined ? App.stats.estructura : "—"
+                    color: Estilo.texto
+                    font.pixelSize: 24
+                    font.weight: Font.Bold
+                }
+                Label {
+                    Layout.fillWidth: true
+                    text: App.stats.estructuraNota !== undefined ? App.stats.estructuraNota : ""
+                    color: Estilo.textoSuave
+                    font.pixelSize: 11
+                    wrapMode: Text.WordWrap
+                }
+            }
+        }
+
         // --- Avisos ---------------------------------------------------------
         Label {
             text: "LO QUE HAY QUE MIRAR"

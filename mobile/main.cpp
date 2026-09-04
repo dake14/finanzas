@@ -5,6 +5,12 @@
 //
 //   --captura <archivo.png>   dibuja la pantalla y se va
 //   --pagina <0..3>           con cual de las cuatro pestañas arrancar
+//   --alto <px>               alto de la ventana al capturar
+//
+// `--alto` existe porque la pantalla Hoy no entra en un telefono: se recorre
+// deslizando, y una captura del tamaño real muestra solo el primer tercio.
+// Verificarla entera exige poder estirar la ventana. NO cambia como se ve en el
+// telefono, donde el alto lo pone Android.
 //
 // Existen por lo mismo que `dake_uipreview` en la version de escritorio: la
 // unica forma de comprobar que una pantalla se arma bien es mirarla, y mirarla
@@ -104,6 +110,15 @@ int main(int argc, char** argv) {
     const QString pagina = valorDe(crudos, QStringLiteral("--pagina"));
     if (!pagina.isEmpty()) {
         window->setProperty("paginaInicial", pagina.toInt());
+    }
+
+    const QString alto = valorDe(crudos, QStringLiteral("--alto"));
+    if (!captura.isEmpty() && !alto.isEmpty()) {
+        bool ok = false;
+        const int px = alto.toInt(&ok);
+        if (ok && px > 0) {
+            window->setHeight(px);
+        }
     }
 
     if (!captura.isEmpty()) {
