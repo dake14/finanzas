@@ -11,10 +11,13 @@
 #include <QShortcut>
 #include <QStackedWidget>
 #include <QVBoxLayout>
+#include <QInputDialog>
+#include <QLineEdit>
 
 #include <algorithm>
 
 #include "dake/core/hlc.hpp"
+#include "dake/sync/config.hpp"
 #include "dialogs.hpp"
 #include "pages.hpp"
 #include "quickentry.hpp"
@@ -59,8 +62,41 @@ MainWindow::MainWindow(const QString& dbPath, QWidget* parent) : QMainWindow(par
     // quiera.
     repository_->seedIfEmpty(snapshot_.currency);
 
+    supabase_ = std::make_unique<sync::SupabaseClient>(sync::SupabaseConfig::load(), this);
+    syncEngine_ = std::make_unique<sync::SyncEngine>(*supabase_, *repository_, this);
+
+    connect(supabase_.get(), &sync::SupabaseClient::signedIn, this, [this](const QString& email) {
+        repository_->setSetting(QStringLiteral("sync.refresh_token"), supabase_->refreshToken());
+        repository_->setSetting(QStringLiteral("sync.user_email"), email);
+        updateCloudUi(email);
+        syncEngine_->sync();
+    });
+    connect(supabase_.get(), &sync::SupabaseClient::signedOut, this, [this]() {
+        updateCloudUi(QStringLiteral("Sin sesión"));
+    });
+    connect(supabase_.get(), &sync::SupabaseClient::authFailed, this, [this](const QString& message) {
+        QMessageBox::warning(this, QStringLiteral("Error"), message);
+    });
+
+    connect(syncEngine_.get(), &sync::SyncEngine::progress, this, [this](const QString& text, int, int) {
+        updateCloudUi(text);
+    });
+    connect(syncEngine_.get(), &sync::SyncEngine::finished, this, [this](int uploaded, int downloaded, const QString& error) {
+        if (error.isEmpty()) {
+            updateCloudUi(QStringLiteral("%1 ↑, %2 ↓").arg(uploaded).arg(downloaded));
+            reload();
+        } else {
+            updateCloudUi(error);
+        }
+    });
+
     buildUi();
     reload();
+
+    const auto token = repository_->setting(QStringLiteral("sync.refresh_token"));
+    if (token) {
+        supabase_->restoreSession(*token);
+    }
 }
 
 MainWindow::~MainWindow() = default;
@@ -121,6 +157,9 @@ void MainWindow::buildUi() {
         movements_->focusSearch();
     });
 
+    auto* syncShortcut = new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_S), this);
+    connect(syncShortcut, &QShortcut::activated, this, &MainWindow::syncNow);
+
     showPage(0);
 }
 
@@ -153,6 +192,25 @@ void MainWindow::buildSidebar(QWidget* parent) {
     }
 
     layout->addStretch(1);
+
+    cloudButton_ = navButton(QStringLiteral("Conectar"), parent);
+    cloudButton_->setCheckable(false);
+    connect(cloudButton_, &QPushButton::clicked, this, &MainWindow::toggleSignIn);
+    layout->addWidget(cloudButton_);
+
+    syncButton_ = navButton(QStringLiteral("Sincronizar"), parent);
+    syncButton_->setCheckable(false);
+    syncButton_->setEnabled(false);
+    connect(syncButton_, &QPushButton::clicked, this, &MainWindow::syncNow);
+    layout->addWidget(syncButton_);
+
+    cloudStatus_ = new QLabel(parent);
+    cloudStatus_->setFont(theme::bodyFont(8));
+    cloudStatus_->setWordWrap(true);
+    theme::setLabelColor(cloudStatus_, theme::kTextFaint);
+    layout->addWidget(cloudStatus_);
+
+    layout->addSpacing(18);
 
     auto* reset = new QPushButton(QStringLiteral("Volver al caso de agosto"), parent);
     reset->setCursor(Qt::PointingHandCursor);
@@ -335,6 +393,58 @@ void MainWindow::resetToSeed() {
     repository_->wipe();
     repository_->seedIfEmpty(snapshot_.currency);
     reload();
+}
+
+// -------------------------------------------------------------------- Nube
+
+void MainWindow::toggleSignIn() {
+    if (supabase_->isSignedIn()) {
+        supabase_->signOut();
+        repository_->setSetting(QStringLiteral("sync.refresh_token"), QString());
+        updateCloudUi(QStringLiteral("Sin sesión"));
+        return;
+    }
+
+    bool ok;
+    QString email = QInputDialog::getText(this, QStringLiteral("Conectar"),
+                                          QStringLiteral("Correo:"), QLineEdit::Normal,
+                                          QString(), &ok);
+    if (!ok || email.isEmpty()) {
+        return;
+    }
+
+    QString pwd = QInputDialog::getText(this, QStringLiteral("Conectar"),
+                                        QStringLiteral("Contraseña:"), QLineEdit::Password,
+                                        QString(), &ok);
+    if (!ok || pwd.isEmpty()) {
+        return;
+    }
+
+    supabase_->signInWithPassword(email, pwd);
+}
+
+void MainWindow::syncNow() {
+    if (!supabase_->isSignedIn()) {
+        toggleSignIn();
+        return;
+    }
+    syncEngine_->sync();
+    updateCloudUi(cloudStatus_->text());
+}
+
+void MainWindow::updateCloudUi(const QString& message) {
+    if (!cloudButton_ || !syncButton_ || !cloudStatus_) {
+        return;
+    }
+
+    if (supabase_->isSignedIn()) {
+        cloudButton_->setText(QStringLiteral("Desconectar"));
+        syncButton_->setEnabled(!syncEngine_->isRunning());
+    } else {
+        cloudButton_->setText(QStringLiteral("Conectar"));
+        syncButton_->setEnabled(false);
+    }
+    cloudStatus_->setText(message);
 }
 
 } // namespace dake::ui

@@ -11,6 +11,8 @@
 
 #include "dake/storage/database.hpp"
 #include "dake/storage/repository.hpp"
+#include "dake/sync/supabase_client.hpp"
+#include "dake/sync/sync_engine.hpp"
 #include "snapshot.hpp"
 
 class QLabel;
@@ -40,6 +42,20 @@ private slots:
     void toggleJob(const dake::core::Id& jobId);
     void resetToSeed();
 
+    // --- Nube --------------------------------------------------------------
+    //
+    // El escritorio se queda con lo minimo: conectarse y sincronizar. Nada de
+    // una pantalla de nube con configuracion adentro: la URL y la clave ya
+    // vienen incrustadas o en supabase.json, y lo unico que la aplicacion no
+    // puede saber sola es la contrasena.
+
+    /// Pide correo y contrasena y trata de iniciar sesion. Si ya hay sesion,
+    /// desconecta. La contrasena no se guarda en ningun lado.
+    void toggleSignIn();
+
+    /// Corre una sincronizacion. Si no hay sesion, primero pide conectarse.
+    void syncNow();
+
 private:
     void buildUi();
     void buildSidebar(QWidget* parent);
@@ -47,9 +63,18 @@ private:
     void showPage(int index);
     [[nodiscard]] core::Id stamp(std::string& hlc, std::string& deviceId);
 
+    /// Refleja el estado de la sesion en el boton y en el pie.
+    void updateCloudUi(const QString& message);
+
     std::unique_ptr<storage::Database> db_;
     std::unique_ptr<storage::Repository> repository_;
     QString deviceId_;
+
+    std::unique_ptr<sync::SupabaseClient> supabase_;
+    std::unique_ptr<sync::SyncEngine> syncEngine_;
+    QPushButton* cloudButton_ = nullptr;
+    QPushButton* syncButton_ = nullptr;
+    QLabel* cloudStatus_ = nullptr;
 
     Snapshot snapshot_;
 

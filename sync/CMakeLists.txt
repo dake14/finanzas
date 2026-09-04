@@ -11,7 +11,21 @@ qt_add_library(dake_sync STATIC
     src/config.cpp
     src/supabase_client.cpp
     src/sync_engine.cpp
+    # Las cabeceras van listadas a proposito. AUTOMOC solo empareja un .cpp con
+    # el .hpp que esta AL LADO; aca las cabeceras viven en include/dake/sync/ y
+    # las fuentes en src/, asi que sin nombrarlas moc no las procesa y la
+    # biblioteca compila para despues explotar al enlazar, con un "unresolved
+    # external symbol" por cada señal.
+    include/dake/sync/config.hpp
+    include/dake/sync/supabase_client.hpp
+    include/dake/sync/sync_engine.hpp
 )
+
+# SupabaseClient y SyncEngine tienen Q_OBJECT, asi que necesitan moc. Sin esto
+# la biblioteca compila perfecto y explota al ENLAZAR, con "unresolved external
+# symbol" en cada señal: el compilador cree la promesa del .hpp y nadie escribe
+# la implementacion. core y storage no lo necesitan porque no usan QObject.
+set_target_properties(dake_sync PROPERTIES AUTOMOC ON)
 
 target_include_directories(dake_sync PUBLIC include)
 

@@ -35,7 +35,7 @@ qt_add_executable(dake_pruebas WIN32
 )
 
 target_include_directories(dake_pruebas PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(dake_pruebas PRIVATE dake::core dake::storage Qt6::Widgets)
+target_link_libraries(dake_pruebas PRIVATE dake::core dake::storage dake_sync Qt6::Widgets)
 target_compile_definitions(dake_pruebas PRIVATE DAKE_APP_NAME="${DAKE_APP_NAME}")
 
 # --- Banco de pruebas visual ---
@@ -48,7 +48,7 @@ qt_add_executable(dake_uipreview
     ${DAKE_UI_SOURCES}
 )
 target_include_directories(dake_uipreview PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(dake_uipreview PRIVATE dake::core dake::storage Qt6::Widgets)
+target_link_libraries(dake_uipreview PRIVATE dake::core dake::storage dake_sync Qt6::Widgets)
 target_compile_definitions(dake_uipreview PRIVATE DAKE_APP_NAME="${DAKE_APP_NAME}")
 
 if(WIN32)
