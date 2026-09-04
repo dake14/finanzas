@@ -22,6 +22,7 @@
 //
 #include <array>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -120,6 +121,24 @@ struct Movement {
     /// Un ingreso sin cobrar NO suma al saldo del bolsillo: aparece aparte,
     /// como lo que es, una promesa.
     bool settled = true;
+
+    /// CUANDO se cobro o se pago, si se sabe. Vacia cuando todavia no ocurrio,
+    /// y tambien en todo lo anotado antes de que este campo existiera.
+    ///
+    /// `settled` dice SI, esto dice CUANDO, y son dos preguntas distintas: sin
+    /// la fecha no hay forma de contestar cuanto tardas en cobrar, que es el
+    /// numero que separa un negocio rentable de uno rentable en el papel y sin
+    /// plata en la caja.
+    ///
+    /// No se rellena sola con la fecha de hoy al marcar algo como cobrado: una
+    /// fecha inventada contamina el promedio y nadie se entera.
+    ///
+    /// Es `optional` y no una Date a secas porque una Date construida por
+    /// defecto vale 1970-01-01, que es una fecha REAL: no habria forma de
+    /// distinguir "no se sabe" de "se cobro en 1970", y el promedio de dias de
+    /// cobro se iria a veinte mil dias sin que nadie entienda por que.
+    /// `std::nullopt` significa "no se sabe", y quien promedia la saltea.
+    std::optional<Date> settledDate;
 
     Recurrence recurrence = Recurrence::Puntual;
 

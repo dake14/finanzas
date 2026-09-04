@@ -21,6 +21,8 @@ set(DAKE_UI_SOURCES
     dialogs.hpp
     cards.cpp
     cards.hpp
+    charts.cpp
+    charts.hpp
     categorybox.cpp
     categorybox.hpp
     theme.cpp

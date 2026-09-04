@@ -106,7 +106,8 @@ std::vector<core::Movement> Repository::loadMovements(bool includeDeleted) {
     QSqlQuery query(db_.handle());
     query.prepare(QStringLiteral(
         "SELECT id, date, name, kind, amount_minor, pocket_id, target_pocket_id, category, "
-        "job_id, spread_months, settled, recurrence, hlc, device_id, deleted "
+        "job_id, spread_months, settled, settled_date, recurrence, hlc, device_id, "
+        "deleted "
         "FROM movements WHERE (deleted = 0 OR ?) ORDER BY date ASC, id ASC"));
     query.addBindValue(includeDeleted ? 1 : 0);
     run(query);
@@ -125,10 +126,19 @@ std::vector<core::Movement> Repository::loadMovements(bool includeDeleted) {
         movement.jobId = ss(query.value(8));
         movement.spreadMonths = query.value(9).toInt();
         movement.settled = query.value(10).toInt() != 0;
-        movement.recurrence = core::recurrenceFromString(ss(query.value(11)));
-        movement.hlc = ss(query.value(12));
-        movement.deviceId = ss(query.value(13));
-        movement.deleted = query.value(14).toInt() != 0;
+        // Cadena vacia = no se sabe cuando se cobro. Se pregunta antes porque
+        // fromIso lanza con una cadena vacia, y no saberlo es lo normal en todo
+        // lo anotado antes de que existiera la columna.
+        {
+            const std::string cobro = ss(query.value(11));
+            if (!cobro.empty()) {
+                movement.settledDate = core::Date::fromIso(cobro);
+            }
+        }
+        movement.recurrence = core::recurrenceFromString(ss(query.value(12)));
+        movement.hlc = ss(query.value(13));
+        movement.deviceId = ss(query.value(14));
+        movement.deleted = query.value(15).toInt() != 0;
         out.push_back(std::move(movement));
     }
     return out;
@@ -180,8 +190,8 @@ void insertOrReplace(Database& db, const core::Movement& movement) {
     query.prepare(QStringLiteral(
         "INSERT OR REPLACE INTO movements "
         "(id, date, name, kind, amount_minor, pocket_id, target_pocket_id, category, job_id, "
-        " spread_months, settled, recurrence, hlc, device_id, deleted) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"));
+        " spread_months, settled, settled_date, recurrence, hlc, device_id, deleted) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"));
     query.addBindValue(qs(movement.id));
     query.addBindValue(qs(movement.date.toIso()));
     query.addBindValue(qs(movement.name));
@@ -193,6 +203,7 @@ void insertOrReplace(Database& db, const core::Movement& movement) {
     query.addBindValue(qs(movement.jobId));
     query.addBindValue(movement.spreadMonths);
     query.addBindValue(movement.settled ? 1 : 0);
+    query.addBindValue(movement.settledDate ? qs(movement.settledDate->toIso()) : QString());
     query.addBindValue(
         QString::fromUtf8(recurrenceText.data(), static_cast<int>(recurrenceText.size())));
     query.addBindValue(qs(movement.hlc));

@@ -544,6 +544,127 @@ std::vector<MonthSummary> summarizeByMonth(const std::vector<Pocket>& pockets,
     return out;
 }
 
+// ------------------------------------------------- 6. Salud del negocio
+
+BreakEven breakEven(const std::vector<Job>& jobs,
+                    const std::vector<Movement>& movements,
+                    Currency currency,
+                    Date from,
+                    Date to) {
+    BreakEven out;
+    out.overheadPerMonth = Money::zero(currency);
+    out.marginBps = 0;
+    out.revenueNeeded = Money::zero(currency);
+
+    const std::int64_t months = std::max<std::int64_t>(1, monthIndex(to) - monthIndex(from) + 1);
+    const Money oh = overhead(movements, currency, from, to);
+    out.overheadPerMonth = Money::fromMinor(oh.minor() / months, currency);
+
+    std::unordered_map<Id, bool> activeJobs;
+    for (const Movement& movement : inRange(movements, from, to)) {
+        if (!movement.jobId.empty() && movement.isWellFormed()) {
+            activeJobs[movement.jobId] = true;
+        }
+    }
+
+    Money totalIncome = Money::zero(currency);
+    Money totalMargin = Money::zero(currency);
+
+    for (const JobResult& result : jobResults(jobs, movements, currency)) {
+        if (activeJobs.find(result.jobId) != activeJobs.end()) {
+            totalIncome += result.income;
+            totalMargin += result.margin;
+        }
+    }
+
+    out.marginBps = marginBasisPoints(totalMargin, totalIncome);
+    if (out.marginBps > 0) {
+        out.revenueNeeded = Money::fromMinor((out.overheadPerMonth.minor() * 10000) / out.marginBps, currency);
+    }
+
+    return out;
+}
+
+TicketStats ticketStats(const std::vector<Job>& jobs,
+                        const std::vector<Movement>& movements,
+                        Currency currency,
+                        Date from,
+                        Date to) {
+    TicketStats out;
+    out.jobCount = 0;
+    out.averageIncome = Money::zero(currency);
+    out.averageMargin = Money::zero(currency);
+
+    std::unordered_map<Id, bool> activeJobs;
+    for (const Movement& movement : inRange(movements, from, to)) {
+        if (!movement.jobId.empty() && movement.isWellFormed()) {
+            activeJobs[movement.jobId] = true;
+        }
+    }
+
+    if (activeJobs.empty()) {
+        return out;
+    }
+
+    out.jobCount = static_cast<int>(activeJobs.size());
+
+    Money totalIncome = Money::zero(currency);
+    Money totalMargin = Money::zero(currency);
+
+    for (const JobResult& result : jobResults(jobs, movements, currency)) {
+        if (activeJobs.find(result.jobId) != activeJobs.end()) {
+            totalIncome += result.income;
+            totalMargin += result.margin;
+        }
+    }
+
+    out.averageIncome = Money::fromMinor(totalIncome.minor() / out.jobCount, currency);
+    out.averageMargin = Money::fromMinor(totalMargin.minor() / out.jobCount, currency);
+
+    return out;
+}
+
+CollectionStats collectionStats(const std::vector<Movement>& movements,
+                                Date from,
+                                Date to) {
+    CollectionStats out;
+    out.sampled = 0;
+    out.averageDays = 0;
+    out.worstDays = 0;
+    out.uncollected = 0;
+
+    std::int64_t totalDays = 0;
+
+    for (const Movement& movement : inRange(movements, from, to)) {
+        if (movement.kind != MovementKind::Ingreso || !movement.isWellFormed()) {
+            continue;
+        }
+
+        if (!movement.settled) {
+            out.uncollected++;
+        } else if (movement.settledDate.has_value()) {
+            // has_value() y no una comparacion contra Date{}: una Date por
+            // defecto es 1970-01-01, una fecha real, y compararse contra ella
+            // confundiria "no se sabe" con "se cobro ese dia".
+            const std::int64_t days =
+                movement.settledDate->toEpochDays() - movement.date.toEpochDays();
+            const int diff = days < 0 ? 0 : static_cast<int>(days);
+
+            totalDays += diff;
+            if (diff > out.worstDays) {
+                out.worstDays = diff;
+            }
+            out.sampled++;
+        }
+    }
+
+    if (out.sampled > 0) {
+        out.averageDays = static_cast<int>((totalDays + (out.sampled / 2)) / out.sampled);
+    }
+
+    return out;
+}
+
 std::vector<CategoryTotal> costByCategory(const std::vector<Movement>& movements,
                                           Currency currency,
                                           Date from,

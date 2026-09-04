@@ -211,6 +211,64 @@ struct MonthSummary {
                                                          const std::vector<Movement>& movements,
                                                          Currency currency);
 
+// ------------------------------------------------- 6. Salud del negocio
+
+/// Cuanto hay que facturar por mes para que el negocio se pague solo.
+///
+/// No es "cuanto gasto": es cuanto ingreso hace falta para cubrir la estructura
+/// SABIENDO que cada peso facturado deja solo una parte. Con 40% de margen, una
+/// estructura de 100 no se cubre facturando 100 sino 250.
+struct BreakEven {
+    Money overheadPerMonth;  ///< estructura que ningun trabajo paga, por mes
+    int marginBps = 0;       ///< margen promedio de los trabajos, en puntos basicos
+    Money revenueNeeded;     ///< facturacion mensual para llegar a cero
+
+    /// true cuando no se puede calcular: sin trabajos con margen positivo, la
+    /// division no existe y cualquier numero que se muestre seria inventado.
+    [[nodiscard]] bool unknown() const noexcept { return marginBps <= 0; }
+};
+
+/// `periodMonths` reparte la estructura del rango entre esos meses.
+[[nodiscard]] BreakEven breakEven(const std::vector<Job>& jobs,
+                                  const std::vector<Movement>& movements,
+                                  Currency currency,
+                                  Date from,
+                                  Date to);
+
+/// Cuanto deja un trabajo en promedio y cuantos hubo. Sirve para saber si el
+/// problema es que cobras poco o que haces pocos, que tienen soluciones
+/// distintas.
+struct TicketStats {
+    int jobCount = 0;        ///< trabajos con actividad en el rango
+    Money averageIncome;     ///< facturacion promedio por trabajo
+    Money averageMargin;     ///< lo que deja cada uno, en promedio
+};
+
+[[nodiscard]] TicketStats ticketStats(const std::vector<Job>& jobs,
+                                      const std::vector<Movement>& movements,
+                                      Currency currency,
+                                      Date from,
+                                      Date to);
+
+/// Cuanto tardas en cobrar lo que entregaste.
+///
+/// Solo entran los ingresos con `settled == true` Y `settledDate` con valor
+/// —o sea, distinto de std::nullopt—. Los anotados antes de que existiera el
+/// campo no se cuentan: inventarles una fecha ensuciaria el promedio sin que
+/// nadie se entere.
+/// `sampled` dice sobre cuantos se calculo, para poder mostrar "sobre 3
+/// trabajos" y que el numero se lea con la desconfianza que merece.
+struct CollectionStats {
+    int sampled = 0;         ///< cuantos ingresos entraron en el promedio
+    int averageDays = 0;     ///< promedio, redondeado
+    int worstDays = 0;       ///< el que mas tardo
+    int uncollected = 0;     ///< entregados y todavia sin cobrar
+};
+
+[[nodiscard]] CollectionStats collectionStats(const std::vector<Movement>& movements,
+                                              Date from,
+                                              Date to);
+
 struct CategoryTotal {
     std::string category;
     Money total;

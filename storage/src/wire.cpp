@@ -102,6 +102,8 @@ namespace {
         {"job_id", qs(movement.jobId)},
         {"spread_months", movement.spreadMonths},
         {"settled", movement.settled},
+        {"settled_date", movement.settledDate ? qs(movement.settledDate->toIso())
+                                              : QString()},
         {"recurrence", QString::fromUtf8(recurrence.data(), static_cast<int>(recurrence.size()))},
         {"hlc", qs(movement.hlc)},
         {"device_id", qs(movement.deviceId)},
@@ -150,6 +152,14 @@ namespace {
     movement.jobId = ss(object.value("job_id"));
     movement.spreadMonths = object.value("spread_months").toInt(1);
     movement.settled = object.value("settled").toBool(true);
+    // Vacia = no se sabe. fromIso lanzaria con una cadena vacia, asi que se
+    // pregunta antes: un movimiento sin fecha de cobro es normal, no un error.
+    {
+        const std::string cobro = ss(object.value("settled_date"));
+        if (!cobro.empty()) {
+            movement.settledDate = core::Date::fromIso(cobro);
+        }
+    }
     movement.recurrence = core::recurrenceFromString(ss(object.value("recurrence")));
     movement.hlc = ss(object.value("hlc"));
     movement.deviceId = ss(object.value("device_id"));

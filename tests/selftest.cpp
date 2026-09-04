@@ -305,6 +305,135 @@ void diasEnSilencio() {
 /// EL CASO REAL. Los seis movimientos que hay de verdad en
 /// %APPDATA%\DakeLabs\Finanzas DakeLabs\finanzas.db, sin agregar ni quitar
 /// ninguno.
+void puntoDeEquilibrio() {
+    std::printf("\n-- punto de equilibrio --\n");
+
+    // Un trabajo que factura 1.000 y cuesta 600: deja 400, o sea 40% de margen.
+    std::vector<Job> jobs;
+    Job trabajo;
+    trabajo.id = "j";
+    trabajo.name = "Trabajo";
+    trabajo.opened = Date::fromIso("2026-08-01");
+    jobs.push_back(trabajo);
+
+    Movement cobro = income("i", "2026-08-10", 1000'00, "caja");
+    cobro.jobId = "j";
+    Movement costo = expense("g", "2026-08-11", 600'00, "caja");
+    costo.jobId = "j";
+    // Sin jobId: es estructura, no cuelga de ningun trabajo.
+    Movement alquiler = expense("e", "2026-08-05", 100'00, "caja");
+
+    const auto be = breakEven(jobs, {cobro, costo, alquiler}, kUsd,
+                              Date::fromIso("2026-08-01"), Date::fromIso("2026-08-31"));
+
+    checkMinor(be.overheadPerMonth.minor(), 100'00, "la estructura del mes son 100,00");
+    check(be.marginBps == 4000, "y el margen ponderado, 40%");
+    // 100 de estructura con 40% de margen NO se cubren facturando 100: hay que
+    // facturar 250, porque de cada peso quedan 40 centavos.
+    checkMinor(be.revenueNeeded.minor(), 250'00,
+               "hay que facturar 250,00 al mes para cubrirla, no 100,00");
+    check(!be.unknown(), "y el numero se puede saber");
+
+    const auto vacio = breakEven({}, {}, kUsd,
+                                 Date::fromIso("2026-08-01"), Date::fromIso("2026-08-31"));
+    check(vacio.unknown(), "sin trabajos, el punto de equilibrio se declara desconocido");
+    checkMinor(vacio.revenueNeeded.minor(), 0,
+               "y no se inventa un numero para llenar el hueco");
+}
+
+void margenPonderado() {
+    std::printf("\n-- el margen se pondera por facturacion --\n");
+
+    // Uno chico con margen enorme y uno grande con margen flaco. El promedio
+    // simple daria 47,5%; el ponderado, mucho menos. La diferencia decide si el
+    // punto de equilibrio esta bien o es una fantasia.
+    std::vector<Job> jobs;
+    for (const char* id : {"chico", "grande"}) {
+        Job j;
+        j.id = id;
+        j.name = id;
+        j.opened = Date::fromIso("2026-08-01");
+        jobs.push_back(j);
+    }
+
+    Movement ic = income("i1", "2026-08-10", 10'00, "caja");
+    ic.jobId = "chico";
+    Movement gc = expense("g1", "2026-08-10", 1'00, "caja");
+    gc.jobId = "chico";                      // 9,00 de 10,00 = 90%
+    Movement ig = income("i2", "2026-08-11", 1000'00, "caja");
+    ig.jobId = "grande";
+    Movement gg = expense("g2", "2026-08-11", 950'00, "caja");
+    gg.jobId = "grande";                     // 50,00 de 1000,00 = 5%
+
+    const auto be = breakEven(jobs, {ic, gc, ig, gg}, kUsd,
+                              Date::fromIso("2026-08-01"), Date::fromIso("2026-08-31"));
+    // (9 + 50) / (10 + 1000) = 5,84%. El promedio simple diria 47,5%.
+    check(be.marginBps == 584, "el margen ponderado es 5,84% y no el 47,5% del promedio simple");
+}
+
+void ticketPromedio() {
+    std::printf("\n-- ticket promedio --\n");
+
+    std::vector<Job> jobs;
+    for (const char* id : {"a", "b"}) {
+        Job j;
+        j.id = id;
+        j.name = id;
+        j.opened = Date::fromIso("2026-08-01");
+        jobs.push_back(j);
+    }
+    Movement i1 = income("i1", "2026-08-10", 100'00, "caja");
+    i1.jobId = "a";
+    Movement i2 = income("i2", "2026-08-11", 300'00, "caja");
+    i2.jobId = "b";
+
+    const auto stats = ticketStats(jobs, {i1, i2}, kUsd,
+                                   Date::fromIso("2026-08-01"), Date::fromIso("2026-08-31"));
+    check(stats.jobCount == 2, "dos trabajos con actividad en el mes");
+    checkMinor(stats.averageIncome.minor(), 200'00, "y un ticket promedio de 200,00");
+
+    const auto vacio = ticketStats({}, {}, kUsd,
+                                   Date::fromIso("2026-08-01"), Date::fromIso("2026-08-31"));
+    check(vacio.jobCount == 0, "sin trabajos, cero");
+    checkMinor(vacio.averageIncome.minor(), 0, "y ningun promedio dividido por cero");
+}
+
+void diasDeCobro() {
+    std::printf("\n-- dias de cobro --\n");
+
+    Movement rapido = income("r", "2026-08-01", 100'00, "caja");
+    rapido.settled = true;
+    rapido.settledDate = Date::fromIso("2026-08-06");    // 5 dias
+
+    Movement lento = income("l", "2026-08-01", 100'00, "caja");
+    lento.settled = true;
+    lento.settledDate = Date::fromIso("2026-08-16");     // 15 dias
+
+    // Cobrado, pero de antes de que existiera el campo: no se sabe cuando.
+    Movement viejo = income("v", "2026-08-01", 100'00, "caja");
+    viejo.settled = true;
+
+    // Entregado y todavia sin cobrar.
+    Movement pendiente = income("p", "2026-08-02", 100'00, "caja");
+    pendiente.settled = false;
+
+    const auto stats = collectionStats({rapido, lento, viejo, pendiente},
+                                       Date::fromIso("2026-08-01"), Date::fromIso("2026-08-31"));
+
+    check(stats.sampled == 2, "solo promedia los dos que tienen fecha de cobro");
+    check(stats.averageDays == 10, "el promedio son 10 dias");
+    check(stats.worstDays == 15, "y el que mas tardo, 15");
+    check(stats.uncollected == 1, "queda uno entregado y sin cobrar");
+
+    // El de fecha desconocida NO vale cero dias: eso bajaria el promedio a 6,67
+    // y nadie entenderia por que el numero mejora al anotar cosas viejas.
+    check(stats.averageDays != 7, "y el de fecha desconocida no cuenta como cobrado al instante");
+
+    const auto vacio = collectionStats({}, Date::fromIso("2026-08-01"),
+                                       Date::fromIso("2026-08-31"));
+    check(vacio.sampled == 0 && vacio.averageDays == 0, "sin datos, cero y sin dividir por cero");
+}
+
 void elCasoDeAgosto() {
     std::printf("\n-- el caso real de agosto de 2026 --\n");
 
@@ -398,6 +527,10 @@ int main() {
     avisos();
     formatoDeCifras();
     diasEnSilencio();
+    puntoDeEquilibrio();
+    margenPonderado();
+    ticketPromedio();
+    diasDeCobro();
     elCasoDeAgosto();
     elCasoCompleto();
 

@@ -5,6 +5,8 @@
 #include <QSqlDatabase>
 #include <QSqlError>
 #include <QSqlQuery>
+
+#include <algorithm>
 #include <QStandardPaths>
 #include <QStringList>
 #include <QUuid>
@@ -12,7 +14,22 @@
 namespace dake::storage {
 namespace {
 
-constexpr int kTargetVersion = 1;
+constexpr int kTargetVersion = 2;
+
+// Pasos que NO alcanza con volver a correr el esquema.
+//
+// kSchemaV1 usa CREATE TABLE IF NOT EXISTS, asi que sobre una base que ya
+// existe no agrega ni una columna: la tabla esta, y el IF NOT EXISTS la deja
+// como esta. Una columna nueva necesita su ALTER, y por eso existe esta lista.
+//
+// El indice es la version DESDE la que se sube: kUpgrades[0] lleva de la 1 a
+// la 2. Cada paso tiene que poder correr sobre una base ya usada, con datos
+// adentro, sin perder ninguno.
+constexpr const char* kUpgrades[] = {
+    // 1 -> 2: cuando se cobro o se pago. Vacia en todo lo ya anotado, que es
+    // la verdad: de esos movimientos no sabemos la fecha.
+    "ALTER TABLE movements ADD COLUMN settled_date TEXT NOT NULL DEFAULT ''",
+};
 
 [[nodiscard]] QString describe(const QSqlQuery& query) {
     return query.lastError().text() + QStringLiteral(" [") + query.lastQuery() +
@@ -60,6 +77,10 @@ CREATE TABLE IF NOT EXISTS movements (
     job_id           TEXT NOT NULL DEFAULT '',
     spread_months    INTEGER NOT NULL DEFAULT 1,
     settled          INTEGER NOT NULL DEFAULT 1,
+    -- Cuando se cobro o se pago. Cadena vacia = no se sabe, que es lo que vale
+    -- para todo lo anotado antes de que existiera esta columna. El promedio de
+    -- dias de cobro saltea las vacias en vez de inventarles una fecha.
+    settled_date     TEXT NOT NULL DEFAULT '',
     recurrence       TEXT NOT NULL DEFAULT 'Puntual',
     hlc              TEXT NOT NULL DEFAULT '',
     device_id        TEXT NOT NULL DEFAULT '',
@@ -187,6 +208,24 @@ void Database::applyMigrations() {
         }
         QSqlQuery step(*db_);
         if (!step.exec(trimmed)) {
+            db_->rollback();
+            throw StorageError(QStringLiteral("Fallo la migracion: ") + describe(step));
+        }
+    }
+
+    // Los ALTER van DESPUES del esquema: sobre una base nueva las tablas recien
+    // se acaban de crear con la columna incluida, asi que el ALTER falla con
+    // "duplicate column name" y hay que dejarlo pasar. Sobre una base vieja es
+    // al reves y el ALTER es justamente lo que hace falta.
+    // Desde 1 y no desde `current`: una base recien creada viene con
+    // user_version 0, y kUpgrades[0 - 1] lee fuera del arreglo. Ademas no le
+    // hace falta ningun ALTER, porque el esquema que se acaba de correr ya
+    // trae todas las columnas.
+    for (int from = std::max(current, 1); from < kTargetVersion; ++from) {
+        QSqlQuery step(*db_);
+        const QString sql = QString::fromUtf8(kUpgrades[from - 1]);
+        if (!step.exec(sql) && !step.lastError().text().contains(QStringLiteral("duplicate column"),
+                                                                 Qt::CaseInsensitive)) {
             db_->rollback();
             throw StorageError(QStringLiteral("Fallo la migracion: ") + describe(step));
         }
