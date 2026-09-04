@@ -22,7 +22,12 @@
 -- traspaso, y sin traspaso "saque del ahorro para comprar material" no se
 -- puede escribir.
 create table if not exists public.v2_pockets (
-    id            uuid primary key,
+    -- El id es TEXTO, no uuid. El modelo local define Id como una cadena
+    -- opaca, y la siembra usa ids legibles como 'p-caja' o 'm-01' que se leen
+    -- en una consulta sin tener que cruzarlos con nada. Declararlo uuid
+    -- impondria del lado del servidor una restriccion que la aplicacion nunca
+    -- tuvo, y el rechazo llega como 22P02 sobre el lote entero.
+    id            text primary key,
     user_id       uuid not null references auth.users(id) on delete cascade,
 
     name          text        not null,
@@ -44,7 +49,7 @@ create table if not exists public.v2_pockets (
 -- 2. Trabajos
 -- ------------------------------------------------------------
 create table if not exists public.v2_jobs (
-    id         uuid primary key,
+    id         text primary key,
     user_id    uuid not null references auth.users(id) on delete cascade,
 
     name       text        not null,
@@ -63,7 +68,7 @@ create table if not exists public.v2_jobs (
 -- 3. Movimientos
 -- ------------------------------------------------------------
 create table if not exists public.v2_movements (
-    id               uuid primary key,
+    id               text primary key,
     user_id          uuid not null references auth.users(id) on delete cascade,
 
     date             date        not null,
@@ -71,18 +76,21 @@ create table if not exists public.v2_movements (
     kind             text        not null check (kind in ('Ingreso', 'Gasto', 'Traspaso')),
     amount_minor     bigint      not null,
 
-    -- De donde sale la plata y, si es traspaso, a donde va.
+    -- De donde sale la plata y, si es traspaso, a donde va. Cadena vacia
+    -- cuando no hay, igual que en el modelo local: asi el dato viaja identico
+    -- por la nube y por el archivo de exportar, sin traducciones a null que
+    -- haya que acordarse de hacer en los dos sentidos.
     --
     -- Sin FOREIGN KEY a proposito. Las filas llegan por sincronizacion y no hay
     -- garantia de orden entre dos equipos: si un movimiento llegara antes que
     -- su bolsillo, una clave foranea lo rechazaria y ese movimiento se perderia
     -- para siempre. El orden lo cuida el cliente, que sube y baja bolsillos,
     -- despues trabajos y despues movimientos.
-    pocket_id        uuid        not null,
-    target_pocket_id uuid,
+    pocket_id        text        not null,
+    target_pocket_id text        not null default '',
 
     category         text        not null default '',
-    job_id           uuid,
+    job_id           text        not null default '',
 
     -- En cuantos meses se reparte el costo. Cuatro kilos de filamento mueven la
     -- caja hoy y el resultado durante cuatro meses.
