@@ -74,6 +74,38 @@ namespace {
     return fallback;
 }
 
+/// Traduce los fallos de autenticacion mas comunes a algo accionable.
+///
+/// Supabase contesta "Invalid login credentials" para TODO: contrasena
+/// equivocada, correo con un espacio de mas, y tambien para una cuenta que
+/// nunca fijo una contrasena porque se creo con un enlace por correo. Ese
+/// mensaje, ademas de estar en ingles, no le dice al usuario que hacer, y el
+/// tercer caso es invisible: uno prueba su contrasena de siempre, falla, y
+/// concluye que el programa esta roto.
+[[nodiscard]] QString explicar(const QString& crudo) {
+    const QString bajo = crudo.toLower();
+
+    if (bajo.contains(QLatin1String("invalid login credentials")) ||
+        bajo.contains(QLatin1String("invalid_credentials"))) {
+        return QStringLiteral(
+            "El correo o la contrasena no coinciden.\n\n"
+            "Si creaste la cuenta con un enlace por correo, puede que nunca "
+            "hayas fijado una contrasena. Se pone desde el panel de Supabase: "
+            "Authentication > Users > tu usuario > Reset password.");
+    }
+    if (bajo.contains(QLatin1String("email not confirmed"))) {
+        return QStringLiteral(
+            "La cuenta existe pero el correo no esta confirmado. Buscá el "
+            "mensaje de Supabase en tu bandeja y abrí el enlace.");
+    }
+    if (bajo.contains(QLatin1String("over_email_send_rate")) ||
+        bajo.contains(QLatin1String("rate limit"))) {
+        return QStringLiteral("Demasiados intentos seguidos. Esperá un minuto y "
+                              "volvé a probar.");
+    }
+    return crudo;
+}
+
 } // namespace
 
 SupabaseClient::SupabaseClient(SupabaseConfig config, QObject* parent)
@@ -201,7 +233,7 @@ void SupabaseClient::handleTokenReply(QNetworkReply* reply, const QString& failu
             const QString detail =
                 status == 0 ? reply->errorString()
                             : errorMessage(body, QStringLiteral("HTTP %1").arg(status));
-            emit authFailed(failureContext + QStringLiteral(": ") + detail);
+            emit authFailed(failureContext + QStringLiteral(": ") + explicar(detail));
             return;
         }
 

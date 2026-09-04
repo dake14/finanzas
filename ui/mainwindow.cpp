@@ -420,7 +420,11 @@ void MainWindow::toggleSignIn() {
         return;
     }
 
-    supabase_->signInWithPassword(email, pwd);
+    // trimmed() en el correo: un espacio al final, que es trivial al escribir o
+    // al pegar, da exactamente el mismo "invalid login credentials" que una
+    // contrasena equivocada, y no hay forma de que el usuario lo note. La
+    // contrasena NO se toca: un espacio ahi puede ser parte de la contrasena.
+    supabase_->signInWithPassword(email.trimmed(), pwd);
 }
 
 void MainWindow::syncNow() {

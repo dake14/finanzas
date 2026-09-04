@@ -41,7 +41,20 @@ Se va a ir llenando a medida que edites movimientos y marques cuándo cobraste.
 Preferí eso antes que rellenar con la fecha de hoy, que te habría dado un
 promedio inventado desde el primer día.
 
-**4. Probar en el teléfono de verdad.** Es lo único que no puedo verificar: el
+**4. Si no podés conectarte con tu usuario y contraseña**, lo más probable es
+que la cuenta nunca haya tenido una contraseña: si la creaste con un enlace por
+correo, Supabase no fija ninguna, y probar la de siempre falla con
+"credenciales inválidas" sin decir por qué.
+
+Se arregla en el panel: **Authentication → Users → tu usuario → Reset password**.
+Ahí le ponés una y con esa entrás desde las dos aplicaciones.
+
+Comprobado el 2026-09-04: el servidor responde `invalid_credentials` a una
+contraseña equivocada —no "email sin confirmar" ni un error de formato—, así
+que la cuenta existe, está confirmada y el login funciona. Lo único que no
+coincide es la contraseña.
+
+**5. Probar en el teléfono de verdad.** Es lo único que no puedo verificar: el
 render offscreen no dibuja las barras del sistema ni el teclado.
 
 ---
