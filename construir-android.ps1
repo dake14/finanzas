@@ -45,7 +45,11 @@ $build = Join-Path $raiz "build\android"
 
 if ($Limpiar -and (Test-Path $build)) {
     Write-Output "Borrando $build"
-    Remove-Item $build -Recurse -Force
+    # El prefijo \\?\ es obligatorio aca. Gradle genera rutas de mas de 260
+    # caracteres (los "bucket_0/graph.bin" del desugar) y sin el prefijo
+    # Remove-Item se planta a mitad de camino con "Could not find a part of the
+    # path", dejando el arbol borrado por la mitad.
+    Remove-Item -LiteralPath "\\?\$build" -Recurse -Force
 }
 
 Write-Output "== Configurando =="

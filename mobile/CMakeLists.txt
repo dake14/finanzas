@@ -90,7 +90,16 @@ if(ANDROID)
         # 24 es Android 7. Por debajo de eso Qt 6.8 no corre, y arriba de esa
         # version esta practicamente todo lo que sigue encendido.
         QT_ANDROID_MIN_SDK_VERSION 24
-        QT_ANDROID_TARGET_SDK_VERSION 35
+        # 34 y no 35 a proposito. Apuntando a 35 (Android 15) el borde a borde
+        # es obligatorio: la aplicacion se dibuja POR DEBAJO de las barras del
+        # sistema y la barra de navegacion de Samsung tapa las pestanas de
+        # abajo. Pasado a mano en el telefono. Con 34 el sistema vuelve a
+        # reservar ese espacio el solo.
+        #
+        # Subir esto a 35 exige antes respetar los margenes reales de Android,
+        # que Qt 6.8 no expone (SafeArea llego en 6.9). Play pediria 35, pero
+        # esta aplicacion se instala a mano y no se publica.
+        QT_ANDROID_TARGET_SDK_VERSION 34
     )
 
     # La carpeta con el manifiesto y los iconos. Se genera con

@@ -1,0 +1,88 @@
+<?xml version="1.0"?>
+<!--
+  AndroidManifest.xml — el manifiesto propio de la aplicacion del telefono.
+
+  Existe por dos razones concretas, las dos verificadas sobre un APK ya
+  instalado:
+
+  1. Sin este archivo, `mobile/CMakeLists.txt` no define
+     QT_ANDROID_PACKAGE_SOURCE_DIR, y entonces Qt ignora TODA la carpeta
+     `mobile/android/`. Los iconos de `res/` no entraban al paquete y la
+     aplicacion se instalaba con el logo de Qt.
+
+  2. La etiqueta salia "dake_movil", el nombre del target de CMake. Aca el
+     nombre esta escrito a mano y es el que se ve abajo del icono.
+
+  Se mantiene la plantilla de Qt como base, con sus marcadores INSERT, que
+  androiddeployqt reemplaza al empaquetar. Tocar solo lo que hace falta; lo
+  demas es la plantilla tal cual la trae Qt 6.8.
+
+  OJO al editar: dentro de un comentario XML no pueden ir dos guiones seguidos.
+  Escribir aca un marcador tal cual aparece abajo rompe el archivo, y el error
+  que da androiddeployqt es "Expected '>', but got ' '", que no ayuda nada.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="org.qtproject.example"
+    android:installLocation="auto"
+    android:versionCode="-- %%INSERT_VERSION_CODE%% --"
+    android:versionName="-- %%INSERT_VERSION_NAME%% --">
+
+    <!--
+      Aca la plantilla de Qt trae el marcador INSERT_PERMISSIONS, que hace
+      que androiddeployqt agregue INTERNET, ACCESS_NETWORK_STATE y
+      WRITE_EXTERNAL_STORAGE. El marcador esta sacado a proposito: el banco de
+      pruebas no tiene capa de sincronizacion y guarda su base en el
+      almacenamiento privado de la aplicacion, asi que no usa ninguno de los
+      tres. Una aplicacion que pide acceso a internet y a los archivos sin
+      necesitarlo es una promesa que no puede cumplir.
+
+      Si algun dia se le agrega la nube, el permiso de INTERNET vuelve aca
+      escrito a mano.
+    -->
+    <!-- %%INSERT_FEATURES -->
+
+    <supports-screens
+        android:anyDensity="true"
+        android:largeScreens="true"
+        android:normalScreens="true"
+        android:smallScreens="true" />
+
+    <application
+        android:name="org.qtproject.qt.android.bindings.QtApplication"
+        android:hardwareAccelerated="true"
+        android:label="Finanzas"
+        android:icon="@mipmap/ic_launcher"
+        android:requestLegacyExternalStorage="true"
+        android:allowBackup="true"
+        android:fullBackupOnly="false">
+        <activity
+            android:name="org.qtproject.qt.android.bindings.QtActivity"
+            android:configChanges="orientation|uiMode|screenLayout|screenSize|smallestScreenSize|layoutDirection|locale|fontScale|keyboard|keyboardHidden|navigation|mcc|mnc|density"
+            android:launchMode="singleTop"
+            android:screenOrientation="unspecified"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+          <meta-data
+                android:name="android.app.lib_name"
+                android:value="-- %%INSERT_APP_LIB_NAME%% --" />
+
+          <meta-data
+                android:name="android.app.arguments"
+                android:value="-- %%INSERT_APP_ARGUMENTS%% --" />
+        </activity>
+
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.qtprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/qtprovider_paths"/>
+        </provider>
+    </application>
+</manifest>
