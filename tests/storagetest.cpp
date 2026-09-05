@@ -249,6 +249,37 @@ int main(int argc, char** argv) {
         check(repository.loadMovements().size() == 10, "con el caso completo otra vez");
     }
 
+    // --- Borrar todo SI viaja ---------------------------------------------
+    //
+    // La diferencia con wipe() es la unica que importa: deleteEverything deja
+    // lapida y encola, asi que el borrado llega al otro aparato. Un borrado que
+    // no encola se ve igual de bien en esta maquina y no borra nada en la otra,
+    // y eso no se nota hasta que se abre el telefono.
+    {
+        storage::Database db(path + QStringLiteral(".borrado"));
+        storage::Repository repository(db);
+        repository.seedIfEmpty(currency);
+        std::vector<qint64> yaSubidos;
+        for (const auto& fila : repository.pendingOutbox(1000)) {
+            yaSubidos.push_back(fila.rowId);
+        }
+        repository.markOutboxSent(yaSubidos);
+        checkMinor(repository.pendingOutboxCount(), 0, "la cola arranca limpia");
+
+        const std::size_t vivos = repository.loadPockets().size() +
+                                  repository.loadJobs().size() +
+                                  repository.loadMovements().size();
+        const std::size_t borrados = repository.deleteEverything();
+
+        checkMinor(static_cast<int>(borrados), static_cast<int>(vivos),
+                   "devuelve cuantos borro");
+        check(repository.loadMovements().empty(), "no queda ningun movimiento a la vista");
+        check(repository.loadJobs().empty(), "ni trabajos");
+        check(repository.loadPockets().empty(), "ni bolsillos");
+        checkMinor(repository.pendingOutboxCount(), static_cast<int>(vivos),
+                   "y cada uno dejo su fila para subir");
+    }
+
     std::printf("\n%s\n", gFailures == 0 ? "Todo pasa." : "HAY FALLAS.");
     return gFailures == 0 ? 0 : 1;
 }

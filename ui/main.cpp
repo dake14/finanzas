@@ -22,7 +22,7 @@ int main(int argc, char** argv) {
     } catch (const std::exception& error) {
         // Un fallo al abrir o migrar la base tiene que verse, no morir en
         // silencio dejando una ventana que nunca aparece.
-        QMessageBox::critical(nullptr, QStringLiteral("Banco de pruebas"),
+        QMessageBox::critical(nullptr, QStringLiteral("Finanzas DakeLabs"),
                               QStringLiteral("No se pudo abrir la base:\n\n%1")
                                   .arg(QString::fromUtf8(error.what())));
         return 1;

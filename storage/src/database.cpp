@@ -1,6 +1,8 @@
 #include "dake/storage/database.hpp"
 
+#include <QDateTime>
 #include <QDir>
+#include <QFile>
 #include <QFileInfo>
 #include <QSqlDatabase>
 #include <QSqlError>
@@ -15,6 +17,49 @@ namespace dake::storage {
 namespace {
 
 constexpr int kTargetVersion = 2;
+
+/// Copia la base a un `.bak` fechado antes de tocarle el esquema.
+///
+/// Una migracion corre una sola vez sobre datos que no estan en ningun otro
+/// lado, y si sale mal en la mitad no hay a que volver: la transaccion protege
+/// de una migracion incompleta, no de una migracion completa y equivocada.
+/// Veinte lineas de copia valen mas que cualquier cuidado al escribir el ALTER.
+///
+/// El nombre lleva la version DESDE la que se sube y la fecha, para que dos
+/// migraciones el mismo dia no se pisen:
+///     finanzas-v2.db  ->  finanzas-v2.db.v1-20260904-193000.bak
+///
+/// Si la copia falla, la migracion NO sigue: preferimos una base vieja y
+/// entera a una nueva sin respaldo.
+///
+/// CONTRATO — el cuerpo va aca y nada mas que aca.
+///   - Si `dbPath` esta vacio o el archivo no existe, volver sin hacer nada:
+///     una base recien creada no tiene nada que respaldar.
+///   - Armar el destino como se describe arriba, con
+///     QDateTime::currentDateTime().toString("yyyyMMdd-HHmmss").
+///   - Copiar con QFile::copy. Si el destino ya existe, borrarlo antes con
+///     QFile::remove (dos migraciones en el mismo segundo).
+///   - Si QFile::copy devuelve false, lanzar StorageError con el texto
+///     "No se pudo respaldar la base antes de migrar: " + el destino.
+///
+/// Dependencias permitidas: QFile, QFileInfo, QDateTime, QString. QFile y
+/// QDateTime hay que incluirlos; QFileInfo ya esta.
+void backupBeforeUpgrade(const QString& dbPath, int fromVersion) {
+    if (dbPath.isEmpty() || !QFile::exists(dbPath)) {
+        return;
+    }
+
+    const QString timestamp = QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMdd-HHmmss"));
+    const QString dest = QStringLiteral("%1.v%2-%3.bak").arg(dbPath).arg(fromVersion).arg(timestamp);
+
+    if (QFile::exists(dest)) {
+        QFile::remove(dest);
+    }
+
+    if (!QFile::copy(dbPath, dest)) {
+        throw StorageError(QStringLiteral("No se pudo respaldar la base antes de migrar: ") + dest);
+    }
+}
 
 // Pasos que NO alcanza con volver a correr el esquema.
 //
@@ -191,6 +236,14 @@ void Database::applyMigrations() {
     }
     if (current == kTargetVersion) {
         return;
+    }
+
+    // El respaldo va aca y no adentro de la transaccion: copiar el archivo
+    // mientras SQLite tiene una transaccion abierta encima copiaria un estado
+    // a medias. `current >= 1` deja afuera la base recien creada, que no tiene
+    // nada que respaldar.
+    if (current >= 1) {
+        backupBeforeUpgrade(path(), current);
     }
 
     if (!db_->transaction()) {

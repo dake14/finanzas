@@ -8,6 +8,8 @@
 //
 #include <QMainWindow>
 #include <memory>
+#include <optional>
+#include <string>
 
 #include "dake/storage/database.hpp"
 #include "dake/storage/repository.hpp"
@@ -41,7 +43,18 @@ private slots:
     void reconcile(const dake::core::Id& pocketId);
     void editMovement(const dake::core::Id& movementId);
     void toggleJob(const dake::core::Id& jobId);
-    void resetToSeed();
+
+    /// Borra bolsillos, trabajos y movimientos, con lapida y encolado, previo
+    /// aviso que nombra el archivo y dice que tambien desaparecen del telefono.
+    void deleteEverything();
+
+    /// Deshace el ultimo cambio hecho en esta maquina: un movimiento anotado se
+    /// borra, uno editado o borrado vuelve como estaba.
+    ///
+    /// Un solo nivel. Encadenar deshaceres obliga a llevar una pila que
+    /// tambien habria que reconciliar con lo que baja del servidor, y el error
+    /// que se comete de verdad es el ultimo, no el quinto hacia atras.
+    void undoLast();
 
     // --- Nube --------------------------------------------------------------
     //
@@ -71,6 +84,15 @@ private:
 
     /// Vence el temporizador. Sincroniza si hay sesion y el motor esta libre.
     void runAutoSync();
+
+    /// Pone hlc y deviceId de este equipo sobre un registro que YA tiene id.
+    /// stamp() sirve para lo que nace; esto, para lo que vuelve o se corrige.
+    void restamp(std::string& hlc, std::string& deviceId);
+
+    /// Guarda que deshacer. `previo` vacio significa que el registro no existia
+    /// antes del cambio, y entonces deshacer es borrarlo.
+    void rememberUndo(const std::optional<dake::core::Movement>& previo,
+                      const dake::core::Movement& despues, const QString& que);
     void showPage(int index);
     [[nodiscard]] core::Id stamp(std::string& hlc, std::string& deviceId);
 
@@ -95,6 +117,22 @@ private:
     /// Sirve para una sola cosa: que un fallo de sesion no abra un cuadro de
     /// dialogo encima de alguien que esta anotando y no pidio nada.
     bool lastSyncWasAutomatic_ = false;
+
+    /// Repetitivo, cada diez minutos. El de arriba cubre lo que escribis vos;
+    /// este cubre lo que escribiste en el TELEFONO, que de otro modo no
+    /// aparece hasta que toques algo aca.
+    QTimer* periodicSyncTimer_ = nullptr;
+
+    /// El estado anterior del ultimo movimiento tocado. Vacio si no hay nada
+    /// que deshacer, o si lo ultimo fue crearlo —eso lo dice undoWasCreate_—.
+    std::optional<dake::core::Movement> undoBefore_;
+
+    /// El movimiento tal como quedo. Es lo que hay que borrar si lo ultimo fue
+    /// una creacion.
+    std::optional<dake::core::Movement> undoAfter_;
+
+    /// Que decir en el aviso: "Se deshizo: <esto>".
+    QString undoLabel_;
 
     Snapshot snapshot_;
 

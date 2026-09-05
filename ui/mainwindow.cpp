@@ -40,6 +40,12 @@ core::HlcClock& clock(const std::string& deviceId) {
 /// quien anota una sola cosa y cierra la aplicacion.
 constexpr int kAutoSyncDelayMs = 5000;
 
+/// Cada cuanto se mira el servidor sin que pase nada aca. Diez minutos: lo que
+/// se anota en el telefono no es urgente —nadie mira las dos pantallas a la
+/// vez— y una consulta cada diez minutos no se nota ni en la red ni en la
+/// cuota del proyecto.
+constexpr int kPeriodicSyncMs = 10 * 60 * 1000;
+
 [[nodiscard]] QPushButton* navButton(const QString& text, QWidget* parent) {
     auto* button = new QPushButton(text, parent);
     button->setCheckable(true);
@@ -62,10 +68,9 @@ MainWindow::MainWindow(const QString& dbPath, QWidget* parent) : QMainWindow(par
     snapshot_.today = core::Date::fromYmd(now.year(), static_cast<unsigned>(now.month()),
                                           static_cast<unsigned>(now.day()));
 
-    // Un banco de pruebas que arranca en blanco no se puede evaluar: no hay
-    // contra que comparar. Se siembra el caso real de agosto, y el boton de
-    // "volver a foja cero" esta a la vista para empezar de nuevo cuando se
-    // quiera.
+    // Solo corre sobre una base sin un solo movimiento, o sea en la primera
+    // apertura. Sobre datos existentes no hace nada, asi que no puede pisar lo
+    // anotado ni cuando se sincroniza.
     repository_->seedIfEmpty(snapshot_.currency);
 
     supabase_ = std::make_unique<sync::SupabaseClient>(sync::SupabaseConfig::load(), this);
@@ -109,6 +114,11 @@ MainWindow::MainWindow(const QString& dbPath, QWidget* parent) : QMainWindow(par
     autoSyncTimer_->setInterval(kAutoSyncDelayMs);
     connect(autoSyncTimer_, &QTimer::timeout, this, &MainWindow::runAutoSync);
 
+    periodicSyncTimer_ = new QTimer(this);
+    periodicSyncTimer_->setInterval(kPeriodicSyncMs);
+    connect(periodicSyncTimer_, &QTimer::timeout, this, &MainWindow::runAutoSync);
+    periodicSyncTimer_->start();
+
     buildUi();
     reload();
 
@@ -120,16 +130,27 @@ MainWindow::MainWindow(const QString& dbPath, QWidget* parent) : QMainWindow(par
 
 MainWindow::~MainWindow() = default;
 
-core::Id MainWindow::stamp(std::string& hlc, std::string& deviceId) {
+void MainWindow::restamp(std::string& hlc, std::string& deviceId) {
     hlc = clock(deviceId_.toStdString()).now(QDateTime::currentMSecsSinceEpoch()).encode();
     deviceId = deviceId_.toStdString();
+}
+
+core::Id MainWindow::stamp(std::string& hlc, std::string& deviceId) {
+    restamp(hlc, deviceId);
     return storage::newId();
+}
+
+void MainWindow::rememberUndo(const std::optional<core::Movement>& previo,
+                              const core::Movement& despues, const QString& que) {
+    undoBefore_ = previo;
+    undoAfter_ = despues;
+    undoLabel_ = que;
 }
 
 // --------------------------------------------------------------------- UI
 
 void MainWindow::buildUi() {
-    setWindowTitle(QStringLiteral("Banco de pruebas · Finanzas DakeLabs"));
+    setWindowTitle(QStringLiteral("Finanzas DakeLabs"));
     resize(1240, 860);
     setStyleSheet(theme::styleSheet());
 
@@ -179,6 +200,9 @@ void MainWindow::buildUi() {
     auto* syncShortcut = new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_S), this);
     connect(syncShortcut, &QShortcut::activated, this, &MainWindow::syncNow);
 
+    auto* undoShortcut = new QShortcut(QKeySequence::Undo, this);
+    connect(undoShortcut, &QShortcut::activated, this, &MainWindow::undoLast);
+
     showPage(0);
 }
 
@@ -187,12 +211,12 @@ void MainWindow::buildSidebar(QWidget* parent) {
     layout->setContentsMargins(16, 22, 16, 18);
     layout->setSpacing(6);
 
-    auto* brand = new QLabel(QStringLiteral("Banco de pruebas"), parent);
+    auto* brand = new QLabel(QStringLiteral("Finanzas"), parent);
     brand->setFont(theme::displayFont(14, QFont::Bold));
     theme::setLabelColor(brand, theme::kText);
     layout->addWidget(brand);
 
-    auto* subtitle = new QLabel(QStringLiteral("Finanzas DakeLabs"), parent);
+    auto* subtitle = new QLabel(QStringLiteral("DakeLabs"), parent);
     subtitle->setFont(theme::bodyFont(9));
     theme::setLabelColor(subtitle, theme::kAccent);
     layout->addWidget(subtitle);
@@ -231,11 +255,12 @@ void MainWindow::buildSidebar(QWidget* parent) {
 
     layout->addSpacing(18);
 
-    auto* reset = new QPushButton(QStringLiteral("Volver al caso de agosto"), parent);
+    auto* reset = new QPushButton(QStringLiteral("Borrar todo"), parent);
     reset->setCursor(Qt::PointingHandCursor);
     reset->setFont(theme::bodyFont(9));
-    reset->setToolTip(QStringLiteral("Borra todo y vuelve a cargar el caso de prueba."));
-    connect(reset, &QPushButton::clicked, this, &MainWindow::resetToSeed);
+    reset->setToolTip(QStringLiteral("Borra tus bolsillos, trabajos y movimientos, "
+                                     "acá y en el teléfono."));
+    connect(reset, &QPushButton::clicked, this, &MainWindow::deleteEverything);
     layout->addWidget(reset);
 
     footer_ = new QLabel(parent);
@@ -262,7 +287,7 @@ void MainWindow::reload() {
     movements_->setSnapshot(snapshot_);
     pockets_->setSnapshot(snapshot_);
 
-    footer_->setText(QStringLiteral("Base de pruebas, separada de la real:\n") + db_->path());
+    footer_->setText(db_->path());
 }
 
 // ---------------------------------------------------------------- Acciones
@@ -277,6 +302,8 @@ void MainWindow::addMovement(const core::Movement& draft) {
                               QString::fromUtf8(error.what()));
         return;
     }
+    rememberUndo(std::nullopt, movement,
+                 QStringLiteral("anotar «%1»").arg(QString::fromStdString(movement.name)));
     afterLocalChange();
 }
 
@@ -381,14 +408,17 @@ void MainWindow::editMovement(const core::Id& movementId) {
     }
 
     if (editor.wasDeleted()) {
-        repository_->remove(*it);
+        const core::Movement borrado = *it;
+        repository_->remove(borrado);
+        rememberUndo(borrado, borrado,
+                     QStringLiteral("borrar «%1»").arg(QString::fromStdString(borrado.name)));
         afterLocalChange();
         return;
     }
 
+    const core::Movement previo = *it;
     core::Movement updated = editor.result();
-    updated.hlc = clock(deviceId_.toStdString()).now(QDateTime::currentMSecsSinceEpoch()).encode();
-    updated.deviceId = deviceId_.toStdString();
+    restamp(updated.hlc, updated.deviceId);
     try {
         repository_->save(updated);
     } catch (const std::exception& error) {
@@ -396,22 +426,40 @@ void MainWindow::editMovement(const core::Id& movementId) {
                               QString::fromUtf8(error.what()));
         return;
     }
+    rememberUndo(previo, updated,
+                 QStringLiteral("editar «%1»").arg(QString::fromStdString(updated.name)));
     afterLocalChange();
 }
 
-void MainWindow::resetToSeed() {
+void MainWindow::deleteEverything() {
+    // El aviso nombra el archivo y el telefono a proposito. La version
+    // anterior de este boton decia que la base real no se tocaba —cierto
+    // cuando esto era un banco de pruebas, falso desde que es la aplicacion— y
+    // un aviso que tranquiliza sobre algo que ya no es verdad es peor que no
+    // tener aviso.
     const auto answer = QMessageBox::warning(
-        this, QStringLiteral("Volver al caso de agosto"),
-        QStringLiteral("Esto borra todo lo cargado en el banco de pruebas y vuelve a poner el "
-                       "caso de agosto de 2026.\n\nLa base de la aplicacion real no se toca: "
-                       "es otro archivo."),
+        this, QStringLiteral("Borrar todo"),
+        QStringLiteral("Esto borra TODOS tus bolsillos, trabajos y movimientos.\n\n"
+                       "%1\n\n"
+                       "El borrado se sincroniza: también desaparecen del teléfono y "
+                       "del servidor la próxima vez que se conecten. No hay forma de "
+                       "deshacerlo desde la aplicación.")
+            .arg(db_->path()),
         QMessageBox::Yes | QMessageBox::Cancel, QMessageBox::Cancel);
     if (answer != QMessageBox::Yes) {
         return;
     }
-    repository_->wipe();
-    repository_->seedIfEmpty(snapshot_.currency);
-    afterLocalChange();
+
+    try {
+        const std::size_t borrados = repository_->deleteEverything();
+        afterLocalChange();
+        QMessageBox::information(this, QStringLiteral("Borrado"),
+                                 QStringLiteral("Se borraron %1 registros.")
+                                     .arg(borrados));
+    } catch (const std::exception& error) {
+        QMessageBox::critical(this, QStringLiteral("No se pudo borrar"),
+                              QString::fromUtf8(error.what()));
+    }
 }
 
 // -------------------------------------------------------------------- Nube
@@ -454,6 +502,41 @@ void MainWindow::syncNow() {
     lastSyncWasAutomatic_ = false;
     syncEngine_->sync();
     updateCloudUi(cloudStatus_->text());
+}
+
+void MainWindow::undoLast() {
+    if (!undoAfter_) {
+        QMessageBox::information(this, QStringLiteral("Deshacer"),
+                                 QStringLiteral("No hay nada que deshacer en esta sesión."));
+        return;
+    }
+
+    try {
+        if (undoBefore_) {
+            // Existia antes: vuelve como estaba. Con hlc nuevo, porque el
+            // cambio que estamos deshaciendo ya subio o esta por subir, y el
+            // que gana en el otro aparato es el de reloj mas alto.
+            core::Movement previo = *undoBefore_;
+            restamp(previo.hlc, previo.deviceId);
+            repository_->save(previo);
+        } else {
+            // No existia: deshacer es borrarlo. remove() deja lapida, asi que
+            // el borrado tambien viaja.
+            repository_->remove(*undoAfter_);
+        }
+    } catch (const std::exception& error) {
+        QMessageBox::critical(this, QStringLiteral("No se pudo deshacer"),
+                              QString::fromUtf8(error.what()));
+        return;
+    }
+
+    const QString hecho = undoLabel_;
+    undoBefore_.reset();
+    undoAfter_.reset();
+    undoLabel_.clear();
+
+    afterLocalChange();
+    updateCloudUi(QStringLiteral("Se deshizo: ") + hecho);
 }
 
 void MainWindow::afterLocalChange() {

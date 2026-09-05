@@ -550,4 +550,35 @@ void Repository::wipe() {
     }
 }
 
+std::size_t Repository::deleteEverything() {
+    const auto movements = loadMovements();
+    const auto jobs = loadJobs();
+    const auto pockets = loadPockets();
+
+    if (!db_.handle().transaction()) {
+        throw StorageError(QStringLiteral("No se pudo abrir la transaccion de borrado."));
+    }
+
+    try {
+        for (const auto& movement : movements) {
+            remove(movement);
+        }
+        for (const auto& job : jobs) {
+            remove(job);
+        }
+        for (const auto& pocket : pockets) {
+            remove(pocket);
+        }
+    } catch (...) {
+        db_.handle().rollback();
+        throw;
+    }
+
+    if (!db_.handle().commit()) {
+        throw StorageError(QStringLiteral("No se pudo confirmar el borrado."));
+    }
+
+    return movements.size() + jobs.size() + pockets.size();
+}
+
 } // namespace dake::storage

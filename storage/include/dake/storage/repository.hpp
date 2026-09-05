@@ -92,9 +92,34 @@ public:
     /// confirmo: marcar antes es perder el cambio si la respuesta no llega.
     void markOutboxSent(const std::vector<qint64>& rowIds);
 
-    /// Vacia la base entera. Es un banco de pruebas: poder volver a foja cero
-    /// en un clic es la mitad del valor de tenerlo.
+    /// Vacia la base entera con DELETE, sin lapidas y sin encolar nada.
+    ///
+    /// NO LA LLAME LA INTERFAZ. Un borrado que no encola no viaja: el otro
+    /// aparato sigue teniendo todo, y como los cursores viven en `settings`
+    /// —que esta funcion tampoco toca— lo borrado aca tampoco vuelve a bajar,
+    /// porque el servidor lo tiene con fecha anterior al cursor.
+    ///
+    /// Existe para las pruebas, que necesitan una base vacia de verdad y sin
+    /// filas marcadas. Para borrar lo del usuario esta deleteEverything().
     void wipe();
+
+    /// Borra todo lo del usuario dejando lapida de cada fila, para que el
+    /// borrado llegue a los otros aparatos.
+    ///
+    /// Pasa por remove() en cada registro, que marca `deleted = 1`, sube el
+    /// hlc y encola una fila `Delete`. Es la unica forma de borrar que puede
+    /// llamar la interfaz.
+    ///
+    /// Borra en este orden: movimientos, despues trabajos, despues bolsillos.
+    /// Un movimiento apunta a un bolsillo y a un trabajo; empezar por el
+    /// contenedor dejaria movimientos colgados durante el intervalo, y si la
+    /// transaccion falla en el medio esa es exactamente la base que queda.
+    ///
+    /// Todo dentro de una transaccion: se van todos o no se va ninguno.
+    ///
+    /// @return cuantos registros se borraron, sumando los tres tipos.
+    /// @throws StorageError si la transaccion no se puede abrir o confirmar.
+    std::size_t deleteEverything();
 
 private:
     Database& db_;
