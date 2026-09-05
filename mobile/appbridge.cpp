@@ -2,6 +2,7 @@
 
 #include <QDate>
 #include <QDateTime>
+#include <QTimer>
 
 #include <algorithm>
 #include <stdexcept>
@@ -13,6 +14,12 @@
 
 namespace dake::mobile {
 namespace {
+
+/// Cuanto se espera despues del ultimo cambio antes de subir. El mismo valor
+/// que en el escritorio, a proposito: si las dos aplicaciones esperaran
+/// distinto, la que espera menos ganaria siempre los conflictos y eso no
+/// tendria nada que ver con cual dato es el bueno.
+constexpr int kAutoSyncDelayMs = 5000;
 
 [[nodiscard]] QString qs(const std::string& text) {
     return QString::fromStdString(text);
@@ -97,6 +104,11 @@ AppBridge::AppBridge(QObject* parent)
         emit dataChanged();
         emit cloudChanged();
     });
+
+    autoSyncTimer_ = new QTimer(this);
+    autoSyncTimer_->setSingleShot(true);
+    autoSyncTimer_->setInterval(kAutoSyncDelayMs);
+    connect(autoSyncTimer_, &QTimer::timeout, this, &AppBridge::runAutoSync);
 
     const auto token = repository_->setting(QStringLiteral("sync.refresh_token"));
     if (token) {
@@ -430,7 +442,7 @@ QString AppBridge::saveMovement(const QVariantMap& draft) {
         return QString::fromUtf8(error.what());
     }
 
-    reload();
+    afterLocalChange();
     return {};
 }
 
@@ -444,7 +456,7 @@ QString AppBridge::removeMovement(const QString& id) {
         } catch (const std::exception& error) {
             return QString::fromUtf8(error.what());
         }
-        reload();
+        afterLocalChange();
         return {};
     }
     return QStringLiteral("Ese movimiento ya no esta.");
@@ -495,7 +507,7 @@ QString AppBridge::addPocket(const QString& name, int kind, const QString& openi
     pocket.id = storage::newId();
     stamp(pocket.hlc, pocket.deviceId);
     repository_->save(pocket);
-    reload();
+    afterLocalChange();
     return {};
 }
 
@@ -510,7 +522,7 @@ QString AppBridge::addJob(const QString& name, const QString& client) {
     job.id = storage::newId();
     stamp(job.hlc, job.deviceId);
     repository_->save(job);
-    reload();
+    afterLocalChange();
     return {};
 }
 
@@ -555,7 +567,7 @@ QString AppBridge::reconcile(const QString& pocketId, const QString& realAmount)
     } catch (const std::exception& error) {
         return QString::fromUtf8(error.what());
     }
-    reload();
+    afterLocalChange();
     return {};
 }
 
@@ -577,7 +589,7 @@ QString AppBridge::exportTo(const QUrl& url) {
 QString AppBridge::importFrom(const QUrl& url) {
     try {
         const auto report = storage::importFile(*repository_, pathFromUrl(url));
-        reload();
+        afterLocalChange();
         QString message = QStringLiteral("Entraron %1 de %2 registros")
                               .arg(report.applied)
                               .arg(report.total);
@@ -624,6 +636,29 @@ void AppBridge::signOut() {
     if (repository_) {
         repository_->setSetting(QStringLiteral("sync.refresh_token"), QString());
     }
+}
+
+void AppBridge::afterLocalChange() {
+    reload();
+    if (supabase_ && supabase_->isSignedIn()) {
+        // start() sobre un temporizador andando lo reinicia desde cero: esa es
+        // toda la agrupacion. No hace falta contar cambios ni acumular nada.
+        autoSyncTimer_->start();
+    }
+}
+
+void AppBridge::runAutoSync() {
+    if (!supabase_ || !supabase_->isSignedIn() || !syncEngine_) {
+        return;
+    }
+    if (syncEngine_->isRunning()) {
+        // Volver a esperar en vez de encolar una segunda. Lo que se guardo
+        // recien ya esta en la cola de salida: lo sube esta pasada si llega a
+        // tiempo, o la proxima.
+        autoSyncTimer_->start();
+        return;
+    }
+    syncEngine_->sync();
 }
 
 void AppBridge::sync() {

@@ -10,6 +10,7 @@
 #include <QPushButton>
 #include <QShortcut>
 #include <QStackedWidget>
+#include <QTimer>
 #include <QVBoxLayout>
 #include <QInputDialog>
 #include <QLineEdit>
@@ -33,6 +34,11 @@ core::HlcClock& clock(const std::string& deviceId) {
     static core::HlcClock instance(deviceId);
     return instance;
 }
+
+/// Cuanto se espera despues del ultimo cambio antes de subir. Cinco segundos
+/// alcanzan para agrupar una tanda de anotaciones seguidas y son poco para
+/// quien anota una sola cosa y cierra la aplicacion.
+constexpr int kAutoSyncDelayMs = 5000;
 
 [[nodiscard]] QPushButton* navButton(const QString& text, QWidget* parent) {
     auto* button = new QPushButton(text, parent);
@@ -75,6 +81,14 @@ MainWindow::MainWindow(const QString& dbPath, QWidget* parent) : QMainWindow(par
         updateCloudUi(QStringLiteral("Sin sesión"));
     });
     connect(supabase_.get(), &sync::SupabaseClient::authFailed, this, [this](const QString& message) {
+        // Un fallo de sesion durante una sincronizacion automatica no
+        // interrumpe: quien lo provoco fue un temporizador, no el usuario.
+        // Queda escrito en el estado de la nube, que es donde va a mirar
+        // cuando note que hace rato no sube nada.
+        if (lastSyncWasAutomatic_) {
+            updateCloudUi(message);
+            return;
+        }
         QMessageBox::warning(this, QStringLiteral("Error"), message);
     });
 
@@ -89,6 +103,11 @@ MainWindow::MainWindow(const QString& dbPath, QWidget* parent) : QMainWindow(par
             updateCloudUi(error);
         }
     });
+
+    autoSyncTimer_ = new QTimer(this);
+    autoSyncTimer_->setSingleShot(true);
+    autoSyncTimer_->setInterval(kAutoSyncDelayMs);
+    connect(autoSyncTimer_, &QTimer::timeout, this, &MainWindow::runAutoSync);
 
     buildUi();
     reload();
@@ -258,7 +277,7 @@ void MainWindow::addMovement(const core::Movement& draft) {
                               QString::fromUtf8(error.what()));
         return;
     }
-    reload();
+    afterLocalChange();
 }
 
 void MainWindow::newPocket() {
@@ -273,7 +292,7 @@ void MainWindow::newPocket() {
     core::Pocket saved = *pocket;
     saved.id = stamp(saved.hlc, saved.deviceId);
     repository_->save(saved);
-    reload();
+    afterLocalChange();
 }
 
 void MainWindow::newJob() {
@@ -288,7 +307,7 @@ void MainWindow::newJob() {
     core::Job saved = *job;
     saved.id = stamp(saved.hlc, saved.deviceId);
     repository_->save(saved);
-    reload();
+    afterLocalChange();
 }
 
 void MainWindow::toggleJob(const core::Id& jobId) {
@@ -316,7 +335,7 @@ void MainWindow::toggleJob(const core::Id& jobId) {
     updated.hlc = clock(deviceId_.toStdString()).now(QDateTime::currentMSecsSinceEpoch()).encode();
     updated.deviceId = deviceId_.toStdString();
     repository_->save(updated);
-    reload();
+    afterLocalChange();
 }
 
 void MainWindow::reconcile(const core::Id& pocketId) {
@@ -345,7 +364,7 @@ void MainWindow::reconcile(const core::Id& pocketId) {
     core::Movement saved = *adjustment;
     saved.id = stamp(saved.hlc, saved.deviceId);
     repository_->save(saved);
-    reload();
+    afterLocalChange();
 }
 
 void MainWindow::editMovement(const core::Id& movementId) {
@@ -363,7 +382,7 @@ void MainWindow::editMovement(const core::Id& movementId) {
 
     if (editor.wasDeleted()) {
         repository_->remove(*it);
-        reload();
+        afterLocalChange();
         return;
     }
 
@@ -377,7 +396,7 @@ void MainWindow::editMovement(const core::Id& movementId) {
                               QString::fromUtf8(error.what()));
         return;
     }
-    reload();
+    afterLocalChange();
 }
 
 void MainWindow::resetToSeed() {
@@ -392,7 +411,7 @@ void MainWindow::resetToSeed() {
     }
     repository_->wipe();
     repository_->seedIfEmpty(snapshot_.currency);
-    reload();
+    afterLocalChange();
 }
 
 // -------------------------------------------------------------------- Nube
@@ -432,8 +451,33 @@ void MainWindow::syncNow() {
         toggleSignIn();
         return;
     }
+    lastSyncWasAutomatic_ = false;
     syncEngine_->sync();
     updateCloudUi(cloudStatus_->text());
+}
+
+void MainWindow::afterLocalChange() {
+    reload();
+    if (supabase_->isSignedIn()) {
+        // start() sobre un temporizador andando lo reinicia desde cero: esa es
+        // toda la agrupacion. No hace falta contar cambios ni acumular nada.
+        autoSyncTimer_->start();
+    }
+}
+
+void MainWindow::runAutoSync() {
+    if (!supabase_->isSignedIn()) {
+        return;
+    }
+    if (syncEngine_->isRunning()) {
+        // Volver a esperar en vez de encolar una segunda. Lo que se guardo
+        // recien ya esta en la cola de salida, asi que no se pierde: lo sube
+        // esta pasada si llega a tiempo, o la proxima.
+        autoSyncTimer_->start();
+        return;
+    }
+    lastSyncWasAutomatic_ = true;
+    syncEngine_->sync();
 }
 
 void MainWindow::updateCloudUi(const QString& message) {

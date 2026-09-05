@@ -18,6 +18,7 @@
 class QLabel;
 class QPushButton;
 class QStackedWidget;
+class QTimer;
 
 namespace dake::ui {
 
@@ -60,6 +61,16 @@ private:
     void buildUi();
     void buildSidebar(QWidget* parent);
     void reload();
+
+    /// Lo que sigue a TODO cambio hecho en esta maquina: recarga la pantalla y
+    /// programa la sincronizacion. Los `reload()` que quedan sueltos son los
+    /// dos que no son cambios locales —el del arranque y el de despues de
+    /// bajar del servidor—, y por eso mismo no pueden pasar por aca: bajar
+    /// algo no debe disparar una subida.
+    void afterLocalChange();
+
+    /// Vence el temporizador. Sincroniza si hay sesion y el motor esta libre.
+    void runAutoSync();
     void showPage(int index);
     [[nodiscard]] core::Id stamp(std::string& hlc, std::string& deviceId);
 
@@ -75,6 +86,15 @@ private:
     QPushButton* cloudButton_ = nullptr;
     QPushButton* syncButton_ = nullptr;
     QLabel* cloudStatus_ = nullptr;
+
+    /// Disparo unico. Cada cambio local lo reinicia, asi que cinco
+    /// movimientos seguidos son una sola subida y no cinco.
+    QTimer* autoSyncTimer_ = nullptr;
+
+    /// Si la sincronizacion en curso la pidio el temporizador y no el usuario.
+    /// Sirve para una sola cosa: que un fallo de sesion no abra un cuadro de
+    /// dialogo encima de alguien que esta anotando y no pidio nada.
+    bool lastSyncWasAutomatic_ = false;
 
     Snapshot snapshot_;
 

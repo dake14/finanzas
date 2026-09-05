@@ -21,6 +21,8 @@
 #include <QVariantMap>
 #include <memory>
 
+class QTimer;
+
 #include "dake/core/hlc.hpp"
 #include "dake/storage/repository.hpp"
 #include "dake/sync/supabase_client.hpp"
@@ -152,6 +154,16 @@ signals:
 
 private:
     void reload();
+
+    /// Lo que sigue a TODO cambio hecho en este telefono: recarga las
+    /// pantallas, avisa a QML y programa la sincronizacion. Los `reload()`
+    /// sueltos que quedan son el del arranque y el de despues de bajar del
+    /// servidor; no pasan por aca para que bajar algo no dispare una subida.
+    void afterLocalChange();
+
+    /// Vence el temporizador. Sincroniza si hay sesion y el motor esta libre.
+    void runAutoSync();
+
     void stamp(std::string& hlc, std::string& deviceId);
 
     std::unique_ptr<storage::Database> db_;
@@ -160,6 +172,12 @@ private:
     std::unique_ptr<sync::SupabaseClient> supabase_;
     std::unique_ptr<sync::SyncEngine> syncEngine_;
     QString cloudStatus_;
+
+    /// Disparo unico. Cada cambio local lo reinicia, asi que una tanda de
+    /// anotaciones seguidas es una sola subida —que en el telefono no es
+    /// prolijidad sino bateria y datos moviles.
+    QTimer* autoSyncTimer_ = nullptr;
+
     QString deviceId_;
     core::Currency currency_;
     core::Date today_;
