@@ -28,6 +28,7 @@ class TodayPage;
 class JobsPage;
 class MovementsPage;
 class PocketsPage;
+class ClosingPage;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -142,6 +143,7 @@ private:
     JobsPage* jobs_ = nullptr;
     MovementsPage* movements_ = nullptr;
     PocketsPage* pockets_ = nullptr;
+    ClosingPage* closing_ = nullptr;
     QLabel* footer_ = nullptr;
 };
 

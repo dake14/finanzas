@@ -14,6 +14,7 @@ set(DAKE_UI_SOURCES
     todaypage.cpp
     jobspage.cpp
     movementspage.cpp
+    closingpage.cpp
     pocketspage.cpp
     quickentry.cpp
     quickentry.hpp

@@ -170,8 +170,12 @@ void MainWindow::buildUi() {
     jobs_ = new JobsPage(stack_);
     movements_ = new MovementsPage(stack_);
     pockets_ = new PocketsPage(stack_);
+    closing_ = new ClosingPage(stack_);
+    // El orden importa: es el mismo que el de los botones de la barra y el que
+    // usa showPage(). El cierre va ultimo porque se mira una vez por mes.
     for (QWidget* page : {static_cast<QWidget*>(today_), static_cast<QWidget*>(jobs_),
-                          static_cast<QWidget*>(movements_), static_cast<QWidget*>(pockets_)}) {
+                          static_cast<QWidget*>(movements_), static_cast<QWidget*>(pockets_),
+                          static_cast<QWidget*>(closing_)}) {
         stack_->addWidget(page);
     }
     root->addWidget(stack_, 1);
@@ -225,7 +229,8 @@ void MainWindow::buildSidebar(QWidget* parent) {
     auto* group = new QButtonGroup(this);
     group->setExclusive(true);
     const QStringList names{QStringLiteral("Hoy"), QStringLiteral("Trabajos"),
-                            QStringLiteral("Movimientos"), QStringLiteral("Bolsillos")};
+                            QStringLiteral("Movimientos"), QStringLiteral("Bolsillos"),
+                            QStringLiteral("Cierre")};
     for (int index = 0; index < names.size(); ++index) {
         QPushButton* button = navButton(names[index], parent);
         group->addButton(button);
@@ -286,6 +291,7 @@ void MainWindow::reload() {
     jobs_->setSnapshot(snapshot_);
     movements_->setSnapshot(snapshot_);
     pockets_->setSnapshot(snapshot_);
+    closing_->setSnapshot(snapshot_);
 
     footer_->setText(db_->path());
 }

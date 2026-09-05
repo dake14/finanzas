@@ -13,6 +13,7 @@
 #include "dake/core/report.hpp"
 #include "snapshot.hpp"
 
+class QComboBox;
 class QLabel;
 class QLineEdit;
 class QTableWidget;
@@ -121,6 +122,37 @@ private:
 };
 
 // ------------------------------------------------------------ Movimientos
+
+// -------------------------------------------------------------- Cierre
+
+/// Cierre de un mes terminado.
+///
+/// Las otras pantallas responden "como voy". Esta responde "como me fue", que
+/// es una pregunta distinta y se hace una vez al mes: con el mes cerrado, sin
+/// dias por delante que puedan cambiar el numero, y contra el mes anterior,
+/// que es la unica comparacion que dice si algo mejoro.
+class ClosingPage : public QWidget {
+    Q_OBJECT
+
+public:
+    explicit ClosingPage(QWidget* parent = nullptr);
+
+    void setSnapshot(const Snapshot& snapshot);
+
+private:
+    void buildUi();
+    void refill();
+
+    Snapshot snapshot_;
+    QComboBox* month_ = nullptr;
+    KpiCard* result_ = nullptr;
+    KpiCard* income_ = nullptr;
+    KpiCard* cost_ = nullptr;
+    KpiCard* cash_ = nullptr;
+    KpiCard* pending_ = nullptr;
+    QLabel* versus_ = nullptr;
+    QTableWidget* categories_ = nullptr;
+};
 
 class MovementsPage : public QWidget {
     Q_OBJECT

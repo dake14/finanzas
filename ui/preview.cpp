@@ -64,6 +64,11 @@ namespace {
         page->setSnapshot(snapshot);
         return page;
     }
+    if (screen == QLatin1String("cierre")) {
+        auto page = std::make_unique<dake::ui::ClosingPage>();
+        page->setSnapshot(snapshot);
+        return page;
+    }
     return nullptr;
 }
 
@@ -114,7 +119,7 @@ int main(int argc, char** argv) {
     if (arguments.size() < 3) {
         std::cout << "Uso: dake_uipreview <pantalla|todas> <salida.png|carpeta> "
                      "[ancho] [alto]\n"
-                  << "Pantallas: hoy | trabajos | movimientos | bolsillos | todas\n";
+                  << "Pantallas: hoy | trabajos | movimientos | bolsillos | cierre | todas\n";
         return 2;
     }
 
@@ -129,7 +134,8 @@ int main(int argc, char** argv) {
         QDir().mkpath(output);
         bool ok = true;
         for (const QString& one : {QStringLiteral("hoy"), QStringLiteral("trabajos"),
-                                   QStringLiteral("movimientos"), QStringLiteral("bolsillos")}) {
+                                   QStringLiteral("movimientos"), QStringLiteral("bolsillos"),
+                                   QStringLiteral("cierre")}) {
             ok = render(one, output + QLatin1Char('/') + one + QStringLiteral(".png"), width,
                         height, snapshot) &&
                  ok;

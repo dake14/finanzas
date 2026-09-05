@@ -120,7 +120,8 @@ AppBridge::AppBridge(QObject* parent)
                                  static_cast<unsigned>(now.day()));
 
     // Igual que en la version de escritorio: arrancar en blanco no deja nada
-    // contra que comparar. El caso de agosto se puede borrar desde Datos.
+    // contra que comparar. Solo corre sobre una base sin un solo movimiento:
+    // sobre datos existentes no hace nada, asi que no puede pisar lo anotado.
     repository_->seedIfEmpty(currency_);
 
     reload();
