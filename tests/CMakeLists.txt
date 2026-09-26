@@ -20,6 +20,23 @@ add_executable(dake_storagetest storagetest.cpp)
 target_link_libraries(dake_storagetest PRIVATE dake::storage Qt6::Core)
 add_test(NAME persistencia COMMAND dake_storagetest)
 
+# --- La interfaz, manejada con el teclado ---
+# Sin pantalla (offscreen) y con las teclas mandadas por QTest a los widgets de
+# la propia aplicacion. Nunca teclas del sistema: esas van a la ventana que
+# tenga el foco, sea cual sea.
+find_package(Qt6 REQUIRED COMPONENTS Test)
+
+add_executable(dake_uitest uitest.cpp)
+target_link_libraries(dake_uitest PRIVATE dake_ui Qt6::Test)
+add_test(NAME interfaz COMMAND dake_uitest)
+if(WIN32)
+    add_custom_command(TARGET dake_uitest POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "$<IF:$<CONFIG:Debug>,${Qt6_DIR}/../../../bin/Qt6Testd.dll,${Qt6_DIR}/../../../bin/Qt6Test.dll>"
+                "$<TARGET_FILE_DIR:dake_uitest>/"
+        COMMENT "Copiando Qt6Test junto a la prueba de la interfaz")
+endif()
+
 # --- Diagnostico de la nube ---
 # NO entra en ctest a proposito: toca la red y depende de que el proyecto de
 # Supabase este arriba. Una prueba automatica que falla porque se cayo internet

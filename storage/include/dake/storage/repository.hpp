@@ -13,6 +13,7 @@
 
 #include "dake/core/accounts.hpp"
 #include "dake/core/model.hpp"
+#include "dake/core/repairs.hpp"
 #include "dake/storage/database.hpp"
 
 namespace dake::storage {
@@ -64,6 +65,30 @@ public:
     void saveCategory(const core::Category& category);
 
     void removeCategory(const std::string& name);
+
+    // --- Reparaciones -----------------------------------------------------
+
+    /// Una ficha por cada trabajo vivo. Un trabajo sin ficha —los de antes de
+    /// la version 3, los que llegan del telefono— vuelve como reparacion de
+    /// tipo Otro, con el nombre del trabajo como equipo, recibida el dia que
+    /// se abrio, y entregada si el trabajo estaba cerrado.
+    [[nodiscard]] std::vector<core::Repair> loadRepairs();
+    void saveRepair(const core::Repair& repair);
+
+    [[nodiscard]] std::vector<core::RepairPart> loadRepairParts();
+    void saveRepairPart(const core::RepairPart& part);
+    void removeRepairPart(const core::Id& partId);
+
+    /// La primera vez siembra defaultTemplates(). Una sola vez: si despues se
+    /// borran todas, no vuelven.
+    [[nodiscard]] std::vector<core::RepairTemplate> loadTemplates();
+    void saveTemplate(const core::RepairTemplate& tpl);
+    void removeTemplate(const core::Id& templateId);
+
+    /// Tarifa y margen objetivo, de los ajustes. La tasa de fijos por hora no
+    /// se guarda: se calcula.
+    [[nodiscard]] core::CostSettings loadCostSettings();
+    void saveCostSettings(const core::CostSettings& settings);
 
     /// Anota cuanto tardo una captura ("captura", "reparacion", "revision").
     void addTiming(const QString& what, qint64 millis);

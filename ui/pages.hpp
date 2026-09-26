@@ -18,6 +18,7 @@ class QComboBox;
 class QKeySequenceEdit;
 class QLabel;
 class QLineEdit;
+class QPushButton;
 class QTabWidget;
 class QTableWidget;
 class QVBoxLayout;
@@ -105,36 +106,71 @@ private:
 
 // -------------------------------------------------------------- Trabajos
 
-class JobsPage : public QWidget {
+/// Las reparaciones: la lista a la izquierda y la ficha de la elegida a la
+/// derecha. La ficha se guarda sola al salir de cada campo.
+class RepairsPage : public QWidget {
     Q_OBJECT
 
 public:
-    explicit JobsPage(QWidget* parent = nullptr);
+    explicit RepairsPage(QWidget* parent = nullptr);
 
     void setSnapshot(const Snapshot& snapshot);
+    void focusList();
+    /// Muestra esa reparacion, aunque el filtro la escondiera.
+    void selectRepair(const dake::core::Id& jobId);
 
 signals:
-    void newJobRequested();
-    void jobActivated(const dake::core::Id& jobId);
+    void newRepairRequested();
+    void repairEdited(const dake::core::Repair& repair, const QString& client);
+    void deliverRequested(const dake::core::Id& jobId);
+    void chargeRequested(const dake::core::Id& jobId);
+    /// `bought`: se compro ahora para esta reparacion, y hay que anotar el gasto.
+    void partAdded(const dake::core::Id& jobId, const QString& name, qint64 costMinor,
+                   bool costKnown, bool bought);
+    void partChanged(const dake::core::RepairPart& part);
+    void partRemoved(const dake::core::RepairPart& part);
 
 private:
     void buildUi();
+    [[nodiscard]] QWidget* buildPanel();
+    void refillList();
+    void showRepair(const core::Id& jobId);
+    void saveEdits();
 
     Snapshot snapshot_;
-    QLabel* summary_ = nullptr;
-    QTableWidget* table_ = nullptr;
+    core::Id current_;
+    bool filling_ = false;
+
+    QComboBox* statusFilter_ = nullptr;
+    QComboBox* typeFilter_ = nullptr;
+    QLineEdit* search_ = nullptr;
+    QTableWidget* list_ = nullptr;
+
+    QLabel* empty_ = nullptr;
+    Card* card_ = nullptr;
+    QLabel* title_ = nullptr;
+    QLabel* status_ = nullptr;
+    QLabel* locked_ = nullptr;
+    QLineEdit* client_ = nullptr;
+    QLineEdit* device_ = nullptr;
+    QComboBox* type_ = nullptr;
+    QLineEdit* price_ = nullptr;
+    QLineEdit* shipping_ = nullptr;
+    QLineEdit* consumables_ = nullptr;
+    QLineEdit* estHours_ = nullptr;
+    QLineEdit* realHours_ = nullptr;
+    QPushButton* deliver_ = nullptr;
+    QPushButton* charge_ = nullptr;
+    QTableWidget* parts_ = nullptr;
+    QLineEdit* partName_ = nullptr;
+    QLineEdit* partCost_ = nullptr;
+    QCheckBox* partBought_ = nullptr;
+    QLabel* costing_ = nullptr;
+    QLabel* warnings_ = nullptr;
 };
 
-// ------------------------------------------------------------ Movimientos
 
-// -------------------------------------------------------------- Cierre
 
-/// Cierre de un mes terminado.
-///
-/// Las otras pantallas responden "como voy". Esta responde "como me fue", que
-/// es una pregunta distinta y se hace una vez al mes: con el mes cerrado, sin
-/// dias por delante que puedan cambiar el numero, y contra el mes anterior,
-/// que es la unica comparacion que dice si algo mejoro.
 class ClosingPage : public QWidget {
     Q_OBJECT
 
@@ -191,11 +227,16 @@ public:
     explicit ReportsPage(QWidget* parent = nullptr);
 
     void setSnapshot(const Snapshot& snapshot);
+    void showTab(int index);
 
 private:
     void buildUi();
     [[nodiscard]] QWidget* buildSpendingTab();
+    [[nodiscard]] QWidget* buildRepairsTab();
+    [[nodiscard]] QWidget* buildTypesTab();
     void refillSpending();
+    void refillRepairs();
+    void refillTypes();
 
     Snapshot snapshot_;
     QTabWidget* tabs_ = nullptr;
@@ -206,6 +247,15 @@ private:
     QLabel* personalHeadline_ = nullptr;
     CompareChart* businessChart_ = nullptr;
     CompareChart* personalChart_ = nullptr;
+
+    // --- Rentabilidad por reparacion -------------------------------------
+    QLabel* repairsHeadline_ = nullptr;
+    QTableWidget* repairsTable_ = nullptr;
+
+    // --- Rentabilidad por tipo --------------------------------------------
+    QLabel* typesHeadline_ = nullptr;
+    QLabel* typesNote_ = nullptr;
+    TypeChart* typesChart_ = nullptr;
 };
 
 /// Todo lo que se configura una vez y no se vuelve a mirar.
@@ -221,9 +271,16 @@ signals:
     void categoryChanged(const dake::core::Category& category);
     void hotkeyChanged(const QKeySequence& sequence);
     void autostartChanged(bool enabled);
+    void costSettingsChanged(const dake::core::CostSettings& settings);
+    void templateChanged(const dake::core::RepairTemplate& tpl);
+    void templateAdded();
+    void templateRemoved(const dake::core::Id& templateId);
 
 private:
     void buildUi();
+    void refillTemplates();
+    void emitCosts();
+    void emitTemplate(int row);
 
     Snapshot snapshot_;
     QTableWidget* categories_ = nullptr;
@@ -231,6 +288,11 @@ private:
     QLabel* hotkeyStatus_ = nullptr;
     QCheckBox* autostart_ = nullptr;
     QLabel* captureTiming_ = nullptr;
+    QLineEdit* hourlyRate_ = nullptr;
+    QLineEdit* targetMargin_ = nullptr;
+    QLabel* costsNote_ = nullptr;
+    QTableWidget* templates_ = nullptr;
+    bool filling_ = false;
 };
 
 class PocketsPage : public QWidget {

@@ -16,6 +16,10 @@
 
 #include <algorithm>
 #include <cstdio>
+
+#if defined(_MSC_VER) && defined(_DEBUG)
+#include <crtdbg.h>
+#endif
 #include <string>
 
 #include "dake/core/demo.hpp"
@@ -49,6 +53,15 @@ using namespace dake;
 } // namespace
 
 int main(int argc, char** argv) {
+#if defined(_MSC_VER) && defined(_DEBUG)
+    // Una asercion de la biblioteca en modo depuracion abre un cuadro de
+    // dialogo y espera un clic: la suite queda colgada para siempre. Que
+    // escriba en la consola y aborte, como cualquier otra falla.
+    _CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_FILE);
+    _CrtSetReportFile(_CRT_ASSERT, _CRTDBG_FILE_STDERR);
+    _CrtSetReportMode(_CRT_ERROR, _CRTDBG_MODE_FILE);
+    _CrtSetReportFile(_CRT_ERROR, _CRTDBG_FILE_STDERR);
+#endif
     QCoreApplication app(argc, argv);
 
     QTemporaryDir temp;
@@ -395,6 +408,107 @@ int main(int argc, char** argv) {
         cats = repository.loadCategories();
         check(cats.size() == 1 && core::findCategory(cats, "Comida") == nullptr,
               "borrar tampoco distingue mayusculas");
+    }
+
+    // --- Reparaciones -------------------------------------------------------
+    {
+        storage::Database db(path + QStringLiteral(".reparaciones"));
+        storage::Repository repository(db);
+        repository.seedIfEmpty(currency);
+
+        auto repairs = repository.loadRepairs();
+        const auto jobs = repository.loadJobs();
+        checkMinor(static_cast<int>(repairs.size()), static_cast<int>(jobs.size()),
+                   "cada trabajo vivo vuelve como reparacion aunque no tenga ficha");
+        if (repairs.empty()) {
+            check(false, "no volvio ninguna reparacion: se corta esta parte");
+            repairs.push_back(core::Repair{});
+        }
+        const auto& sinFicha = repairs.front();
+        const auto job = std::find_if(jobs.begin(), jobs.end(),
+                                      [&](const core::Job& j) { return j.id == sinFicha.jobId; });
+        check(job != jobs.end() && sinFicha.type == core::RepairType::Otro &&
+                  sinFicha.device == job->name && sinFicha.received == job->opened,
+              "sin ficha: tipo Otro, el nombre del trabajo como equipo, recibida al abrirse");
+        check(!sinFicha.realMinutes, "y sin horas reales");
+
+        core::Repair r = sinFicha;
+        r.orderNo = "R-0042";
+        r.device = "RTX 3080";
+        r.type = core::RepairType::GPU;
+        r.status = core::RepairStatus::Entregada;
+        r.delivered = core::Date{2026, 9, 20};
+        r.priceMinor = 90'00;
+        r.shippingMinor = 3'00;
+        r.consumablesMinor = 2'00;
+        r.estMinutes = 120;
+        r.realMinutes = 150;
+        r.sourceRef = "cot:abc";
+        r.templateId = "tpl-1";
+        repository.saveRepair(r);
+        repairs = repository.loadRepairs();
+        const auto it = std::find_if(repairs.begin(), repairs.end(),
+                                     [&](const core::Repair& x) { return x.jobId == r.jobId; });
+        check(it != repairs.end() && it->orderNo == "R-0042" && it->device == "RTX 3080" &&
+                  it->type == core::RepairType::GPU && it->status == core::RepairStatus::Entregada &&
+                  it->delivered == r.delivered && it->priceMinor == 90'00 &&
+                  it->shippingMinor == 3'00 && it->consumablesMinor == 2'00 &&
+                  it->estMinutes == 120 && it->realMinutes == 150 && it->sourceRef == "cot:abc" &&
+                  it->templateId == "tpl-1",
+              "la ficha vuelve entera");
+
+        core::Repair sinHoras = r;
+        sinHoras.realMinutes.reset();
+        sinHoras.delivered.reset();
+        repository.saveRepair(sinHoras);
+        repairs = repository.loadRepairs();
+        const auto it2 = std::find_if(repairs.begin(), repairs.end(),
+                                      [&](const core::Repair& x) { return x.jobId == r.jobId; });
+        check(it2 != repairs.end() && !it2->realMinutes && !it2->delivered,
+              "\"no se sabe\" vuelve como no se sabe, no como cero");
+
+        const int cola = repository.pendingOutboxCount();
+        core::RepairPart part;
+        part.id = "part-1";
+        part.jobId = r.jobId;
+        part.name = "Chip";
+        part.costMinor = 12'00;
+        part.costKnown = false;
+        part.movementId = "m-9";
+        repository.saveRepairPart(part);
+        auto parts = repository.loadRepairParts();
+        check(parts.size() == 1 && parts[0].name == "Chip" && parts[0].costMinor == 12'00 &&
+                  !parts[0].costKnown && parts[0].movementId == "m-9",
+              "un repuesto vuelve entero");
+        repository.removeRepairPart("part-1");
+        check(repository.loadRepairParts().empty(), "y se borra");
+        checkMinor(repository.pendingOutboxCount(), cola, "nada de esto se encola para subir");
+
+        auto tpls = repository.loadTemplates();
+        check(tpls.size() == 4, "la primera vez hay cuatro plantillas");
+        core::RepairTemplate tpl = tpls.empty() ? core::RepairTemplate{} : tpls.front();
+        tpl.name = "GPU: reballing";
+        tpl.priceMinor = 120'00;
+        tpl.parts = {{"Esferas BGA", 4'00}, {"Flux\tliquido", 2'50}};
+        repository.saveTemplate(tpl);
+        tpls = repository.loadTemplates();
+        const auto t = std::find_if(tpls.begin(), tpls.end(),
+                                    [&](const core::RepairTemplate& x) { return x.id == tpl.id; });
+        check(t != tpls.end() && t->name == "GPU: reballing" && t->priceMinor == 120'00 &&
+                  t->parts.size() == 2 && t->parts[1].costMinor == 2'50,
+              "una plantilla vuelve con sus repuestos");
+        check(t != tpls.end() && t->parts.size() == 2 && t->parts[1].name == "Flux liquido",
+              "un tabulador en el nombre no rompe la lista");
+        for (const auto& x : repository.loadTemplates()) repository.removeTemplate(x.id);
+        check(repository.loadTemplates().empty(), "borradas todas, no vuelven a sembrarse");
+
+        core::CostSettings s = repository.loadCostSettings();
+        check(s.hourlyRateMinor == 0 && s.targetMarginBps == 3000,
+              "sin ajustes: tarifa 0 y margen objetivo 30%");
+        repository.saveCostSettings({15'00, 3500, 999});
+        s = repository.loadCostSettings();
+        check(s.hourlyRateMinor == 15'00 && s.targetMarginBps == 3500, "tarifa y margen vuelven");
+        check(s.fixedPerHourMinor == 0, "la tasa de fijos no se guarda: se calcula");
     }
 
     // --- Cronometro de capturas --------------------------------------------

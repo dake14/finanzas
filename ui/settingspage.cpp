@@ -9,10 +9,13 @@
 #include <QKeySequenceEdit>
 #include <QSignalBlocker>
 #include <QLabel>
+#include <QLineEdit>
+#include <QPushButton>
 #include <QScrollArea>
 #include <QVBoxLayout>
 
 #include "cards.hpp"
+#include "fields.hpp"
 #include "pages.hpp"
 #include "tables.hpp"
 #include "theme.hpp"
@@ -100,6 +103,70 @@ void SettingsPage::buildUi() {
     captureCard->addContent(captureTiming_);
     layout->addWidget(captureCard);
 
+    // --- Costos ---------------------------------------------------------------
+    auto* costsCard = new Card(QStringLiteral("COSTOS"), page);
+    costsCard->setSubtitle(
+        QStringLiteral("La tarifa por hora es lo que quieres ganar por cada hora de trabajo: entra "
+                       "al costo de cada reparación, así que un margen de 0% es cobrar justo tu "
+                       "tarifa. El margen objetivo es lo que quieres dejar por encima."));
+    auto* costsRow = new QWidget(costsCard);
+    auto* costsLayout = new QHBoxLayout(costsRow);
+    costsLayout->setContentsMargins(0, 0, 0, 0);
+    costsLayout->setSpacing(10);
+    auto label = [costsRow](const QString& text) {
+        auto* l = new QLabel(text, costsRow);
+        l->setFont(theme::bodyFont(10));
+        theme::setLabelColor(l, theme::kTextMuted);
+        return l;
+    };
+    hourlyRate_ = new QLineEdit(costsRow);
+    hourlyRate_->setFixedWidth(110);
+    hourlyRate_->setPlaceholderText(QStringLiteral("15,00"));
+    targetMargin_ = new QLineEdit(costsRow);
+    targetMargin_->setFixedWidth(70);
+    targetMargin_->setPlaceholderText(QStringLiteral("30"));
+    costsLayout->addWidget(label(QStringLiteral("Tarifa por hora")));
+    costsLayout->addWidget(hourlyRate_);
+    costsLayout->addSpacing(18);
+    costsLayout->addWidget(label(QStringLiteral("Margen objetivo %")));
+    costsLayout->addWidget(targetMargin_);
+    costsLayout->addStretch(1);
+    costsCard->addContent(costsRow);
+    costsNote_ = new QLabel(costsCard);
+    costsNote_->setWordWrap(true);
+    costsNote_->setFont(theme::bodyFont(9));
+    costsCard->addContent(costsNote_);
+    connect(hourlyRate_, &QLineEdit::editingFinished, this, &SettingsPage::emitCosts);
+    connect(targetMargin_, &QLineEdit::editingFinished, this, &SettingsPage::emitCosts);
+    layout->addWidget(costsCard);
+
+    // --- Plantillas -------------------------------------------------------------
+    auto* templatesCard = new Card(QStringLiteral("PLANTILLAS DE REPARACIÓN"), page);
+    templatesCard->setSubtitle(
+        QStringLiteral("Lo que trae precargado una reparación nueva. Los repuestos típicos van "
+                       "separados por punto y coma, con su costo al final: \"Esferas BGA 4,00; "
+                       "Flux 2,50\". Doble clic para editar."));
+    templates_ = makeTable({QStringLiteral("Nombre"), QStringLiteral("Tipo"), QStringLiteral("Precio"),
+                            QStringLiteral("Horas"), QStringLiteral("Consumibles"),
+                            QStringLiteral("Envío"), QStringLiteral("Repuestos típicos"), QString()},
+                           6);
+    templates_->setMinimumHeight(200);
+    templates_->setEditTriggers(QAbstractItemView::DoubleClicked | QAbstractItemView::EditKeyPressed |
+                                QAbstractItemView::AnyKeyPressed);
+    fixColumn(templates_, 1, 130);
+    fixColumn(templates_, 7, 76);
+    connect(templates_, &QTableWidget::itemChanged, this, [this](QTableWidgetItem* item) {
+        if (!filling_) emitTemplate(item->row());
+    });
+    templatesCard->addContent(templates_);
+    auto* addTemplate = new QPushButton(QStringLiteral("Nueva plantilla"), templatesCard);
+    addTemplate->setObjectName(QStringLiteral("GhostButton"));
+    addTemplate->setCursor(Qt::PointingHandCursor);
+    addTemplate->setFont(theme::bodyFont(9));
+    connect(addTemplate, &QPushButton::clicked, this, &SettingsPage::templateAdded);
+    templatesCard->addContent(addTemplate);
+    layout->addWidget(templatesCard);
+
     auto* categoriesCard = new Card(QStringLiteral("CATEGORÍAS"), page);
     categoriesCard->setSubtitle(
         QStringLiteral("Se crean solas al escribirlas. La cuenta dice si un gasto es del negocio "
@@ -119,6 +186,27 @@ void SettingsPage::buildUi() {
 
 void SettingsPage::setSnapshot(const Snapshot& snapshot) {
     snapshot_ = snapshot;
+
+    if (!hourlyRate_->hasFocus()) {
+        hourlyRate_->setText(moneyFieldText(snapshot.costs.hourlyRateMinor, snapshot.currency));
+    }
+    if (!targetMargin_->hasFocus()) {
+        targetMargin_->setText(QString::number(snapshot.costs.targetMarginBps / 100.0, 'f', 0));
+    }
+    if (snapshot.costs.hourlyRateMinor == 0) {
+        costsNote_->setText(QStringLiteral("Sin tarifa, tus horas no cuestan nada y todos los "
+                                           "márgenes salen inflados."));
+        theme::setLabelColor(costsNote_, theme::kInversion);
+    } else {
+        costsNote_->setText(
+            QStringLiteral("Cada hora de reparación tiene que dejar %1: la tarifa más %2 de fijos "
+                           "del taller.")
+                .arg(theme::formatMoney(core::hourlyNeeded(snapshot.costs, snapshot.currency)),
+                     theme::formatMoney(core::Money::fromMinor(snapshot.costs.fixedPerHourMinor,
+                                                               snapshot.currency))));
+        theme::setLabelColor(costsNote_, theme::kTextMuted);
+    }
+    refillTemplates();
 
     {
         const QSignalBlocker blockHotkey(hotkey_);
@@ -179,6 +267,130 @@ void SettingsPage::setSnapshot(const Snapshot& snapshot) {
         });
         categories_->setCellWidget(row, 3, cls);
     }
+}
+
+// --------------------------------------------------------------- Costos
+
+void SettingsPage::emitCosts() {
+    core::CostSettings settings = snapshot_.costs;
+    if (const auto rate = parseMoneyText(hourlyRate_->text(), snapshot_.currency)) {
+        settings.hourlyRateMinor = *rate;
+    } else if (hourlyRate_->text().trimmed().isEmpty()) {
+        settings.hourlyRateMinor = 0;
+    }
+    bool ok = false;
+    const double margin = targetMargin_->text().trimmed().replace(QLatin1Char(','), QLatin1Char('.'))
+                              .toDouble(&ok);
+    if (ok && margin >= 0 && margin < 100) {
+        settings.targetMarginBps = static_cast<int>(margin * 100.0 + 0.5);
+    }
+    if (settings.hourlyRateMinor != snapshot_.costs.hourlyRateMinor ||
+        settings.targetMarginBps != snapshot_.costs.targetMarginBps) {
+        emit costSettingsChanged(settings);
+    }
+}
+
+// ----------------------------------------------------------- Plantillas
+
+namespace {
+
+[[nodiscard]] QString templateTypeLabel(core::RepairType type) {
+    switch (type) {
+        case core::RepairType::GPU: return QStringLiteral("GPU");
+        case core::RepairType::Laptop: return QStringLiteral("Laptop");
+        case core::RepairType::PlacaMadre: return QStringLiteral("Placa madre");
+        case core::RepairType::Otro: return QStringLiteral("Otro");
+    }
+    return {};
+}
+
+[[nodiscard]] QString partsText(const std::vector<core::TemplatePart>& parts, core::Currency currency) {
+    QStringList out;
+    for (const core::TemplatePart& part : parts) {
+        QString text = QString::fromStdString(part.name);
+        if (part.costMinor > 0) {
+            text += QLatin1Char(' ') + moneyFieldText(part.costMinor, currency);
+        }
+        out << text;
+    }
+    return out.join(QStringLiteral("; "));
+}
+
+/// "Esferas BGA 4,00; Flux 2,50" -> {{"Esferas BGA", 400}, {"Flux", 250}}.
+[[nodiscard]] std::vector<core::TemplatePart> parsePartsText(const QString& text,
+                                                             core::Currency currency) {
+    std::vector<core::TemplatePart> out;
+    for (const QString& chunk : text.split(QLatin1Char(';'), Qt::SkipEmptyParts)) {
+        QStringList words = chunk.trimmed().split(QLatin1Char(' '), Qt::SkipEmptyParts);
+        if (words.isEmpty()) continue;
+        core::TemplatePart part;
+        if (words.size() > 1) {
+            if (const auto cost = parseMoneyText(words.last(), currency)) {
+                part.costMinor = *cost;
+                words.removeLast();
+            }
+        }
+        part.name = words.join(QLatin1Char(' ')).toStdString();
+        out.push_back(part);
+    }
+    return out;
+}
+
+} // namespace
+
+void SettingsPage::refillTemplates() {
+    filling_ = true;
+    templates_->setRowCount(static_cast<int>(snapshot_.templates.size()));
+    for (int row = 0; row < static_cast<int>(snapshot_.templates.size()); ++row) {
+        const core::RepairTemplate& tpl = snapshot_.templates[static_cast<std::size_t>(row)];
+        auto* name = new QTableWidgetItem(QString::fromStdString(tpl.name));
+        name->setData(Qt::UserRole, QString::fromStdString(tpl.id));
+        templates_->setItem(row, 0, name);
+
+        auto* type = cellCombo(templates_);
+        for (const core::RepairType t : core::allRepairTypes()) {
+            type->addItem(templateTypeLabel(t));
+        }
+        type->setCurrentIndex(static_cast<int>(tpl.type));
+        connect(type, &QComboBox::currentIndexChanged, this, [this, row] {
+            if (!filling_) emitTemplate(row);
+        });
+        templates_->setCellWidget(row, 1, type);
+
+        setNumber(templates_, row, 2, moneyFieldText(tpl.priceMinor, snapshot_.currency));
+        setNumber(templates_, row, 3, tpl.estMinutes > 0 ? hoursText(tpl.estMinutes) : QString());
+        setNumber(templates_, row, 4, moneyFieldText(tpl.consumablesMinor, snapshot_.currency));
+        setNumber(templates_, row, 5, moneyFieldText(tpl.shippingMinor, snapshot_.currency));
+        setText(templates_, row, 6, partsText(tpl.parts, snapshot_.currency));
+
+        auto* remove = new QPushButton(QStringLiteral("Quitar"), templates_);
+        remove->setObjectName(QStringLiteral("GhostButton"));
+        remove->setFont(theme::bodyFont(8));
+        const core::Id id = tpl.id;
+        connect(remove, &QPushButton::clicked, this, [this, id] { emit templateRemoved(id); });
+        templates_->setCellWidget(row, 7, remove);
+    }
+    filling_ = false;
+}
+
+void SettingsPage::emitTemplate(int row) {
+    if (row < 0 || row >= static_cast<int>(snapshot_.templates.size())) return;
+    core::RepairTemplate tpl = snapshot_.templates[static_cast<std::size_t>(row)];
+    auto text = [this, row](int column) {
+        const QTableWidgetItem* item = templates_->item(row, column);
+        return item == nullptr ? QString() : item->text();
+    };
+    const QString name = text(0).trimmed();
+    if (!name.isEmpty()) tpl.name = name.toStdString();
+    if (auto* type = qobject_cast<QComboBox*>(templates_->cellWidget(row, 1))) {
+        tpl.type = core::allRepairTypes()[static_cast<std::size_t>(std::max(0, type->currentIndex()))];
+    }
+    tpl.priceMinor = parseMoneyText(text(2), snapshot_.currency).value_or(0);
+    tpl.estMinutes = parseHoursText(text(3)).value_or(0);
+    tpl.consumablesMinor = parseMoneyText(text(4), snapshot_.currency).value_or(0);
+    tpl.shippingMinor = parseMoneyText(text(5), snapshot_.currency).value_or(0);
+    tpl.parts = parsePartsText(text(6), snapshot_.currency);
+    emit templateChanged(tpl);
 }
 
 } // namespace dake::ui

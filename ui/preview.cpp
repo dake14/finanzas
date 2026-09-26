@@ -20,9 +20,11 @@
 
 #include <iostream>
 #include <memory>
+#include <string>
 
 #include "dake/core/accounts.hpp"
 #include "dake/core/demo.hpp"
+#include "dake/core/repairs.hpp"
 #include "capturewidget.hpp"
 #include "capturewindow.hpp"
 #include "pages.hpp"
@@ -43,6 +45,59 @@ namespace {
     // numeros de esta pantalla con los que muestra hoy la aplicacion real.
     snapshot.today = dake::core::Date::fromYmd(2026, 8, 31);
     snapshot.categories = dake::core::inferCategories(snapshot.movements, snapshot.pockets, {});
+
+    // Reparaciones de muestra, SOLO para el banco visual: el caso de agosto
+    // no tiene fichas y los reportes de rentabilidad saldrian vacios. Tres
+    // GPU que tardan mas de lo presupuestado, dos laptops sanas y una placa.
+    snapshot.costs = dake::core::CostSettings{15'00, 3000, 4'00};
+    int n = 0;
+    auto sample = [&](dake::core::RepairType type, const char* device, const char* client,
+                      std::int64_t price, int est, int real, std::int64_t parts,
+                      const char* delivered, dake::core::RepairStatus status) {
+        ++n;
+        dake::core::Job job;
+        job.id = "demo-job-" + std::to_string(n);
+        job.name = device;
+        job.client = client;
+        job.opened = dake::core::Date::fromIso(delivered).addDays(-4);
+        job.closed = status == dake::core::RepairStatus::Cobrada;
+        snapshot.jobs.push_back(job);
+        dake::core::Repair r;
+        r.jobId = job.id;
+        r.orderNo = "R-00" + std::to_string(40 + n);
+        r.device = device;
+        r.type = type;
+        r.status = status;
+        r.priceMinor = price;
+        r.estMinutes = est;
+        if (status != dake::core::RepairStatus::EnProceso) {
+            r.realMinutes = real;
+            r.delivered = dake::core::Date::fromIso(delivered);
+        }
+        r.received = job.opened;
+        r.consumablesMinor = 3'00;
+        snapshot.repairs.push_back(r);
+        dake::core::RepairPart p;
+        p.id = "demo-part-" + std::to_string(n);
+        p.jobId = job.id;
+        p.name = "Repuesto";
+        p.costMinor = parts;
+        snapshot.parts.push_back(p);
+    };
+    using dake::core::RepairStatus;
+    using dake::core::RepairType;
+    sample(RepairType::GPU, "RTX 3080", "Juan Perez", 90'00, 120, 190, 12'00, "2026-08-20", RepairStatus::Cobrada);
+    sample(RepairType::GPU, "RTX 3070", "Ana", 85'00, 120, 170, 10'00, "2026-08-10", RepairStatus::Cobrada);
+    sample(RepairType::GPU, "RX 6700", "Luis", 95'00, 150, 200, 15'00, "2026-07-28", RepairStatus::Cobrada);
+    sample(RepairType::Laptop, "Asus X556U", "Josue Rodriguez", 60'00, 90, 80, 5'00, "2026-08-25", RepairStatus::Cobrada);
+    sample(RepairType::Laptop, "HP 15", "Maria", 55'00, 90, 75, 0, "2026-08-02", RepairStatus::Cobrada);
+    sample(RepairType::Laptop, "Lenovo T480", "Pedro", 70'00, 90, 95, 8'00, "2026-07-15", RepairStatus::Entregada);
+    sample(RepairType::PlacaMadre, "Asus B450-F", "Sr. Diovis", 40'00, 180, 240, 6'00, "2026-08-18", RepairStatus::Cobrada);
+    sample(RepairType::GPU, "RTX 2060", "Carla", 80'00, 120, 0, 0, "2026-08-30", RepairStatus::EnProceso);
+    for (auto tpl : dake::core::defaultTemplates()) {
+        tpl.id = "demo-tpl-" + tpl.name;
+        snapshot.templates.push_back(tpl);
+    }
     return snapshot;
 }
 
@@ -53,9 +108,16 @@ namespace {
         page->setSnapshot(snapshot);
         return page;
     }
-    if (screen == QLatin1String("trabajos")) {
-        auto page = std::make_unique<dake::ui::JobsPage>();
+    if (screen.startsWith(QLatin1String("reparaciones"))) {
+        // "reparaciones:R-0041" abre la ficha de esa orden.
+        auto page = std::make_unique<dake::ui::RepairsPage>();
         page->setSnapshot(snapshot);
+        const QString order = screen.section(QLatin1Char(':'), 1);
+        for (const auto& repair : snapshot.repairs) {
+            if (QString::fromStdString(repair.orderNo) == order) {
+                page->selectRepair(repair.jobId);
+            }
+        }
         return page;
     }
     if (screen == QLatin1String("movimientos")) {
@@ -77,9 +139,11 @@ namespace {
         window->setAttribute(Qt::WA_TranslucentBackground, false);
         return window;
     }
-    if (screen == QLatin1String("reportes")) {
+    if (screen.startsWith(QLatin1String("reportes"))) {
+        // "reportes:1" abre la segunda pestaña.
         auto page = std::make_unique<dake::ui::ReportsPage>();
         page->setSnapshot(snapshot);
+        page->showTab(screen.section(QLatin1Char(':'), 1).toInt());
         return page;
     }
     if (screen == QLatin1String("ajustes")) {
@@ -142,7 +206,7 @@ int main(int argc, char** argv) {
     if (arguments.size() < 3) {
         std::cout << "Uso: dake_uipreview <pantalla|todas> <salida.png|carpeta> "
                      "[ancho] [alto]\n"
-                  << "Pantallas: hoy | trabajos | movimientos | bolsillos | cierre | reportes | ajustes | todas\n";
+                  << "Pantallas: hoy | reparaciones | movimientos | bolsillos | cierre | reportes | ajustes | todas\n";
         return 2;
     }
 
@@ -156,7 +220,7 @@ int main(int argc, char** argv) {
     if (screen == QLatin1String("todas")) {
         QDir().mkpath(output);
         bool ok = true;
-        for (const QString& one : {QStringLiteral("hoy"), QStringLiteral("trabajos"),
+        for (const QString& one : {QStringLiteral("hoy"), QStringLiteral("reparaciones"),
                                    QStringLiteral("movimientos"), QStringLiteral("bolsillos"),
                                    QStringLiteral("cierre"), QStringLiteral("reportes"),
                                    QStringLiteral("ajustes")}) {

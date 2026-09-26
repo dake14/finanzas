@@ -15,6 +15,7 @@
 #include "dake/core/capture.hpp"
 #include "dake/core/currency.hpp"
 #include "dake/core/model.hpp"
+#include "dake/core/repairs.hpp"
 
 namespace dake::ui {
 
@@ -23,6 +24,10 @@ struct Snapshot {
     std::vector<core::Job> jobs;
     std::vector<core::Movement> movements;
     std::vector<core::Category> categories;
+    std::vector<core::Repair> repairs;
+    std::vector<core::RepairPart> parts;
+    std::vector<core::RepairTemplate> templates;
+    core::CostSettings costs;
     core::Currency currency = core::Currency::usd();
 
     // --- Preferencias de esta computadora -------------------------------
@@ -78,9 +83,46 @@ struct Snapshot {
     /// captura para reconocerlas dentro de una frase.
     [[nodiscard]] std::vector<core::RepairRef> openRepairRefs() const {
         std::vector<core::RepairRef> out;
-        for (const core::Job& job : jobs) {
-            if (!job.deleted && !job.closed) {
-                out.push_back({job.id, std::string(), job.name, job.client});
+        for (const core::Repair& repair : repairs) {
+            if (repair.status == core::RepairStatus::Cobrada) {
+                continue;
+            }
+            const core::Job* j = job(repair.jobId);
+            if (j == nullptr || j->deleted) {
+                continue;
+            }
+            out.push_back({repair.jobId, repair.orderNo, repair.device, j->client});
+        }
+        return out;
+    }
+
+    [[nodiscard]] const core::Job* job(const core::Id& id) const {
+        const auto it = std::find_if(jobs.begin(), jobs.end(),
+                                     [&id](const core::Job& j) { return j.id == id; });
+        return it == jobs.end() ? nullptr : &*it;
+    }
+
+    [[nodiscard]] const core::Repair* repair(const core::Id& jobId) const {
+        const auto it = std::find_if(repairs.begin(), repairs.end(),
+                                     [&jobId](const core::Repair& r) { return r.jobId == jobId; });
+        return it == repairs.end() ? nullptr : &*it;
+    }
+
+    [[nodiscard]] std::vector<core::RepairPart> partsOf(const core::Id& jobId) const {
+        std::vector<core::RepairPart> out;
+        for (const core::RepairPart& part : parts) {
+            if (part.jobId == jobId) out.push_back(part);
+        }
+        return out;
+    }
+
+    /// Los clientes ya anotados, sin repetir: para completar al escribir.
+    [[nodiscard]] QStringList clients() const {
+        QStringList out;
+        for (const core::Job& j : jobs) {
+            const QString client = QString::fromStdString(j.client).trimmed();
+            if (!j.deleted && !client.isEmpty() && !out.contains(client, Qt::CaseInsensitive)) {
+                out << client;
             }
         }
         return out;

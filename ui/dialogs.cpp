@@ -156,48 +156,6 @@ std::optional<core::Pocket> PocketDialog::result() const {
     return pocket;
 }
 
-// ------------------------------------------------------------------ Trabajo
-
-JobDialog::JobDialog(core::Date today, QWidget* parent) : QDialog(parent) {
-    styleDialog(this, QStringLiteral("Nuevo trabajo"), 420);
-
-    name_ = new QLineEdit(this);
-    name_->setPlaceholderText(QStringLiteral("Reparacion Macbook"));
-
-    client_ = new QLineEdit(this);
-    client_->setPlaceholderText(QStringLiteral("Herman Galvan"));
-
-    opened_ = new QDateEdit(toQDate(today), this);
-    opened_->setCalendarPopup(true);
-    opened_->setDisplayFormat(QStringLiteral("dd/MM/yyyy"));
-
-    auto* form = new QFormLayout();
-    form->addRow(QStringLiteral("Trabajo"), name_);
-    form->addRow(QStringLiteral("Cliente"), client_);
-    form->addRow(QStringLiteral("Empezado"), opened_);
-
-    auto* root = new QVBoxLayout(this);
-    root->addLayout(form);
-    root->addWidget(hintLabel(
-        QStringLiteral("Un trabajo junta el ingreso con los gastos que lo hicieron posible. "
-                       "Es lo unico que despues permite saber si conviene seguir aceptando "
-                       "trabajos parecidos."),
-        this));
-    root->addWidget(buttons(this, QStringLiteral("Crear")));
-}
-
-std::optional<core::Job> JobDialog::result() const {
-    if (name_->text().trimmed().isEmpty()) {
-        QMessageBox::warning(const_cast<JobDialog*>(this), QStringLiteral("Falta el nombre"),
-                             QStringLiteral("El trabajo necesita un nombre."));
-        return std::nullopt;
-    }
-    core::Job job;
-    job.name = name_->text().trimmed().toStdString();
-    job.client = client_->text().trimmed().toStdString();
-    job.opened = fromQDate(opened_->date());
-    return job;
-}
 
 // ------------------------------------------------------------------ Cuadrar
 

@@ -12,7 +12,10 @@ set(DAKE_UI_SOURCES
     mainwindow.hpp
     pages.hpp
     todaypage.cpp
-    jobspage.cpp
+    repairspage.cpp
+    repairdialogs.cpp
+    repairdialogs.hpp
+    fields.hpp
     movementspage.cpp
     closingpage.cpp
     pocketspage.cpp
@@ -38,15 +41,17 @@ set(DAKE_UI_SOURCES
     tables.hpp
 )
 
+# Las pantallas van en una biblioteca y no compiladas tres veces: la usan la
+# aplicacion, el banco visual y la prueba de la interfaz (tests/uitest.cpp).
+qt_add_library(dake_ui STATIC ${DAKE_UI_SOURCES})
+target_include_directories(dake_ui PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(dake_ui PUBLIC dake::core dake::storage dake_sync Qt6::Widgets Qt6::Network)
+target_compile_definitions(dake_ui PUBLIC DAKE_APP_NAME="${DAKE_APP_NAME}")
+
 qt_add_executable(dake_pruebas WIN32
     main.cpp
-    ${DAKE_UI_SOURCES}
 )
-
-target_include_directories(dake_pruebas PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(dake_pruebas PRIVATE dake::core dake::storage dake_sync Qt6::Widgets
-                                           Qt6::Network)
-target_compile_definitions(dake_pruebas PRIVATE DAKE_APP_NAME="${DAKE_APP_NAME}")
+target_link_libraries(dake_pruebas PRIVATE dake_ui)
 
 # --- Banco de pruebas visual ---
 # Renderiza las pantallas a PNG con el complemento offscreen. Deliberadamente
@@ -55,12 +60,8 @@ target_compile_definitions(dake_pruebas PRIVATE DAKE_APP_NAME="${DAKE_APP_NAME}"
 # los desvia.
 qt_add_executable(dake_uipreview
     preview.cpp
-    ${DAKE_UI_SOURCES}
 )
-target_include_directories(dake_uipreview PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(dake_uipreview PRIVATE dake::core dake::storage dake_sync Qt6::Widgets
-                                             Qt6::Network)
-target_compile_definitions(dake_uipreview PRIVATE DAKE_APP_NAME="${DAKE_APP_NAME}")
+target_link_libraries(dake_uipreview PRIVATE dake_ui)
 
 if(WIN32)
     find_program(DAKE_WINDEPLOYQT windeployqt HINTS "${Qt6_DIR}/../../../bin")

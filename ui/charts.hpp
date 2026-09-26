@@ -136,4 +136,34 @@ private:
     QColor barColor_;
 };
 
+/// Una fila por tipo de reparacion: la barra es el margen y la raya vertical,
+/// el objetivo. El color es el veredicto y a la derecha va la accion. Es el
+/// reporte que tiene que entenderse sin leer una tabla.
+struct TypeRow {
+    QString label;
+    double marginPercent = 0;  ///< puede ser negativo
+    bool hasMargin = false;
+    QColor color;
+    QString detail;  ///< "38% · deja 24,10/h · horas 1,1×"
+    QString action;  ///< "✓ bien", "sube a 95 (hoy 85)"
+};
+
+class TypeChart : public QWidget {
+    Q_OBJECT
+
+public:
+    explicit TypeChart(QWidget* parent = nullptr);
+
+    void setData(std::vector<TypeRow> rows, double targetPercent);
+    [[nodiscard]] QSize sizeHint() const override;
+    [[nodiscard]] QSize minimumSizeHint() const override;
+
+protected:
+    void paintEvent(QPaintEvent* event) override;
+
+private:
+    std::vector<TypeRow> rows_;
+    double target_ = 30;
+};
+
 } // namespace dake::ui

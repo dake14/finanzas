@@ -30,6 +30,7 @@
 #include "dake/core/hlc.hpp"
 #include "dake/sync/config.hpp"
 #include "dialogs.hpp"
+#include "repairdialogs.hpp"
 #include "pages.hpp"
 #include "capturewidget.hpp"
 #include "capturewindow.hpp"
@@ -46,6 +47,11 @@ core::HlcClock& clock(const std::string& deviceId) {
     static core::HlcClock instance(deviceId);
     return instance;
 }
+
+/// Las categorias de lo que nace de una reparacion. Si no existen, se crean
+/// del negocio la primera vez que se usan.
+const std::string kRepairIncomeCategory = "Reparaciones";
+const std::string kRepairPartsCategory = "Repuestos";
 
 /// Cuanto se espera despues del ultimo cambio antes de subir. Cinco segundos
 /// alcanzan para agrupar una tanda de anotaciones seguidas y son poco para
@@ -146,8 +152,9 @@ MainWindow::MainWindow(const QString& dbPath, QWidget* parent) : QMainWindow(par
     candidates << QStringLiteral("Ctrl+Alt+Space") << QStringLiteral("Ctrl+Alt+N")
                << QStringLiteral("Ctrl+Shift+Space");
     candidates.removeDuplicates();
+    const bool testRun = !qEnvironmentVariableIsEmpty("DAKE_TEST_DB_PATH");
     for (const QString& candidate : candidates) {
-        if (applyHotkey(QKeySequence(candidate, QKeySequence::PortableText))) {
+        if (testRun || applyHotkey(QKeySequence(candidate, QKeySequence::PortableText))) {
             break;
         }
     }
@@ -332,7 +339,7 @@ void MainWindow::buildUi() {
 
     stack_ = new QStackedWidget(central);
     today_ = new TodayPage(stack_);
-    jobs_ = new JobsPage(stack_);
+    repairs_ = new RepairsPage(stack_);
     movements_ = new MovementsPage(stack_);
     pockets_ = new PocketsPage(stack_);
     closing_ = new ClosingPage(stack_);
@@ -340,7 +347,7 @@ void MainWindow::buildUi() {
     settings_ = new SettingsPage(stack_);
     // El orden importa: es el mismo que el de los botones de la barra y el que
     // usa showPage().
-    for (QWidget* page : {static_cast<QWidget*>(today_), static_cast<QWidget*>(jobs_),
+    for (QWidget* page : {static_cast<QWidget*>(today_), static_cast<QWidget*>(repairs_),
                           static_cast<QWidget*>(movements_), static_cast<QWidget*>(pockets_),
                           static_cast<QWidget*>(closing_), static_cast<QWidget*>(reports_),
                           static_cast<QWidget*>(settings_)}) {
@@ -397,8 +404,19 @@ void MainWindow::buildUi() {
         applyAutostart(enabled);
         reload();
     }, Qt::QueuedConnection);
-    connect(jobs_, &JobsPage::newJobRequested, this, &MainWindow::newJob);
-    connect(jobs_, &JobsPage::jobActivated, this, &MainWindow::toggleJob);
+    // Todo lo que llega de la ficha va encolado: la recarga que sigue
+    // reconstruye la ficha, y reconstruirla dentro de la senal de uno de sus
+    // propios campos cuelga la aplicacion.
+    connect(repairs_, &RepairsPage::newRepairRequested, this, &MainWindow::newRepair);
+    connect(repairs_, &RepairsPage::repairEdited, this, &MainWindow::editRepair, Qt::QueuedConnection);
+    connect(repairs_, &RepairsPage::deliverRequested, this, &MainWindow::deliverRepair, Qt::QueuedConnection);
+    connect(repairs_, &RepairsPage::chargeRequested, this, &MainWindow::chargeRepair, Qt::QueuedConnection);
+    connect(repairs_, &RepairsPage::partAdded, this, &MainWindow::addPart, Qt::QueuedConnection);
+    connect(repairs_, &RepairsPage::partChanged, this, &MainWindow::changePart, Qt::QueuedConnection);
+    connect(repairs_, &RepairsPage::partRemoved, this, &MainWindow::removePart, Qt::QueuedConnection);
+
+    auto* repairShortcut = new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_R), this);
+    connect(repairShortcut, &QShortcut::activated, this, &MainWindow::newRepair);
     connect(movements_, &MovementsPage::movementActivated, this, &MainWindow::editMovement);
     connect(pockets_, &PocketsPage::newPocketRequested, this, &MainWindow::newPocket);
     connect(pockets_, &PocketsPage::reconcileRequested, this, &MainWindow::reconcile);
@@ -407,6 +425,33 @@ void MainWindow::buildUi() {
     connect(pockets_, &PocketsPage::accountToggled, this, &MainWindow::togglePocketAccount,
             Qt::QueuedConnection);
     connect(settings_, &SettingsPage::categoryChanged, this, &MainWindow::saveCategory,
+            Qt::QueuedConnection);
+    connect(settings_, &SettingsPage::costSettingsChanged, this,
+            [this](const core::CostSettings& settings) {
+                repository_->saveCostSettings(settings);
+                reload();
+            },
+            Qt::QueuedConnection);
+    connect(settings_, &SettingsPage::templateChanged, this,
+            [this](const core::RepairTemplate& tpl) {
+                repository_->saveTemplate(tpl);
+                reload();
+            },
+            Qt::QueuedConnection);
+    connect(settings_, &SettingsPage::templateAdded, this,
+            [this] {
+                core::RepairTemplate tpl;
+                tpl.id = storage::newId();
+                tpl.name = "Nueva plantilla";
+                repository_->saveTemplate(tpl);
+                reload();
+            },
+            Qt::QueuedConnection);
+    connect(settings_, &SettingsPage::templateRemoved, this,
+            [this](const core::Id& id) {
+                repository_->removeTemplate(id);
+                reload();
+            },
             Qt::QueuedConnection);
 
     // Ctrl+1 a Ctrl+7: cada seccion a una tecla, para no tocar el mouse.
@@ -456,7 +501,7 @@ void MainWindow::buildSidebar(QWidget* parent) {
 
     auto* group = new QButtonGroup(this);
     group->setExclusive(true);
-    const QStringList names{QStringLiteral("Hoy"), QStringLiteral("Trabajos"),
+    const QStringList names{QStringLiteral("Hoy"), QStringLiteral("Reparaciones"),
                             QStringLiteral("Movimientos"), QStringLiteral("Bolsillos"),
                             QStringLiteral("Cierre"), QStringLiteral("Reportes"),
                             QStringLiteral("Ajustes")};
@@ -530,8 +575,29 @@ void MainWindow::reload() {
         snapshot_.categories = repository_->loadCategories();
     }
 
+    // Las reparaciones, con el estado que dicen sus movimientos: anotar
+    // "120 cobro GPU 3080" en la captura la deja cobrada igual que el boton.
+    // Lo que cambia se guarda, para que el telefono vea el trabajo cerrado.
+    snapshot_.repairs = repository_->loadRepairs();
+    bool reconciledAny = false;
+    for (core::Repair& repair : snapshot_.repairs) {
+        const core::Repair reconciled = core::reconcileRepair(repair, snapshot_.movements);
+        if (reconciled.status != repair.status || reconciled.delivered != repair.delivered) {
+            repair = reconciled;
+            persistRepair(repair);
+            reconciledAny = true;
+        }
+    }
+    if (reconciledAny && supabase_->isSignedIn()) {
+        autoSyncTimer_->start();
+    }
+    snapshot_.parts = repository_->loadRepairParts();
+    snapshot_.templates = repository_->loadTemplates();
+    snapshot_.costs = repository_->loadCostSettings();
+    snapshot_.jobs = repository_->loadJobs();
+
     today_->setSnapshot(snapshot_);
-    jobs_->setSnapshot(snapshot_);
+    repairs_->setSnapshot(snapshot_);
     movements_->setSnapshot(snapshot_);
     pockets_->setSnapshot(snapshot_);
     closing_->setSnapshot(snapshot_);
@@ -633,46 +699,248 @@ void MainWindow::newPocket() {
     afterLocalChange();
 }
 
-void MainWindow::newJob() {
-    JobDialog dialog(snapshot_.today, this);
+// ----------------------------------------------------------- Reparaciones
+
+core::Id MainWindow::businessPocket() const {
+    core::CaptureContext context;
+    context.pockets = snapshot_.pockets;
+    context.history = snapshot_.movements;
+    return core::suggestedPocket(context, core::Account::Negocio);
+}
+
+void MainWindow::persistRepair(const core::Repair& repair) {
+    repository_->saveRepair(repair);
+    const core::Job* job = snapshot_.job(repair.jobId);
+    if (job == nullptr) {
+        return;
+    }
+    const bool closed = repair.status == core::RepairStatus::Cobrada;
+    if (job->closed != closed) {
+        core::Job updated = *job;
+        updated.closed = closed;
+        restamp(updated.hlc, updated.deviceId);
+        repository_->save(updated);
+    }
+}
+
+void MainWindow::persistGenerated(core::Movement movement) {
+    if (movement.id.empty()) {
+        movement.id = stamp(movement.hlc, movement.deviceId);
+    } else {
+        restamp(movement.hlc, movement.deviceId);
+    }
+    if (!movement.category.empty() &&
+        core::findCategory(snapshot_.categories, movement.category) == nullptr) {
+        repository_->saveCategory({movement.category, core::Account::Negocio,
+                                   core::CategoryClass::General, movement.kind});
+    }
+    repository_->save(movement);
+}
+
+void MainWindow::newRepair() {
+    NewRepairDialog dialog(snapshot_, this);
     if (dialog.exec() != QDialog::Accepted) {
         return;
     }
-    const auto job = dialog.result();
-    if (!job) {
+    const auto tpl = std::find_if(snapshot_.templates.begin(), snapshot_.templates.end(),
+                                  [&dialog](const core::RepairTemplate& t) {
+                                      return t.id == dialog.templateId();
+                                  });
+    if (tpl == snapshot_.templates.end()) {
         return;
     }
-    core::Job saved = *job;
-    saved.id = stamp(saved.hlc, saved.deviceId);
-    repository_->save(saved);
+
+    const std::string orderNo = core::nextOrderNumber(snapshot_.repairs);
+    const std::string device = dialog.device().toStdString();
+
+    // El trabajo es lo que sincroniza: el telefono lo ve como "R-0042 · RTX
+    // 3080". La ficha, con todo lo demas, queda en esta computadora.
+    core::Job job;
+    job.id = stamp(job.hlc, job.deviceId);
+    job.name = orderNo + " · " + device;
+    job.client = dialog.client().toStdString();
+    job.opened = snapshot_.today;
+
+    const bool ownTx = db_->handle().transaction();
+    try {
+        repository_->save(job);
+        repository_->saveRepair(core::repairFromTemplate(*tpl, job.id, orderNo, device, snapshot_.today));
+        for (core::RepairPart part : core::partsFromTemplate(*tpl, job.id)) {
+            part.id = storage::newId();
+            repository_->saveRepairPart(part);
+        }
+        repository_->addTiming(QStringLiteral("reparacion"), dialog.elapsedMs());
+        if (ownTx && !db_->handle().commit()) {
+            throw storage::StorageError(QStringLiteral("No se pudo confirmar la transaccion."));
+        }
+    } catch (const std::exception& error) {
+        if (ownTx) db_->handle().rollback();
+        QMessageBox::critical(this, QStringLiteral("No se pudo crear"), QString::fromUtf8(error.what()));
+        return;
+    }
+    afterLocalChange();
+    showPage(1);
+    repairs_->selectRepair(job.id);
+    repairs_->focusList();
+}
+
+void MainWindow::editRepair(const core::Repair& repair, const QString& client) {
+    const core::Job* job = snapshot_.job(repair.jobId);
+    if (job == nullptr) {
+        return;
+    }
+    repository_->saveRepair(repair);
+    // El nombre y el cliente del trabajo siguen a la ficha: son lo que ve el
+    // telefono.
+    const std::string name =
+        repair.orderNo.empty() ? repair.device : repair.orderNo + " · " + repair.device;
+    if (job->client != client.toStdString() || job->name != name) {
+        core::Job updated = *job;
+        updated.client = client.toStdString();
+        updated.name = name;
+        restamp(updated.hlc, updated.deviceId);
+        repository_->save(updated);
+    }
     afterLocalChange();
 }
 
-void MainWindow::toggleJob(const core::Id& jobId) {
-    const auto it = std::find_if(snapshot_.jobs.begin(), snapshot_.jobs.end(),
-                                 [&jobId](const core::Job& job) { return job.id == jobId; });
-    if (it == snapshot_.jobs.end()) {
+void MainWindow::deliverRepair(const core::Id& jobId) {
+    const core::Repair* repair = snapshot_.repair(jobId);
+    if (repair == nullptr) {
         return;
     }
-
-    const QString question =
-        it->closed ? QStringLiteral("¿Reabrir \"%1\"?") : QStringLiteral("¿Dar por cerrado \"%1\"?");
-    const auto answer =
-        QMessageBox::question(this, QStringLiteral("Trabajo"),
-                              question.arg(QString::fromStdString(it->name)) +
-                                  QStringLiteral("\n\nUn trabajo cerrado deja de ofrecerse al "
-                                                 "cargar movimientos, pero sigue contando en "
-                                                 "el historial."),
-                              QMessageBox::Yes | QMessageBox::Cancel, QMessageBox::Yes);
-    if (answer != QMessageBox::Yes) {
+    const core::Money price = core::repairPrice(*repair, snapshot_.movements, snapshot_.currency);
+    DeliverDialog dialog(*repair, price, snapshot_.today, this);
+    if (dialog.exec() != QDialog::Accepted) {
         return;
     }
+    const auto result = core::deliverRepair(*repair, snapshot_.movements, dialog.date(),
+                                            dialog.realMinutes(), dialog.priceMinor(),
+                                            dialog.charged(), businessPocket(),
+                                            kRepairIncomeCategory);
+    const bool ownTx = db_->handle().transaction();
+    try {
+        persistRepair(result.repair);
+        if (result.income) {
+            persistGenerated(*result.income);
+        }
+        if (ownTx && !db_->handle().commit()) {
+            throw storage::StorageError(QStringLiteral("No se pudo confirmar la transaccion."));
+        }
+    } catch (const std::exception& error) {
+        if (ownTx) db_->handle().rollback();
+        QMessageBox::critical(this, QStringLiteral("No se pudo entregar"), QString::fromUtf8(error.what()));
+        return;
+    }
+    afterLocalChange();
+}
 
-    core::Job updated = *it;
-    updated.closed = !updated.closed;
-    updated.hlc = clock(deviceId_.toStdString()).now(QDateTime::currentMSecsSinceEpoch()).encode();
-    updated.deviceId = deviceId_.toStdString();
-    repository_->save(updated);
+void MainWindow::chargeRepair(const core::Id& jobId) {
+    const core::Repair* repair = snapshot_.repair(jobId);
+    if (repair == nullptr) {
+        return;
+    }
+    // Sin entregar todavia: cobrar es entregar y cobrar, y eso pide las horas.
+    if (repair->status == core::RepairStatus::EnProceso) {
+        deliverRepair(jobId);
+        return;
+    }
+    const auto result = core::chargeRepair(*repair, snapshot_.movements, snapshot_.today,
+                                           businessPocket(), kRepairIncomeCategory);
+    const bool ownTx = db_->handle().transaction();
+    try {
+        persistRepair(result.repair);
+        if (result.income) {
+            persistGenerated(*result.income);
+        }
+        if (ownTx && !db_->handle().commit()) {
+            throw storage::StorageError(QStringLiteral("No se pudo confirmar la transaccion."));
+        }
+    } catch (const std::exception& error) {
+        if (ownTx) db_->handle().rollback();
+        QMessageBox::critical(this, QStringLiteral("No se pudo cobrar"), QString::fromUtf8(error.what()));
+        return;
+    }
+    afterLocalChange();
+}
+
+void MainWindow::addPart(const core::Id& jobId, const QString& name, qint64 costMinor,
+                         bool costKnown, bool bought) {
+    const core::Repair* repair = snapshot_.repair(jobId);
+    if (repair == nullptr) {
+        return;
+    }
+    core::RepairPart part;
+    part.id = storage::newId();
+    part.jobId = jobId;
+    part.name = name.toStdString();
+    part.costMinor = costMinor;
+    part.costKnown = costKnown;
+
+    const bool ownTx = db_->handle().transaction();
+    try {
+        if (bought && costMinor > 0) {
+            // Comprado para esta reparacion: el gasto se anota solo y queda
+            // enlazado. El costo de la reparacion sale del repuesto, no del
+            // gasto, asi que no se cuenta dos veces.
+            core::Movement expense;
+            expense.date = snapshot_.today;
+            expense.name = name.toStdString() + " · " + repair->orderNo;
+            expense.kind = core::MovementKind::Gasto;
+            expense.amountMinor = costMinor;
+            expense.pocketId = businessPocket();
+            expense.category = kRepairPartsCategory;
+            expense.jobId = jobId;
+            expense.id = stamp(expense.hlc, expense.deviceId);
+            part.movementId = expense.id;
+            persistGenerated(expense);
+        }
+        repository_->saveRepairPart(part);
+        if (ownTx && !db_->handle().commit()) {
+            throw storage::StorageError(QStringLiteral("No se pudo confirmar la transaccion."));
+        }
+    } catch (const std::exception& error) {
+        if (ownTx) db_->handle().rollback();
+        QMessageBox::critical(this, QStringLiteral("No se pudo agregar"), QString::fromUtf8(error.what()));
+        return;
+    }
+    afterLocalChange();
+}
+
+void MainWindow::changePart(const core::RepairPart& part) {
+    repository_->saveRepairPart(part);
+    // Si el repuesto tiene su gasto, el gasto sigue al costo corregido.
+    if (!part.movementId.empty()) {
+        const auto it = std::find_if(snapshot_.movements.begin(), snapshot_.movements.end(),
+                                     [&part](const core::Movement& m) { return m.id == part.movementId; });
+        if (it != snapshot_.movements.end() && it->amountMinor != part.costMinor && part.costMinor > 0) {
+            core::Movement updated = *it;
+            updated.amountMinor = part.costMinor;
+            persistGenerated(updated);
+        }
+    }
+    afterLocalChange();
+}
+
+void MainWindow::removePart(const core::RepairPart& part) {
+    const bool ownTx = db_->handle().transaction();
+    try {
+        repository_->removeRepairPart(part.id);
+        if (!part.movementId.empty()) {
+            const auto it = std::find_if(snapshot_.movements.begin(), snapshot_.movements.end(),
+                                         [&part](const core::Movement& m) { return m.id == part.movementId; });
+            if (it != snapshot_.movements.end()) {
+                repository_->remove(*it);
+            }
+        }
+        if (ownTx && !db_->handle().commit()) {
+            throw storage::StorageError(QStringLiteral("No se pudo confirmar la transaccion."));
+        }
+    } catch (const std::exception& error) {
+        if (ownTx) db_->handle().rollback();
+        QMessageBox::critical(this, QStringLiteral("No se pudo quitar"), QString::fromUtf8(error.what()));
+        return;
+    }
     afterLocalChange();
 }
 

@@ -468,4 +468,96 @@ void CompareChart::paintEvent(QPaintEvent* event) {
     }
 }
 
+// --- TypeChart ------------------------------------------------------------
+
+namespace {
+constexpr int kTypeRowHeight = 44;
+constexpr int kTypeLabelWidth = 110;
+constexpr int kTypeTop = 22;
+} // namespace
+
+TypeChart::TypeChart(QWidget* parent) : QWidget(parent) {}
+
+void TypeChart::setData(std::vector<TypeRow> rows, double targetPercent) {
+    rows_ = std::move(rows);
+    target_ = targetPercent;
+    updateGeometry();
+    update();
+}
+
+QSize TypeChart::sizeHint() const {
+    return {760, kTypeTop + std::max(1, static_cast<int>(rows_.size())) * kTypeRowHeight};
+}
+
+QSize TypeChart::minimumSizeHint() const {
+    return {480, kTypeTop + std::max(1, static_cast<int>(rows_.size())) * kTypeRowHeight};
+}
+
+void TypeChart::paintEvent(QPaintEvent* event) {
+    Q_UNUSED(event);
+    QPainter painter(this);
+    painter.setRenderHint(QPainter::Antialiasing);
+
+    if (rows_.empty()) {
+        painter.setPen(theme::kTextFaint);
+        painter.setFont(theme::bodyFont(9));
+        painter.drawText(rect(), Qt::AlignCenter,
+                         QStringLiteral("todavía no hay reparaciones entregadas en el periodo"));
+        return;
+    }
+
+    // La escala va de 0 a lo que haga falta para que entren el objetivo con
+    // aire y el mejor margen. Un margen negativo se pinta como barra cero y el
+    // numero lo dice.
+    double top = target_ * 1.5;
+    for (const TypeRow& row : rows_) {
+        top = std::max(top, row.marginPercent * 1.1);
+    }
+    const int barLeft = kTypeLabelWidth;
+    const int textWidth = std::max(260, width() / 3);
+    const int barWidth = std::max(80, width() - barLeft - textWidth - 16);
+    auto x = [&](double percent) {
+        const double clamped = std::clamp(percent, 0.0, top);
+        return barLeft + static_cast<int>(barWidth * clamped / top);
+    };
+
+    const int targetX = x(target_);
+    painter.setPen(theme::kTextMuted);
+    painter.setFont(theme::bodyFont(8));
+    painter.drawText(QRect(targetX - 60, 0, 120, kTypeTop - 4), Qt::AlignCenter,
+                     QStringLiteral("objetivo %1%").arg(target_, 0, 'f', 0));
+
+    int y = kTypeTop;
+    for (const TypeRow& row : rows_) {
+        const int mid = y + kTypeRowHeight / 2;
+        painter.setFont(theme::bodyFont(10, QFont::DemiBold));
+        painter.setPen(theme::kText);
+        painter.drawText(QRect(0, y, kTypeLabelWidth - 10, kTypeRowHeight),
+                         Qt::AlignLeft | Qt::AlignVCenter, row.label);
+
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(theme::kSurfaceRaised);
+        painter.drawRoundedRect(QRectF(barLeft, mid - 9, barWidth, 18), 4, 4);
+        if (row.hasMargin && row.marginPercent > 0) {
+            painter.setBrush(row.color);
+            painter.drawRoundedRect(QRectF(barLeft, mid - 9, x(row.marginPercent) - barLeft, 18), 4, 4);
+        }
+
+        const QRect textRect(barLeft + barWidth + 16, y, textWidth, kTypeRowHeight);
+        painter.setFont(theme::numericFont(9));
+        painter.setPen(theme::kText);
+        painter.drawText(textRect.adjusted(0, 3, 0, -kTypeRowHeight / 2), Qt::AlignLeft | Qt::AlignVCenter,
+                         row.detail);
+        painter.setFont(theme::bodyFont(9, QFont::DemiBold));
+        painter.setPen(row.color);
+        painter.drawText(textRect.adjusted(0, kTypeRowHeight / 2 - 3, 0, 0),
+                         Qt::AlignLeft | Qt::AlignVCenter, row.action);
+        y += kTypeRowHeight;
+    }
+
+    // La raya del objetivo va encima de las barras: es contra lo que se mide.
+    painter.setPen(QPen(theme::kText, 2, Qt::DashLine));
+    painter.drawLine(targetX, kTypeTop, targetX, y);
+}
+
 } // namespace dake::ui

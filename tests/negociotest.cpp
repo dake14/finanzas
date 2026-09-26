@@ -5,11 +5,16 @@
 // devuelve 0 si todo pasa.
 
 #include <cstdio>
+
+#if defined(_MSC_VER) && defined(_DEBUG)
+#include <crtdbg.h>
+#endif
 #include <string>
 #include <vector>
 
 #include "dake/core/accounts.hpp"
 #include "dake/core/capture.hpp"
+#include "dake/core/repairs.hpp"
 #include "dake/core/model.hpp"
 #include "dake/core/money.hpp"
 
@@ -405,9 +410,270 @@ void aprenderCategorias() {
     check(ingresos.size() == 1 && ingresos[0] == "Reparaciones", "y la de ingreso aparte");
 }
 
+
+// ------------------------------------------------------------- Reparaciones
+
+/// Tarifa 15 por hora, objetivo 30%, fijos a 4 por hora.
+[[nodiscard]] CostSettings ajustes() {
+    return CostSettings{15'00, 3000, 4'00};
+}
+
+[[nodiscard]] Repair reparacion(const char* jobId, RepairType type, std::int64_t price,
+                                int est, std::optional<int> real,
+                                RepairStatus status = RepairStatus::Entregada,
+                                const char* delivered = "2026-09-15") {
+    Repair r;
+    r.jobId = jobId;
+    r.orderNo = std::string("R-") + jobId;
+    r.device = jobId;
+    r.type = type;
+    r.priceMinor = price;
+    r.estMinutes = est;
+    r.realMinutes = real;
+    r.status = status;
+    r.received = Date{2026, 9, 1};
+    if (status != RepairStatus::EnProceso) {
+        r.delivered = Date::fromIso(delivered);
+    }
+    return r;
+}
+
+[[nodiscard]] RepairPart repuesto(const char* jobId, const char* name, std::int64_t cost,
+                                  bool known = true, const char* movementId = "") {
+    RepairPart p;
+    p.id = std::string("p-") + jobId + name;
+    p.jobId = jobId;
+    p.name = name;
+    p.costMinor = cost;
+    p.costKnown = known;
+    p.movementId = movementId;
+    return p;
+}
+
+[[nodiscard]] Movement enlazado(const char* id, MovementKind kind, std::int64_t minor,
+                                const char* jobId, bool settled = true,
+                                const char* date = "2026-09-15") {
+    Movement m;
+    m.id = id;
+    m.date = Date::fromIso(date);
+    m.name = id;
+    m.kind = kind;
+    m.amountMinor = minor;
+    m.pocketId = "caja";
+    m.jobId = jobId;
+    m.settled = settled;
+    return m;
+}
+
+void costoDeUnaReparacion() {
+    std::printf("\n[costo de una reparacion]\n");
+    Repair a = reparacion("A", RepairType::GPU, 90'00, 120, 150);
+    a.consumablesMinor = 2'00;
+    a.shippingMinor = 3'00;
+    const std::vector<RepairPart> partes{repuesto("A", "pasta", 5'00),
+                                         repuesto("A", "pads", 8'00, true, "m-pads"),
+                                         repuesto("A", "ventilador", 0, false)};
+    const std::vector<Movement> ms{enlazado("m-pads", MovementKind::Gasto, 8'00, "A"),
+                                   enlazado("m-tornillo", MovementKind::Gasto, 1'50, "A"),
+                                   enlazado("m-otro", MovementKind::Gasto, 99'00, "B")};
+
+    checkMinor(looseExpenses(a, partes, ms, kUsd).minor(), 1'50,
+               "el tornillo anotado sin ficha cuenta como repuesto; los pads, no dos veces");
+    const RepairCosting c = costRepair(a, partes, ms, ajustes(), kUsd);
+    checkMinor(c.price.minor(), 90'00, "sin ingreso anotado, el precio es el de la ficha");
+    checkMinor(c.parts.minor(), 14'50, "repuestos: 5 + 8 + 1,50");
+    check(c.partsIncomplete, "hay un repuesto sin costo: se avisa");
+    checkMinor(c.direct.minor(), 19'50, "directo: repuestos + consumibles 2 + envio 3");
+    checkMinor(c.labor.minor(), 37'50, "horas: 2,5 h reales x 15");
+    checkMinor(c.fixedShare.minor(), 10'00, "fijos: 2,5 h x 4");
+    checkMinor(c.cost.minor(), 67'00, "costo total");
+    checkMinor(c.profit.minor(), 23'00, "ganancia: 90 - 67");
+    check(c.marginBps == 2556, "margen 25,56%");
+    check(c.profitPerHour && c.profitPerHour->minor() == 28'20,
+          "ganancia por hora: (90 - 19,50) / 2,5 h = 28,20");
+    check(c.suggestedPrice && c.suggestedPrice->minor() == 95'71,
+          "precio sugerido: 67 / (1 - 30%) = 95,71");
+    check(c.belowTarget(3000), "queda bajo el objetivo");
+    check(!c.hoursEstimated && c.minutes == 150, "con las horas reales");
+
+    std::vector<Movement> conCobro = ms;
+    conCobro.push_back(enlazado("m-cobro", MovementKind::Ingreso, 95'00, "A", false));
+    checkMinor(repairPrice(a, conCobro, kUsd).minor(), 95'00,
+               "con un ingreso anotado, el precio es lo que entro (cobrado o no)");
+
+    const Repair sinHoras = reparacion("B", RepairType::GPU, 50'00, 60, std::nullopt);
+    const RepairCosting b = costRepair(sinHoras, {}, {}, ajustes(), kUsd);
+    check(b.hoursEstimated && b.minutes == 60, "sin horas reales usa las estimadas, y lo dice");
+    checkMinor(b.labor.minor(), 15'00, "1 h estimada x 15");
+
+    const Repair gratis = reparacion("C", RepairType::Otro, 0, 30, 30);
+    const RepairCosting g = costRepair(gratis, {}, {}, ajustes(), kUsd);
+    check(!g.marginBps, "precio 0 (garantia): sin margen, en vez de dividir por cero");
+    checkMinor(g.profit.minor(), -9'50, "y la perdida se ve: 7,50 de horas + 2 de fijos");
+
+    const Repair sinTiempo = reparacion("D", RepairType::Otro, 10'00, 0, 0);
+    check(!costRepair(sinTiempo, {}, {}, ajustes(), kUsd).profitPerHour,
+          "sin horas no hay ganancia por hora");
+    checkMinor(hourlyNeeded(ajustes(), kUsd).minor(), 19'00,
+               "cada hora tiene que dejar 19: tarifa 15 + fijos 4");
+}
+
+void rentabilidadPorTipo() {
+    std::printf("\n[rentabilidad por tipo]\n");
+    std::vector<Repair> rs{
+        reparacion("G1", RepairType::GPU, 100'00, 100, 120),
+        reparacion("G2", RepairType::GPU, 80'00, 120, 180),
+        reparacion("G3", RepairType::GPU, 60'00, 60, 60),
+        reparacion("G4", RepairType::GPU, 500'00, 60, 60, RepairStatus::EnProceso),
+        reparacion("G5", RepairType::GPU, 500'00, 60, 60, RepairStatus::Cobrada, "2026-08-20"),
+        reparacion("L1", RepairType::Laptop, 70'00, 60, 60, RepairStatus::Cobrada),
+        reparacion("P1", RepairType::PlacaMadre, 50'00, 120, 120),
+        reparacion("P2", RepairType::PlacaMadre, 50'00, 120, 120),
+        reparacion("P3", RepairType::PlacaMadre, 50'00, 120, 120),
+    };
+    const std::vector<RepairPart> partes{
+        repuesto("G1", "chip", 20'00), repuesto("G2", "chip", 10'00), repuesto("G3", "chip", 30'00),
+        repuesto("P1", "x", 10'00),    repuesto("P2", "x", 10'00),    repuesto("P3", "x", 10'00)};
+
+    const auto stats = statsByType(rs, partes, {}, ajustes(), kUsd, Date{2026, 9, 1},
+                                   Date{2026, 9, 30});
+    check(stats.size() == 3, "tres tipos con entregas en septiembre: GPU, Laptop, Placa");
+    if (stats.size() != 3) return;
+
+    const TypeStats& gpu = stats[0];
+    check(gpu.type == RepairType::GPU, "primero GPU");
+    check(gpu.count == 3, "tres GPU: la que sigue en proceso y la de agosto no cuentan");
+    checkMinor(gpu.revenue.minor(), 240'00, "facturado 240");
+    checkMinor(gpu.profit.minor(), 66'00, "ganancia 42 + 13 + 11");
+    check(gpu.marginBps == 2750, "margen ponderado 27,5%, no el promedio de los margenes");
+    check(gpu.profitPerHour && gpu.profitPerHour->minor() == 30'00, "deja 30 por hora: 180 en 6 h");
+    check(gpu.hoursRatioPermille == 1286, "tarda 1,29 veces lo estimado: 360 / 280 minutos");
+    checkMinor(gpu.averageCost.minor(), 58'00, "costo promedio 58");
+    checkMinor(gpu.averagePrice.minor(), 80'00, "precio promedio 80");
+    check(gpu.suggestedPrice && gpu.suggestedPrice->minor() == 82'86, "sugerido 58 / 0,7");
+    check(gpu.verdict == Verdict::Cerca, "2,5 puntos bajo el objetivo: cerca");
+
+    check(stats[1].type == RepairType::Laptop && stats[1].verdict == Verdict::PocosDatos,
+          "una sola laptop: pocos datos, sin veredicto");
+    check(stats[2].type == RepairType::PlacaMadre && stats[2].verdict == Verdict::Bajo,
+          "placas al 4%: bajo");
+    check(stats[2].marginBps == 400, "margen de las placas 4%");
+}
+
+void altaDesdePlantilla() {
+    std::printf("\n[alta desde plantilla]\n");
+    std::vector<Repair> rs{reparacion("x", RepairType::GPU, 0, 0, 0),
+                           reparacion("y", RepairType::GPU, 0, 0, 0),
+                           reparacion("z", RepairType::GPU, 0, 0, 0)};
+    rs[0].orderNo = "R-0041";
+    rs[1].orderNo = "INF-2026-004";
+    rs[2].orderNo = "R-0007";
+    checkText(nextOrderNumber(rs), "R-0042", "el correlativo sigue al mayor R-");
+    checkText(nextOrderNumber({}), "R-0001", "y arranca en R-0001");
+
+    RepairTemplate tpl;
+    tpl.id = "tpl-gpu";
+    tpl.type = RepairType::GPU;
+    tpl.name = "GPU: reballing";
+    tpl.priceMinor = 120'00;
+    tpl.estMinutes = 180;
+    tpl.consumablesMinor = 6'00;
+    tpl.shippingMinor = 0;
+    tpl.parts = {{"Esferas BGA", 4'00}, {"Flux", 2'50}};
+
+    const Repair r = repairFromTemplate(tpl, "job-9", "R-0042", "RTX 3080", Date{2026, 9, 25});
+    check(r.jobId == "job-9" && r.orderNo == "R-0042" && r.device == "RTX 3080",
+          "con su trabajo, numero y equipo");
+    check(r.type == RepairType::GPU && r.templateId == "tpl-gpu", "del tipo de la plantilla");
+    check(r.status == RepairStatus::EnProceso && r.received == (Date{2026, 9, 25}),
+          "en proceso, recibida hoy");
+    check(r.priceMinor == 120'00 && r.estMinutes == 180 && r.consumablesMinor == 6'00,
+          "precio, horas y consumibles precargados");
+    check(!r.realMinutes, "las horas reales no se saben todavia");
+
+    const auto ps = partsFromTemplate(tpl, "job-9");
+    check(ps.size() == 2 && ps[0].name == "Esferas BGA" && ps[0].costMinor == 4'00 &&
+              ps[0].jobId == "job-9" && ps[0].costKnown,
+          "los repuestos tipicos, con costo");
+
+    checkText(std::string(toString(RepairType::PlacaMadre)), "PlacaMadre", "el tipo como texto");
+    check(repairTypeFromString("GPU") == RepairType::GPU, "y de vuelta");
+    checkText(std::string(toString(RepairStatus::Cobrada)), "Cobrada", "el estado como texto");
+    check(repairStatusFromString("Entregada") == RepairStatus::Entregada, "y de vuelta");
+    check(allRepairTypes().size() == 4, "cuatro tipos");
+}
+
+void entregarYCobrar() {
+    std::printf("\n[entregar y cobrar]\n");
+    const Repair a = reparacion("A", RepairType::GPU, 80'00, 120, std::nullopt,
+                                RepairStatus::EnProceso);
+
+    const auto entregada = deliverRepair(a, {}, Date{2026, 9, 20}, 150, 90'00, false, "caja",
+                                         "Reparaciones");
+    check(entregada.repair.status == RepairStatus::Entregada, "entregar la deja entregada");
+    check(entregada.repair.delivered == (Date{2026, 9, 20}), "con la fecha de entrega");
+    check(entregada.repair.realMinutes == 150 && entregada.repair.priceMinor == 90'00,
+          "con las horas reales y el precio final");
+    check(entregada.income.has_value(), "y crea el ingreso");
+    if (entregada.income) {
+        const Movement& m = *entregada.income;
+        check(m.kind == MovementKind::Ingreso && m.amountMinor == 90'00, "por el precio final");
+        check(!m.settled && !m.settledDate, "por cobrar");
+        check(m.jobId == "A" && m.pocketId == "caja" && m.category == "Reparaciones",
+              "enlazado, en su bolsillo y categoria");
+        check(m.date == (Date{2026, 9, 20}) && m.isWellFormed(), "con la fecha de entrega");
+    }
+
+    const auto deUna = deliverRepair(a, {}, Date{2026, 9, 20}, 150, 90'00, true, "caja",
+                                     "Reparaciones");
+    check(deUna.repair.status == RepairStatus::Cobrada, "entregar y cobrar: cobrada");
+    check(deUna.income && deUna.income->settled && deUna.income->settledDate == (Date{2026, 9, 20}),
+          "con el ingreso cobrado ese dia");
+
+    const std::vector<Movement> yaAnotado{
+        enlazado("ing-1", MovementKind::Ingreso, 80'00, "A", false, "2026-09-18")};
+    const auto sinDuplicar = deliverRepair(a, yaAnotado, Date{2026, 9, 20}, 150, 90'00, false,
+                                           "caja", "Reparaciones");
+    check(sinDuplicar.income && sinDuplicar.income->id == "ing-1",
+          "si ya habia un ingreso, se ajusta ese: nunca dos");
+    check(sinDuplicar.income && sinDuplicar.income->amountMinor == 90'00, "al precio final");
+
+    const auto cobrada = chargeRepair(entregada.repair, yaAnotado, Date{2026, 9, 25}, "caja",
+                                      "Reparaciones");
+    check(cobrada.repair.status == RepairStatus::Cobrada, "cobrar la deja cobrada");
+    check(cobrada.income && cobrada.income->id == "ing-1" && cobrada.income->settled &&
+              cobrada.income->settledDate == (Date{2026, 9, 25}),
+          "y marca cobrado el ingreso que habia, con la fecha");
+
+    const auto sinIngreso = chargeRepair(a, {}, Date{2026, 9, 25}, "caja", "Reparaciones");
+    check(sinIngreso.income && sinIngreso.income->settled &&
+              sinIngreso.income->amountMinor == 80'00,
+          "sin ingreso previo, lo crea cobrado por el precio de la ficha");
+
+    const auto porCobro = reconcileRepair(
+        a, {enlazado("c", MovementKind::Ingreso, 80'00, "A", true, "2026-09-22")});
+    check(porCobro.status == RepairStatus::Cobrada && porCobro.delivered == (Date{2026, 9, 22}),
+          "anotar el cobro la deja cobrada y entregada ese dia");
+    const auto porFactura = reconcileRepair(
+        a, {enlazado("c", MovementKind::Ingreso, 80'00, "A", false, "2026-09-22")});
+    check(porFactura.status == RepairStatus::Entregada, "un ingreso por cobrar la deja entregada");
+    check(reconcileRepair(a, {}).status == RepairStatus::EnProceso, "sin ingreso, sigue igual");
+    check(repairIncome("A", yaAnotado).has_value() && !repairIncome("B", yaAnotado),
+          "el ingreso de una reparacion se encuentra por su trabajo");
+}
+
 } // namespace
 
 int main() {
+#if defined(_MSC_VER) && defined(_DEBUG)
+    // Una asercion de la biblioteca en modo depuracion abre un cuadro de
+    // dialogo y espera un clic: la suite queda colgada para siempre. Que
+    // escriba en la consola y aborte, como cualquier otra falla.
+    _CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_FILE);
+    _CrtSetReportFile(_CRT_ASSERT, _CRTDBG_FILE_STDERR);
+    _CrtSetReportMode(_CRT_ERROR, _CRTDBG_MODE_FILE);
+    _CrtSetReportFile(_CRT_ERROR, _CRTDBG_FILE_STDERR);
+#endif
     std::printf("Banco de pruebas — las preguntas del negocio\n");
 
     cuentaDeCadaBolsillo();
@@ -421,6 +687,10 @@ int main() {
     capturaDeLaCategoria();
     capturaDeLaReparacion();
     aprenderCategorias();
+    costoDeUnaReparacion();
+    rentabilidadPorTipo();
+    altaDesdePlantilla();
+    entregarYCobrar();
 
     std::printf("\n%s\n", gFailures == 0 ? "Todo pasa." : "HAY FALLAS.");
     return gFailures == 0 ? 0 : 1;

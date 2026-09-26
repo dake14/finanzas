@@ -62,6 +62,7 @@ void CaptureWidget::buildUi() {
     auto* top = new QHBoxLayout();
     top->setSpacing(12);
     input_ = new QLineEdit(this);
+    input_->setObjectName(QStringLiteral("CaptureInput"));
     input_->setPlaceholderText(QStringLiteral("25 almuerzo  ·  120 cobro GPU 3080  ·  40 luz ayer"));
     input_->setFont(theme::bodyFont(12));
     input_->setMinimumWidth(320);

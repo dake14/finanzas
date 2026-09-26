@@ -556,6 +556,229 @@ void Repository::removeCategory(const std::string& name) {
     run(query);
 }
 
+// ------------------------------------------------------------ Reparaciones
+
+namespace {
+
+[[nodiscard]] QString text(std::string_view value) {
+    return QString::fromUtf8(value.data(), static_cast<int>(value.size()));
+}
+
+[[nodiscard]] QString isoOrEmpty(const std::optional<core::Date>& date) {
+    return date ? QString::fromStdString(date->toIso()) : QString();
+}
+
+[[nodiscard]] std::optional<core::Date> dateOrNothing(const QVariant& value) {
+    const std::string iso = value.toString().toStdString();
+    if (iso.empty()) {
+        return std::nullopt;
+    }
+    return core::Date::fromIso(iso);
+}
+
+/// Los repuestos de una plantilla, uno por linea: "nombre<TAB>centavos". Un
+/// tabulador o un salto de linea dentro del nombre se vuelven espacio: no
+/// vale la pena escapar lo que nadie va a escribir a proposito.
+[[nodiscard]] QString encodeParts(const std::vector<core::TemplatePart>& parts) {
+    QStringList lines;
+    for (const core::TemplatePart& part : parts) {
+        QString name = QString::fromStdString(part.name);
+        name.replace(QLatin1Char('\t'), QLatin1Char(' ')).replace(QLatin1Char('\n'), QLatin1Char(' '));
+        lines << name + QLatin1Char('\t') + QString::number(part.costMinor);
+    }
+    return lines.join(QLatin1Char('\n'));
+}
+
+[[nodiscard]] std::vector<core::TemplatePart> decodeParts(const QString& encoded) {
+    std::vector<core::TemplatePart> out;
+    for (const QString& line : encoded.split(QLatin1Char('\n'), Qt::SkipEmptyParts)) {
+        const QStringList fields = line.split(QLatin1Char('\t'));
+        core::TemplatePart part;
+        part.name = fields.value(0).toStdString();
+        part.costMinor = fields.value(1).toLongLong();
+        out.push_back(part);
+    }
+    return out;
+}
+
+} // namespace
+
+std::vector<core::Repair> Repository::loadRepairs() {
+    QSqlQuery query(db_.handle());
+    query.prepare(QStringLiteral(
+        "SELECT j.id, j.name, j.opened, j.closed, r.job_id, r.order_no, r.device, r.repair_type, "
+        "r.template_id, r.received, r.delivered, r.status, r.price_minor, r.shipping_minor, "
+        "r.consumables_minor, r.est_minutes, r.real_minutes, r.source_ref "
+        "FROM jobs j LEFT JOIN repairs r ON r.job_id = j.id "
+        "WHERE j.deleted = 0 ORDER BY j.opened DESC, j.id DESC"));
+    run(query);
+
+    std::vector<core::Repair> out;
+    while (query.next()) {
+        core::Repair repair;
+        repair.jobId = ss(query.value(0));
+        if (query.value(4).isNull()) {
+            // Sin ficha: lo que se sabe del trabajo.
+            repair.device = ss(query.value(1));
+            repair.received = core::Date::fromIso(ss(query.value(2)));
+            repair.status = query.value(3).toInt() != 0 ? core::RepairStatus::Entregada
+                                                         : core::RepairStatus::EnProceso;
+            out.push_back(std::move(repair));
+            continue;
+        }
+        repair.orderNo = ss(query.value(5));
+        repair.device = ss(query.value(6));
+        repair.type = core::repairTypeFromString(ss(query.value(7)));
+        repair.templateId = ss(query.value(8));
+        repair.received = dateOrNothing(query.value(9));
+        repair.delivered = dateOrNothing(query.value(10));
+        repair.status = core::repairStatusFromString(ss(query.value(11)));
+        repair.priceMinor = query.value(12).toLongLong();
+        repair.shippingMinor = query.value(13).toLongLong();
+        repair.consumablesMinor = query.value(14).toLongLong();
+        repair.estMinutes = query.value(15).toInt();
+        const int real = query.value(16).toInt();
+        if (real >= 0) {
+            repair.realMinutes = real;
+        }
+        repair.sourceRef = ss(query.value(17));
+        out.push_back(std::move(repair));
+    }
+    return out;
+}
+
+void Repository::saveRepair(const core::Repair& repair) {
+    QSqlQuery query(db_.handle());
+    query.prepare(QStringLiteral(
+        "INSERT OR REPLACE INTO repairs (job_id, order_no, device, repair_type, template_id, "
+        "received, delivered, status, price_minor, shipping_minor, consumables_minor, "
+        "est_minutes, real_minutes, source_ref) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"));
+    query.addBindValue(qs(repair.jobId));
+    query.addBindValue(qs(repair.orderNo));
+    query.addBindValue(qs(repair.device));
+    query.addBindValue(text(core::toString(repair.type)));
+    query.addBindValue(qs(repair.templateId));
+    query.addBindValue(isoOrEmpty(repair.received));
+    query.addBindValue(isoOrEmpty(repair.delivered));
+    query.addBindValue(text(core::toString(repair.status)));
+    query.addBindValue(static_cast<qlonglong>(repair.priceMinor));
+    query.addBindValue(static_cast<qlonglong>(repair.shippingMinor));
+    query.addBindValue(static_cast<qlonglong>(repair.consumablesMinor));
+    query.addBindValue(repair.estMinutes);
+    query.addBindValue(repair.realMinutes.value_or(-1));
+    query.addBindValue(qs(repair.sourceRef));
+    run(query);
+}
+
+std::vector<core::RepairPart> Repository::loadRepairParts() {
+    QSqlQuery query(db_.handle());
+    query.prepare(QStringLiteral(
+        "SELECT id, job_id, name, cost_minor, cost_known, movement_id FROM repair_parts "
+        "ORDER BY rowid"));
+    run(query);
+    std::vector<core::RepairPart> out;
+    while (query.next()) {
+        core::RepairPart part;
+        part.id = ss(query.value(0));
+        part.jobId = ss(query.value(1));
+        part.name = ss(query.value(2));
+        part.costMinor = query.value(3).toLongLong();
+        part.costKnown = query.value(4).toInt() != 0;
+        part.movementId = ss(query.value(5));
+        out.push_back(std::move(part));
+    }
+    return out;
+}
+
+void Repository::saveRepairPart(const core::RepairPart& part) {
+    QSqlQuery query(db_.handle());
+    query.prepare(QStringLiteral(
+        "INSERT OR REPLACE INTO repair_parts (id, job_id, name, cost_minor, cost_known, "
+        "movement_id) VALUES (?, ?, ?, ?, ?, ?)"));
+    query.addBindValue(qs(part.id));
+    query.addBindValue(qs(part.jobId));
+    query.addBindValue(qs(part.name));
+    query.addBindValue(static_cast<qlonglong>(part.costMinor));
+    query.addBindValue(part.costKnown ? 1 : 0);
+    query.addBindValue(qs(part.movementId));
+    run(query);
+}
+
+void Repository::removeRepairPart(const core::Id& partId) {
+    QSqlQuery query(db_.handle());
+    query.prepare(QStringLiteral("DELETE FROM repair_parts WHERE id = ?"));
+    query.addBindValue(qs(partId));
+    run(query);
+}
+
+std::vector<core::RepairTemplate> Repository::loadTemplates() {
+    if (!setting(QStringLiteral("config.plantillas_sembradas"))) {
+        setSetting(QStringLiteral("config.plantillas_sembradas"), QStringLiteral("1"));
+        for (core::RepairTemplate tpl : core::defaultTemplates()) {
+            tpl.id = newId();
+            saveTemplate(tpl);
+        }
+    }
+
+    QSqlQuery query(db_.handle());
+    query.prepare(QStringLiteral(
+        "SELECT id, repair_type, name, price_minor, est_minutes, consumables_minor, "
+        "shipping_minor, parts FROM repair_templates ORDER BY rowid"));
+    run(query);
+    std::vector<core::RepairTemplate> out;
+    while (query.next()) {
+        core::RepairTemplate tpl;
+        tpl.id = ss(query.value(0));
+        tpl.type = core::repairTypeFromString(ss(query.value(1)));
+        tpl.name = ss(query.value(2));
+        tpl.priceMinor = query.value(3).toLongLong();
+        tpl.estMinutes = query.value(4).toInt();
+        tpl.consumablesMinor = query.value(5).toLongLong();
+        tpl.shippingMinor = query.value(6).toLongLong();
+        tpl.parts = decodeParts(query.value(7).toString());
+        out.push_back(std::move(tpl));
+    }
+    return out;
+}
+
+void Repository::saveTemplate(const core::RepairTemplate& tpl) {
+    QSqlQuery query(db_.handle());
+    query.prepare(QStringLiteral(
+        "INSERT OR REPLACE INTO repair_templates (id, repair_type, name, price_minor, "
+        "est_minutes, consumables_minor, shipping_minor, parts) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"));
+    query.addBindValue(qs(tpl.id));
+    query.addBindValue(text(core::toString(tpl.type)));
+    query.addBindValue(qs(tpl.name));
+    query.addBindValue(static_cast<qlonglong>(tpl.priceMinor));
+    query.addBindValue(tpl.estMinutes);
+    query.addBindValue(static_cast<qlonglong>(tpl.consumablesMinor));
+    query.addBindValue(static_cast<qlonglong>(tpl.shippingMinor));
+    query.addBindValue(encodeParts(tpl.parts));
+    run(query);
+}
+
+void Repository::removeTemplate(const core::Id& templateId) {
+    QSqlQuery query(db_.handle());
+    query.prepare(QStringLiteral("DELETE FROM repair_templates WHERE id = ?"));
+    query.addBindValue(qs(templateId));
+    run(query);
+}
+
+core::CostSettings Repository::loadCostSettings() {
+    core::CostSettings settings;
+    settings.hourlyRateMinor =
+        setting(QStringLiteral("config.tarifa_hora")).value_or(QStringLiteral("0")).toLongLong();
+    settings.targetMarginBps =
+        setting(QStringLiteral("config.margen_objetivo")).value_or(QStringLiteral("3000")).toInt();
+    settings.fixedPerHourMinor = 0;
+    return settings;
+}
+
+void Repository::saveCostSettings(const core::CostSettings& settings) {
+    setSetting(QStringLiteral("config.tarifa_hora"), QString::number(settings.hourlyRateMinor));
+    setSetting(QStringLiteral("config.margen_objetivo"), QString::number(settings.targetMarginBps));
+}
+
 void Repository::addTiming(const QString& what, qint64 millis) {
     QSqlQuery query(db_.handle());
     query.prepare(QStringLiteral("INSERT INTO timings (what, millis, at) VALUES (?, ?, ?)"));

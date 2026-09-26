@@ -27,7 +27,7 @@ class QTimer;
 namespace dake::ui {
 
 class TodayPage;
-class JobsPage;
+class RepairsPage;
 class MovementsPage;
 class PocketsPage;
 class ClosingPage;
@@ -64,10 +64,17 @@ private slots:
     /// la categoria no existia, con la cuenta elegida en la vista previa.
     void addMovement(const dake::core::Movement& draft, const dake::core::Category& newCategory);
     void newPocket();
-    void newJob();
+    // --- Reparaciones -------------------------------------------------------
+    void newRepair();
+    void editRepair(const dake::core::Repair& repair, const QString& client);
+    void deliverRepair(const dake::core::Id& jobId);
+    void chargeRepair(const dake::core::Id& jobId);
+    void addPart(const dake::core::Id& jobId, const QString& name, qint64 costMinor,
+                 bool costKnown, bool bought);
+    void changePart(const dake::core::RepairPart& part);
+    void removePart(const dake::core::RepairPart& part);
     void reconcile(const dake::core::Id& pocketId);
     void editMovement(const dake::core::Id& movementId);
-    void toggleJob(const dake::core::Id& jobId);
     void togglePocketAccount(const dake::core::Id& pocketId);
     void saveCategory(const dake::core::Category& category);
 
@@ -128,6 +135,20 @@ private:
     void rememberUndo(const std::optional<dake::core::Movement>& previo,
                       const dake::core::Movement& despues, const QString& que);
     void showPage(int index);
+
+    /// Guarda la ficha y deja el trabajo sincronizado a tono: cerrado si la
+    /// reparacion esta cobrada, abierto si no. Asi el telefono, que solo ve
+    /// trabajos, no muestra como pendiente algo que ya se cobro.
+    void persistRepair(const core::Repair& repair);
+
+    /// Guarda un movimiento que nace de una reparacion (el cobro, la compra de
+    /// un repuesto): id y reloj nuevos si es nuevo, reloj nuevo si ya existia,
+    /// y la categoria creada si hace falta.
+    void persistGenerated(core::Movement movement);
+
+    /// El bolsillo del negocio donde entran los cobros: el ultimo usado de la
+    /// cuenta negocio.
+    [[nodiscard]] core::Id businessPocket() const;
     [[nodiscard]] core::Id stamp(std::string& hlc, std::string& deviceId);
 
     /// Refleja el estado de la sesion en el boton y en el pie.
@@ -178,7 +199,7 @@ private:
     QStackedWidget* stack_ = nullptr;
     QList<QPushButton*> navButtons_;
     TodayPage* today_ = nullptr;
-    JobsPage* jobs_ = nullptr;
+    RepairsPage* repairs_ = nullptr;
     MovementsPage* movements_ = nullptr;
     PocketsPage* pockets_ = nullptr;
     ClosingPage* closing_ = nullptr;

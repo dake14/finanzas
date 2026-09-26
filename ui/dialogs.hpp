@@ -40,20 +40,6 @@ private:
     QLabel* hint_ = nullptr;
 };
 
-/// Alta de un trabajo.
-class JobDialog : public QDialog {
-    Q_OBJECT
-
-public:
-    explicit JobDialog(core::Date today, QWidget* parent = nullptr);
-    [[nodiscard]] std::optional<core::Job> result() const;
-
-private:
-    QLineEdit* name_ = nullptr;
-    QLineEdit* client_ = nullptr;
-    QDateEdit* opened_ = nullptr;
-};
-
 /// Cuadrar un bolsillo contra la realidad.
 ///
 /// La diferencia NO se aplica moviendo el saldo: se anota como un movimiento

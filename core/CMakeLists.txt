@@ -15,6 +15,7 @@ add_library(dake_core STATIC
     src/demo.cpp
     src/accounts.cpp
     src/capture.cpp
+    src/repairs.cpp
 )
 
 target_include_directories(dake_core PUBLIC
