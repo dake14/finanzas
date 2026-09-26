@@ -73,6 +73,14 @@ inline const QColor kPersonal{0x9c, 0xa3, 0xaf};
 /// stylesheet activo, Qt le da prioridad sobre la paleta, asi que un
 /// setColor(QPalette::WindowText, ...) queda pisado por la regla global y la
 /// etiqueta sale siempre del color por defecto.
+/// "septiembre 2026". Los reportes nombran el mes entero: "sep 2026" se lee
+/// bien en un eje, no en una frase.
+[[nodiscard]] QString monthName(core::Date date);
+
+/// "+12,00 ▲ 30%", "−5,00 ▼ 10%", "nuevo" o "igual". Para gastos: subir es
+/// malo, y el color lo decide quien lo muestra.
+[[nodiscard]] QString changeText(const core::Money& current, const core::Money& previous);
+
 void setLabelColor(QWidget* label, const QColor& color);
 
 /// Hoja de estilo global de la aplicacion.

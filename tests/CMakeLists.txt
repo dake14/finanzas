@@ -6,6 +6,11 @@ add_executable(dake_selftest selftest.cpp)
 target_link_libraries(dake_selftest PRIVATE dake::core)
 add_test(NAME nucleo COMMAND dake_selftest)
 
+# --- Las preguntas del negocio: cuentas, sueldo, reparaciones, fijos ---
+add_executable(dake_negociotest negociotest.cpp)
+target_link_libraries(dake_negociotest PRIVATE dake::core)
+add_test(NAME negocio COMMAND dake_negociotest)
+
 # --- Persistencia ---
 # Escribe siempre en una carpeta temporal propia: nunca toca la base real ni la
 # del banco de pruebas.

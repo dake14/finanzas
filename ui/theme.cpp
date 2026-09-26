@@ -170,6 +170,31 @@ QString formatBps(int basisPoints) {
            QStringLiteral("%");
 }
 
+QString monthName(core::Date date) {
+    static const char* const kNames[] = {"enero",      "febrero", "marzo",     "abril",
+                                         "mayo",       "junio",   "julio",     "agosto",
+                                         "septiembre", "octubre", "noviembre", "diciembre"};
+    const unsigned index = date.month >= 1 && date.month <= 12 ? date.month - 1 : 0;
+    return QStringLiteral("%1 %2").arg(QString::fromLatin1(kNames[index])).arg(date.year);
+}
+
+QString changeText(const core::Money& current, const core::Money& previous) {
+    const core::Money delta = current - previous;
+    if (delta.isZero()) {
+        return QStringLiteral("igual");
+    }
+    if (previous.isZero()) {
+        return QStringLiteral("nuevo");
+    }
+    const bool up = !delta.isNegative();
+    const core::Money magnitude = up ? delta : -delta;
+    const qint64 percent = (magnitude.minor() * 100 + previous.minor() / 2) / previous.minor();
+    return QStringLiteral("%1%2 %3 %4%")
+        .arg(up ? QStringLiteral("+") : QStringLiteral("−"), formatMoney(magnitude),
+             up ? QStringLiteral("▲") : QStringLiteral("▼"))
+        .arg(percent);
+}
+
 void setLabelColor(QWidget* label, const QColor& color) {
     if (label == nullptr) {
         return;

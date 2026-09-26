@@ -369,4 +369,103 @@ void RankChart::paintEvent(QPaintEvent* event) {
     }
 }
 
+// --- CompareChart ---------------------------------------------------------
+
+namespace {
+constexpr int kCompareRowHeight = 30;
+constexpr int kCompareLabelWidth = 150;
+} // namespace
+
+CompareChart::CompareChart(QWidget* parent) : QWidget(parent) {}
+
+void CompareChart::setData(std::vector<CompareRow> rows, const QColor& barColor) {
+    rows_ = std::move(rows);
+    barColor_ = barColor;
+    updateGeometry();
+    update();
+}
+
+QSize CompareChart::sizeHint() const {
+    return {420, std::max(60, static_cast<int>(rows_.size()) * kCompareRowHeight)};
+}
+
+QSize CompareChart::minimumSizeHint() const {
+    return {280, std::max(60, static_cast<int>(rows_.size()) * kCompareRowHeight)};
+}
+
+void CompareChart::paintEvent(QPaintEvent* event) {
+    Q_UNUSED(event);
+    QPainter painter(this);
+    painter.setRenderHint(QPainter::Antialiasing);
+
+    if (rows_.empty()) {
+        painter.setPen(theme::kTextFaint);
+        painter.setFont(theme::bodyFont(9));
+        painter.drawText(rect(), Qt::AlignCenter, QStringLiteral("sin gastos en estos dos meses"));
+        return;
+    }
+
+    double maxValue = 0.0;
+    for (const CompareRow& row : rows_) {
+        maxValue = std::max({maxValue, row.current, row.previous});
+    }
+    if (maxValue <= 0.0) {
+        maxValue = 1.0;
+    }
+
+    // La franja de la derecha se mide con el texto mas largo, igual que en
+    // RankChart: la barra nunca pasa por debajo de su propio numero.
+    const QFont font = theme::bodyFont(9);
+    const QFont numbers = theme::numericFont(9);
+    const QFontMetrics metrics(numbers);
+    int gutter = 0;
+    for (const CompareRow& row : rows_) {
+        gutter = std::max(gutter, metrics.horizontalAdvance(row.currentText + QStringLiteral("  ") +
+                                                            row.changeText));
+    }
+    gutter += 16;
+    const int barLeft = kCompareLabelWidth;
+    const int barArea = std::max(40, width() - barLeft - gutter);
+
+    int y = 0;
+    for (const CompareRow& row : rows_) {
+        const int mid = y + kCompareRowHeight / 2;
+
+        painter.setFont(font);
+        painter.setPen(theme::kText);
+        const QString label = QFontMetrics(font).elidedText(row.label, Qt::ElideRight,
+                                                            kCompareLabelWidth - 10);
+        painter.drawText(QRect(0, y, kCompareLabelWidth - 10, kCompareRowHeight),
+                         Qt::AlignLeft | Qt::AlignVCenter, label);
+
+        const int barWidth = static_cast<int>(barArea * (row.current / maxValue));
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(theme::kSurfaceRaised);
+        painter.drawRoundedRect(QRectF(barLeft, mid - 7, barArea, 14), 3, 3);
+        painter.setBrush(barColor_);
+        if (barWidth > 0) {
+            painter.drawRoundedRect(QRectF(barLeft, mid - 7, barWidth, 14), 3, 3);
+        }
+
+        // El mes anterior: una raya, no una segunda barra. Dos barras por fila
+        // obligan a leer la leyenda; una raya se entiende como "antes estaba aca".
+        if (row.previous > 0.0) {
+            const int x = barLeft + static_cast<int>(barArea * (row.previous / maxValue));
+            painter.setPen(QPen(theme::kText, 2));
+            painter.drawLine(x, mid - 10, x, mid + 10);
+        }
+
+        painter.setFont(numbers);
+        painter.setPen(theme::kText);
+        const QRect textRect(barLeft + barArea + 12, y, gutter, kCompareRowHeight);
+        painter.drawText(textRect, Qt::AlignLeft | Qt::AlignVCenter, row.currentText);
+        painter.setPen(row.rose ? theme::kNegative : theme::kPositive);
+        const int offset = metrics.horizontalAdvance(row.currentText + QStringLiteral("  "));
+        painter.drawText(textRect.adjusted(offset, 0, 0, 0), Qt::AlignLeft | Qt::AlignVCenter,
+                         row.changeText);
+
+        y += kCompareRowHeight;
+    }
+}
+
 } // namespace dake::ui

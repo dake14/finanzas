@@ -8,6 +8,7 @@
 // que es exactamente para lo que se miran.
 //
 #include <QColor>
+#include <QComboBox>
 #include <QHeaderView>
 #include <QStringList>
 #include <QTableWidget>
@@ -55,6 +56,23 @@ inline void setNumber(QTableWidget* table, int row, int column, const QString& t
     item->setFont(theme::numericFont(9));
     item->setForeground(color);
     table->setItem(row, column, item);
+}
+
+/// Ancho fijo para una columna que lleva un boton o un desplegable.
+/// ResizeToContents mide el texto de la celda, no el widget que tiene
+/// encima, y el widget queda cortado ("uadr" en vez de "Cuadrar").
+inline void fixColumn(QTableWidget* table, int column, int width) {
+    table->horizontalHeader()->setSectionResizeMode(column, QHeaderView::Fixed);
+    table->setColumnWidth(column, width);
+}
+
+/// Un desplegable que entra en una fila de tabla. El estilo general le pone
+/// 7 px de relleno, que en una fila de 30 px se come el texto.
+[[nodiscard]] inline QComboBox* cellCombo(QTableWidget* table) {
+    auto* combo = new QComboBox(table);
+    combo->setStyleSheet(QStringLiteral("QComboBox { padding: 0px 8px; border-radius: 6px; min-height: 22px; }"));
+    combo->setFont(theme::bodyFont(9));
+    return combo;
 }
 
 } // namespace dake::ui

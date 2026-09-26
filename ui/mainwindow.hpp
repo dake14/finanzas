@@ -10,6 +10,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <vector>
 
 #include "dake/storage/database.hpp"
 #include "dake/storage/repository.hpp"
@@ -29,6 +30,8 @@ class JobsPage;
 class MovementsPage;
 class PocketsPage;
 class ClosingPage;
+class ReportsPage;
+class SettingsPage;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -44,6 +47,8 @@ private slots:
     void reconcile(const dake::core::Id& pocketId);
     void editMovement(const dake::core::Id& movementId);
     void toggleJob(const dake::core::Id& jobId);
+    void togglePocketAccount(const dake::core::Id& pocketId);
+    void saveCategory(const dake::core::Category& category);
 
     /// Borra bolsillos, trabajos y movimientos, con lapida y encolado, previo
     /// aviso que nombra el archivo y dice que tambien desaparecen del telefono.
@@ -135,6 +140,11 @@ private:
     /// Que decir en el aviso: "Se deshizo: <esto>".
     QString undoLabel_;
 
+    /// Lo que nacio junto con undoAfter_ y tiene que irse con el: el traspaso
+    /// de sueldo de un gasto personal pagado con plata del negocio. Solo se
+    /// usa cuando lo ultimo fue una creacion.
+    std::vector<dake::core::Movement> undoAlso_;
+
     Snapshot snapshot_;
 
     QStackedWidget* stack_ = nullptr;
@@ -144,6 +154,8 @@ private:
     MovementsPage* movements_ = nullptr;
     PocketsPage* pockets_ = nullptr;
     ClosingPage* closing_ = nullptr;
+    ReportsPage* reports_ = nullptr;
+    SettingsPage* settings_ = nullptr;
     QLabel* footer_ = nullptr;
 };
 

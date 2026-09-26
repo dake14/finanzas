@@ -9,8 +9,12 @@
 #include <QCoreApplication>
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
+#include <QSqlQuery>
+#include <QVariant>
 #include <QTemporaryDir>
 
+#include <algorithm>
 #include <cstdio>
 #include <string>
 
@@ -278,6 +282,119 @@ int main(int argc, char** argv) {
         check(repository.loadPockets().empty(), "ni bolsillos");
         checkMinor(repository.pendingOutboxCount(), static_cast<int>(vivos),
                    "y cada uno dejo su fila para subir");
+    }
+
+    // --- Migracion de la version 2 a la 3 ---------------------------------
+    //
+    // Se arma una base "de la version 2" a mano: la de hoy, sin las tablas
+    // locales y con user_version = 2. Es lo que tiene David en su equipo. Al
+    // abrirla tiene que quedar con las tablas nuevas, sin perder un solo
+    // movimiento, y con el respaldo al lado.
+    {
+        const QString viejaPath = path + QStringLiteral(".v2");
+        {
+            storage::Database db(viejaPath);
+            storage::Repository repository(db);
+            repository.seedIfEmpty(currency);
+            QSqlQuery q(db.handle());
+            for (const char* tabla : {"pocket_meta", "categories", "movement_meta", "repairs",
+                                      "repair_parts", "repair_templates", "recurring", "tools",
+                                      "timings"}) {
+                q.exec(QStringLiteral("DROP TABLE IF EXISTS %1").arg(QString::fromLatin1(tabla)));
+            }
+            q.exec(QStringLiteral("PRAGMA user_version = 2"));
+        }
+        storage::Database db(viejaPath);
+        storage::Repository repository(db);
+        QSqlQuery version(db.handle());
+        version.exec(QStringLiteral("PRAGMA user_version"));
+        version.next();
+        checkMinor(version.value(0).toInt(), 3, "la base vieja sube a la version 3");
+        check(repository.loadMovements().size() == 10, "sin perder ningun movimiento");
+        QSqlQuery tabla(db.handle());
+        tabla.exec(QStringLiteral(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name IN "
+            "('pocket_meta','categories','movement_meta','repairs','repair_parts',"
+            "'repair_templates','recurring','tools','timings')"));
+        tabla.next();
+        checkMinor(tabla.value(0).toInt(), 9, "con las nueve tablas locales creadas");
+        const QStringList respaldos =
+            QDir(QFileInfo(viejaPath).absolutePath())
+                .entryList({QFileInfo(viejaPath).fileName() + QStringLiteral(".v2-*.bak")});
+        check(!respaldos.isEmpty(), "y con el respaldo de la version 2 al lado");
+    }
+
+    // --- La cuenta de cada bolsillo ---------------------------------------
+    {
+        storage::Database db(path + QStringLiteral(".cuentas"));
+        storage::Repository repository(db);
+        repository.seedIfEmpty(currency);
+        const auto antes = repository.loadPockets();
+        const auto ahorro = std::find_if(antes.begin(), antes.end(), [](const core::Pocket& p) {
+            return p.kind == core::PocketKind::Ahorro;
+        });
+        check(ahorro != antes.end() && !ahorro->accountOverride,
+              "sin marca, un bolsillo no trae cuenta elegida a mano");
+
+        repository.setPocketAccount(ahorro->id, core::Account::Personal);
+        auto marcado = repository.loadPockets();
+        auto it = std::find_if(marcado.begin(), marcado.end(),
+                               [&](const core::Pocket& p) { return p.id == ahorro->id; });
+        check(it != marcado.end() && it->accountOverride == core::Account::Personal,
+              "la cuenta elegida a mano vuelve de la base");
+        check(it != marcado.end() && core::accountOf(*it) == core::Account::Personal,
+              "y manda sobre el tipo");
+
+        // Bajar del servidor reemplaza la fila de pockets entera. La marca
+        // vive al costado y tiene que sobrevivir.
+        core::Pocket remoto = *it;
+        remoto.accountOverride.reset();
+        remoto.name = "Ahorro renombrado en el telefono";
+        remoto.hlc = "9999999999999-00000-telefono";
+        check(repository.applyRemote(remoto), "llega un cambio del telefono");
+        marcado = repository.loadPockets();
+        it = std::find_if(marcado.begin(), marcado.end(),
+                          [&](const core::Pocket& p) { return p.id == ahorro->id; });
+        check(it != marcado.end() && it->name == remoto.name, "el cambio se aplica");
+        check(it != marcado.end() && it->accountOverride == core::Account::Personal,
+              "y la cuenta elegida a mano sigue ahi");
+
+        const int colaAntes = repository.pendingOutboxCount();
+        repository.setPocketAccount(ahorro->id, std::nullopt);
+        marcado = repository.loadPockets();
+        it = std::find_if(marcado.begin(), marcado.end(),
+                          [&](const core::Pocket& p) { return p.id == ahorro->id; });
+        check(it != marcado.end() && !it->accountOverride, "quitar la marca vuelve al tipo");
+        checkMinor(repository.pendingOutboxCount(), colaAntes,
+                   "marcar la cuenta no encola nada para subir");
+    }
+
+    // --- Categorias --------------------------------------------------------
+    {
+        storage::Database db(path + QStringLiteral(".categorias"));
+        storage::Repository repository(db);
+        check(repository.loadCategories().empty(), "una base nueva no trae categorias");
+
+        repository.saveCategory({"Luz", core::Account::Negocio, core::CategoryClass::Fija,
+                                 core::MovementKind::Gasto});
+        repository.saveCategory({"Comida", core::Account::Personal,
+                                 core::CategoryClass::General, core::MovementKind::Gasto});
+        auto cats = repository.loadCategories();
+        check(cats.size() == 2, "vuelven las dos");
+        const core::Category* luz = core::findCategory(cats, "Luz");
+        check(luz != nullptr && luz->cls == core::CategoryClass::Fija &&
+                  luz->account == core::Account::Negocio,
+              "con su cuenta y su clase");
+
+        repository.saveCategory({"luz", core::Account::Negocio, core::CategoryClass::General,
+                                 core::MovementKind::Gasto});
+        cats = repository.loadCategories();
+        check(cats.size() == 2, "'luz' reemplaza a 'Luz' en vez de duplicarla");
+
+        repository.removeCategory("COMIDA");
+        cats = repository.loadCategories();
+        check(cats.size() == 1 && core::findCategory(cats, "Comida") == nullptr,
+              "borrar tampoco distingue mayusculas");
     }
 
     std::printf("\n%s\n", gFailures == 0 ? "Todo pasa." : "HAY FALLAS.");

@@ -21,6 +21,7 @@
 #include <iostream>
 #include <memory>
 
+#include "dake/core/accounts.hpp"
 #include "dake/core/demo.hpp"
 #include "pages.hpp"
 #include "theme.hpp"
@@ -39,6 +40,7 @@ namespace {
     // Se mira desde el 31 de agosto: es el corte que hace comparables los
     // numeros de esta pantalla con los que muestra hoy la aplicacion real.
     snapshot.today = dake::core::Date::fromYmd(2026, 8, 31);
+    snapshot.categories = dake::core::inferCategories(snapshot.movements, snapshot.pockets, {});
     return snapshot;
 }
 
@@ -61,6 +63,16 @@ namespace {
     }
     if (screen == QLatin1String("bolsillos")) {
         auto page = std::make_unique<dake::ui::PocketsPage>();
+        page->setSnapshot(snapshot);
+        return page;
+    }
+    if (screen == QLatin1String("reportes")) {
+        auto page = std::make_unique<dake::ui::ReportsPage>();
+        page->setSnapshot(snapshot);
+        return page;
+    }
+    if (screen == QLatin1String("ajustes")) {
+        auto page = std::make_unique<dake::ui::SettingsPage>();
         page->setSnapshot(snapshot);
         return page;
     }
@@ -119,7 +131,7 @@ int main(int argc, char** argv) {
     if (arguments.size() < 3) {
         std::cout << "Uso: dake_uipreview <pantalla|todas> <salida.png|carpeta> "
                      "[ancho] [alto]\n"
-                  << "Pantallas: hoy | trabajos | movimientos | bolsillos | cierre | todas\n";
+                  << "Pantallas: hoy | trabajos | movimientos | bolsillos | cierre | reportes | ajustes | todas\n";
         return 2;
     }
 
@@ -135,7 +147,8 @@ int main(int argc, char** argv) {
         bool ok = true;
         for (const QString& one : {QStringLiteral("hoy"), QStringLiteral("trabajos"),
                                    QStringLiteral("movimientos"), QStringLiteral("bolsillos"),
-                                   QStringLiteral("cierre")}) {
+                                   QStringLiteral("cierre"), QStringLiteral("reportes"),
+                                   QStringLiteral("ajustes")}) {
             ok = render(one, output + QLatin1Char('/') + one + QStringLiteral(".png"), width,
                         height, snapshot) &&
                  ok;

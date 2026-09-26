@@ -57,8 +57,10 @@ Repository::Repository(Database& db) : db_(db) {}
 std::vector<core::Pocket> Repository::loadPockets(bool includeDeleted) {
     QSqlQuery query(db_.handle());
     query.prepare(QStringLiteral(
-        "SELECT id, name, kind, opening_minor, archived, hlc, device_id, deleted "
-        "FROM pockets WHERE (deleted = 0 OR ?) ORDER BY rowid"));
+        "SELECT p.id, p.name, p.kind, p.opening_minor, p.archived, p.hlc, p.device_id, "
+        "p.deleted, m.account "
+        "FROM pockets p LEFT JOIN pocket_meta m ON m.pocket_id = p.id "
+        "WHERE (p.deleted = 0 OR ?) ORDER BY p.rowid"));
     query.addBindValue(includeDeleted ? 1 : 0);
     run(query);
 
@@ -73,6 +75,9 @@ std::vector<core::Pocket> Repository::loadPockets(bool includeDeleted) {
         pocket.hlc = ss(query.value(5));
         pocket.deviceId = ss(query.value(6));
         pocket.deleted = query.value(7).toInt() != 0;
+        if (!query.value(8).isNull()) {
+            pocket.accountOverride = core::accountFromString(ss(query.value(8)));
+        }
         out.push_back(std::move(pocket));
     }
     return out;
@@ -491,6 +496,61 @@ void Repository::setSetting(const QString& key, const QString& value) {
         QStringLiteral("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)"));
     query.addBindValue(key);
     query.addBindValue(value);
+    run(query);
+}
+
+// ------------------------------------------------------------ Datos locales
+
+void Repository::setPocketAccount(const core::Id& pocketId,
+                                  std::optional<core::Account> account) {
+    QSqlQuery query(db_.handle());
+    if (account) {
+        query.prepare(QStringLiteral(
+            "INSERT OR REPLACE INTO pocket_meta (pocket_id, account) VALUES (?, ?)"));
+        query.addBindValue(qs(pocketId));
+        query.addBindValue(qs(std::string(core::toString(*account))));
+    } else {
+        query.prepare(QStringLiteral("DELETE FROM pocket_meta WHERE pocket_id = ?"));
+        query.addBindValue(qs(pocketId));
+    }
+    run(query);
+}
+
+std::vector<core::Category> Repository::loadCategories() {
+    QSqlQuery query(db_.handle());
+    query.prepare(QStringLiteral(
+        "SELECT name, account, class, kind FROM categories ORDER BY name COLLATE NOCASE"));
+    run(query);
+
+    std::vector<core::Category> out;
+    while (query.next()) {
+        core::Category category;
+        category.name = ss(query.value(0));
+        category.account = core::accountFromString(ss(query.value(1)));
+        category.cls = core::categoryClassFromString(ss(query.value(2)));
+        category.kind = core::movementKindFromString(ss(query.value(3)));
+        out.push_back(std::move(category));
+    }
+    return out;
+}
+
+void Repository::saveCategory(const core::Category& category) {
+    // La clave primaria es NOCASE, asi que INSERT OR REPLACE con "luz" pisa la
+    // fila de "Luz". El nombre que queda es el ultimo escrito.
+    QSqlQuery query(db_.handle());
+    query.prepare(QStringLiteral(
+        "INSERT OR REPLACE INTO categories (name, account, class, kind) VALUES (?, ?, ?, ?)"));
+    query.addBindValue(qs(category.name));
+    query.addBindValue(qs(std::string(core::toString(category.account))));
+    query.addBindValue(qs(std::string(core::toString(category.cls))));
+    query.addBindValue(qs(std::string(core::toString(category.kind))));
+    run(query);
+}
+
+void Repository::removeCategory(const std::string& name) {
+    QSqlQuery query(db_.handle());
+    query.prepare(QStringLiteral("DELETE FROM categories WHERE name = ?"));
+    query.addBindValue(qs(name));
     run(query);
 }
 

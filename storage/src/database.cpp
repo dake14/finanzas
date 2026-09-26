@@ -16,7 +16,7 @@
 namespace dake::storage {
 namespace {
 
-constexpr int kTargetVersion = 2;
+constexpr int kTargetVersion = 3;
 
 /// Copia la base a un `.bak` fechado antes de tocarle el esquema.
 ///
@@ -74,6 +74,11 @@ constexpr const char* kUpgrades[] = {
     // 1 -> 2: cuando se cobro o se pago. Vacia en todo lo ya anotado, que es
     // la verdad: de esos movimientos no sabemos la fecha.
     "ALTER TABLE movements ADD COLUMN settled_date TEXT NOT NULL DEFAULT ''",
+    // 2 -> 3: las tablas locales. Las crea el esquema, que se vuelve a correr
+    // entero en cada subida con CREATE TABLE IF NOT EXISTS, asi que este paso
+    // solo tiene que existir para que el bucle tenga que correr. Se aprovecha
+    // para algo inofensivo que igual hace falta.
+    "CREATE INDEX IF NOT EXISTS movement_meta_by_ref ON movement_meta(external_ref)",
 };
 
 [[nodiscard]] QString describe(const QSqlQuery& query) {
@@ -159,6 +164,121 @@ CREATE TABLE IF NOT EXISTS outbox (
 );
 
 CREATE INDEX IF NOT EXISTS outbox_pending ON outbox(sent, rowid_pk);
+
+-- ===================================================================== v3
+-- Tablas LOCALES. No tienen hlc ni pasan por la cola de salida: el motor de
+-- sincronizacion sube el JSON de cada fila tal cual, y el servidor rechaza la
+-- fila entera si trae una columna que no conoce. Agregar campos a pockets,
+-- jobs o movements frenaria la sincronizacion del telefono, asi que lo nuevo
+-- va al costado, unido por id. Al bajar una fila del servidor se reemplaza la
+-- de pockets, jobs o movements, y lo de aca sobrevive porque es otra tabla.
+--
+-- En estos comentarios no puede haber punto y coma: el guion se parte por ese
+-- caracter antes de ejecutarse.
+
+-- La cuenta elegida a mano. Sin fila = la que corresponde al tipo.
+CREATE TABLE IF NOT EXISTS pocket_meta (
+    pocket_id TEXT PRIMARY KEY NOT NULL,
+    account   TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS categories (
+    name    TEXT PRIMARY KEY NOT NULL COLLATE NOCASE,
+    account TEXT NOT NULL DEFAULT 'Negocio',
+    class   TEXT NOT NULL DEFAULT 'General',
+    kind    TEXT NOT NULL DEFAULT 'Gasto'
+);
+
+-- De donde vino cada movimiento y que falta revisar. external_ref es la
+-- huella de lo que vino de afuera (un informe, una fila de un extracto), que
+-- es lo que impide importar dos veces lo mismo.
+CREATE TABLE IF NOT EXISTS movement_meta (
+    movement_id  TEXT PRIMARY KEY NOT NULL,
+    origin       TEXT NOT NULL DEFAULT 'Manual',
+    review       TEXT NOT NULL DEFAULT '',
+    recurring_id TEXT NOT NULL DEFAULT '',
+    period       TEXT NOT NULL DEFAULT '',
+    external_ref TEXT NOT NULL DEFAULT ''
+);
+
+CREATE INDEX IF NOT EXISTS movement_meta_by_ref ON movement_meta(external_ref);
+
+-- La ficha de una reparacion. Un trabajo sin fila aca es una reparacion de
+-- tipo Otro, que es lo que son los trabajos anotados antes de la version 3.
+-- real_minutes = -1 quiere decir que no se sabe todavia, que no es lo mismo
+-- que cero.
+CREATE TABLE IF NOT EXISTS repairs (
+    job_id            TEXT PRIMARY KEY NOT NULL,
+    order_no          TEXT NOT NULL DEFAULT '',
+    device            TEXT NOT NULL DEFAULT '',
+    repair_type       TEXT NOT NULL DEFAULT 'Otro',
+    template_id       TEXT NOT NULL DEFAULT '',
+    received          TEXT NOT NULL DEFAULT '',
+    delivered         TEXT NOT NULL DEFAULT '',
+    status            TEXT NOT NULL DEFAULT 'EnProceso',
+    price_minor       INTEGER NOT NULL DEFAULT 0,
+    shipping_minor    INTEGER NOT NULL DEFAULT 0,
+    consumables_minor INTEGER NOT NULL DEFAULT 0,
+    est_minutes       INTEGER NOT NULL DEFAULT 0,
+    real_minutes      INTEGER NOT NULL DEFAULT -1,
+    source_ref        TEXT NOT NULL DEFAULT ''
+);
+
+-- Repuestos. cost_known = 0 para los que vinieron de un informe sin costo:
+-- lo que el cliente pago por la pieza no es lo que costo.
+CREATE TABLE IF NOT EXISTS repair_parts (
+    id          TEXT PRIMARY KEY NOT NULL,
+    job_id      TEXT NOT NULL,
+    name        TEXT NOT NULL,
+    cost_minor  INTEGER NOT NULL DEFAULT 0,
+    cost_known  INTEGER NOT NULL DEFAULT 1,
+    movement_id TEXT NOT NULL DEFAULT ''
+);
+
+CREATE INDEX IF NOT EXISTS repair_parts_by_job ON repair_parts(job_id);
+
+-- parts: un repuesto tipico por linea, "nombre<TAB>centavos".
+CREATE TABLE IF NOT EXISTS repair_templates (
+    id                TEXT PRIMARY KEY NOT NULL,
+    repair_type       TEXT NOT NULL,
+    name              TEXT NOT NULL,
+    price_minor       INTEGER NOT NULL DEFAULT 0,
+    est_minutes       INTEGER NOT NULL DEFAULT 0,
+    consumables_minor INTEGER NOT NULL DEFAULT 0,
+    shipping_minor    INTEGER NOT NULL DEFAULT 0,
+    parts             TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS recurring (
+    id           TEXT PRIMARY KEY NOT NULL,
+    name         TEXT NOT NULL,
+    category     TEXT NOT NULL DEFAULT '',
+    pocket_id    TEXT NOT NULL DEFAULT '',
+    amount_minor INTEGER NOT NULL DEFAULT 0,
+    day_of_month INTEGER NOT NULL DEFAULT 1,
+    starts       TEXT NOT NULL,
+    ends         TEXT NOT NULL DEFAULT '',
+    active       INTEGER NOT NULL DEFAULT 1
+);
+
+CREATE TABLE IF NOT EXISTS tools (
+    id          TEXT PRIMARY KEY NOT NULL,
+    name        TEXT NOT NULL,
+    cost_minor  INTEGER NOT NULL,
+    bought      TEXT NOT NULL,
+    life_months INTEGER NOT NULL DEFAULT 24,
+    retired     TEXT NOT NULL DEFAULT '',
+    movement_id TEXT NOT NULL DEFAULT ''
+);
+
+-- Cuanto tarda cada captura, para medir los criterios de aceptacion con el uso
+-- de verdad y no con una demostracion.
+CREATE TABLE IF NOT EXISTS timings (
+    id     INTEGER PRIMARY KEY AUTOINCREMENT,
+    what   TEXT NOT NULL,
+    millis INTEGER NOT NULL,
+    at     TEXT NOT NULL
+);
 )SQL";
 
 } // namespace

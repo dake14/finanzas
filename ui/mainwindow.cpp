@@ -9,6 +9,7 @@
 #include <QMessageBox>
 #include <QPushButton>
 #include <QShortcut>
+#include <QSqlDatabase>
 #include <QStackedWidget>
 #include <QTimer>
 #include <QVBoxLayout>
@@ -17,6 +18,7 @@
 
 #include <algorithm>
 
+#include "dake/core/accounts.hpp"
 #include "dake/core/hlc.hpp"
 #include "dake/sync/config.hpp"
 #include "dialogs.hpp"
@@ -142,6 +144,7 @@ core::Id MainWindow::stamp(std::string& hlc, std::string& deviceId) {
 
 void MainWindow::rememberUndo(const std::optional<core::Movement>& previo,
                               const core::Movement& despues, const QString& que) {
+    undoAlso_.clear();
     undoBefore_ = previo;
     undoAfter_ = despues;
     undoLabel_ = que;
@@ -171,11 +174,14 @@ void MainWindow::buildUi() {
     movements_ = new MovementsPage(stack_);
     pockets_ = new PocketsPage(stack_);
     closing_ = new ClosingPage(stack_);
+    reports_ = new ReportsPage(stack_);
+    settings_ = new SettingsPage(stack_);
     // El orden importa: es el mismo que el de los botones de la barra y el que
-    // usa showPage(). El cierre va ultimo porque se mira una vez por mes.
+    // usa showPage().
     for (QWidget* page : {static_cast<QWidget*>(today_), static_cast<QWidget*>(jobs_),
                           static_cast<QWidget*>(movements_), static_cast<QWidget*>(pockets_),
-                          static_cast<QWidget*>(closing_)}) {
+                          static_cast<QWidget*>(closing_), static_cast<QWidget*>(reports_),
+                          static_cast<QWidget*>(settings_)}) {
         stack_->addWidget(page);
     }
     root->addWidget(stack_, 1);
@@ -187,6 +193,19 @@ void MainWindow::buildUi() {
     connect(movements_, &MovementsPage::movementActivated, this, &MainWindow::editMovement);
     connect(pockets_, &PocketsPage::newPocketRequested, this, &MainWindow::newPocket);
     connect(pockets_, &PocketsPage::reconcileRequested, this, &MainWindow::reconcile);
+    // Encolados: los dos vienen de un boton o un desplegable que la recarga
+    // posterior destruye, y destruirlo dentro de su propia senal cuelga la app.
+    connect(pockets_, &PocketsPage::accountToggled, this, &MainWindow::togglePocketAccount,
+            Qt::QueuedConnection);
+    connect(settings_, &SettingsPage::categoryChanged, this, &MainWindow::saveCategory,
+            Qt::QueuedConnection);
+
+    // Ctrl+1 a Ctrl+7: cada seccion a una tecla, para no tocar el mouse.
+    for (int index = 0; index < 7; ++index) {
+        auto* go = new QShortcut(QKeySequence(Qt::CTRL | static_cast<Qt::Key>(Qt::Key_1 + index)),
+                                 this);
+        connect(go, &QShortcut::activated, this, [this, index] { showPage(index); });
+    }
 
     // Ctrl+N va a anotar y Ctrl+F a buscar. Son los dos verbos de la
     // aplicacion; el resto se puede alcanzar con el mouse sin que duela.
@@ -230,7 +249,8 @@ void MainWindow::buildSidebar(QWidget* parent) {
     group->setExclusive(true);
     const QStringList names{QStringLiteral("Hoy"), QStringLiteral("Trabajos"),
                             QStringLiteral("Movimientos"), QStringLiteral("Bolsillos"),
-                            QStringLiteral("Cierre")};
+                            QStringLiteral("Cierre"), QStringLiteral("Reportes"),
+                            QStringLiteral("Ajustes")};
     for (int index = 0; index < names.size(); ++index) {
         QPushButton* button = navButton(names[index], parent);
         group->addButton(button);
@@ -287,11 +307,27 @@ void MainWindow::reload() {
     snapshot_.jobs = repository_->loadJobs();
     snapshot_.movements = repository_->loadMovements();
 
+    // Las categorias que aparecen en los movimientos y no estan en la tabla
+    // —las de antes de la version 3, las que llegan del telefono— se adoptan
+    // con la cuenta deducida de donde se pagaron. Nadie tiene que
+    // configurarlas a mano para que los reportes separen negocio y personal.
+    snapshot_.categories = repository_->loadCategories();
+    const auto adopted =
+        core::inferCategories(snapshot_.movements, snapshot_.pockets, snapshot_.categories);
+    if (!adopted.empty()) {
+        for (const core::Category& category : adopted) {
+            repository_->saveCategory(category);
+        }
+        snapshot_.categories = repository_->loadCategories();
+    }
+
     today_->setSnapshot(snapshot_);
     jobs_->setSnapshot(snapshot_);
     movements_->setSnapshot(snapshot_);
     pockets_->setSnapshot(snapshot_);
     closing_->setSnapshot(snapshot_);
+    reports_->setSnapshot(snapshot_);
+    settings_->setSnapshot(snapshot_);
 
     footer_->setText(db_->path());
 }
@@ -299,18 +335,64 @@ void MainWindow::reload() {
 // ---------------------------------------------------------------- Acciones
 
 void MainWindow::addMovement(const core::Movement& draft) {
-    core::Movement movement = draft;
-    movement.id = stamp(movement.hlc, movement.deviceId);
+    const core::Account account = snapshot_.categoryAccount(draft.category, draft.pocketId);
+
+    // Un gasto personal pagado con plata del negocio se guarda como lo que es:
+    // un sueldo y un gasto personal. El negocio no registra un almuerzo.
+    std::vector<core::Movement> parts =
+        core::splitCrossExpense(draft, snapshot_.pockets, account, snapshot_.personalPocket());
+    for (core::Movement& part : parts) {
+        part.id = stamp(part.hlc, part.deviceId);
+    }
+
+    const bool ownTx = db_->handle().transaction();
     try {
-        repository_->save(movement);
+        if (!draft.category.empty() &&
+            core::findCategory(snapshot_.categories, draft.category) == nullptr) {
+            repository_->saveCategory({draft.category, account, core::CategoryClass::General,
+                                       draft.kind});
+        }
+        for (const core::Movement& part : parts) {
+            repository_->save(part);
+        }
+        if (ownTx && !db_->handle().commit()) {
+            throw storage::StorageError(QStringLiteral("No se pudo confirmar la transaccion."));
+        }
     } catch (const std::exception& error) {
+        if (ownTx) db_->handle().rollback();
         QMessageBox::critical(this, QStringLiteral("No se pudo guardar"),
                               QString::fromUtf8(error.what()));
         return;
     }
-    rememberUndo(std::nullopt, movement,
-                 QStringLiteral("anotar «%1»").arg(QString::fromStdString(movement.name)));
+
+    const core::Movement& main = parts.back();
+    rememberUndo(std::nullopt, main,
+                 QStringLiteral("anotar «%1»").arg(QString::fromStdString(main.name)));
+    undoAlso_.assign(parts.begin(), parts.end() - 1);
     afterLocalChange();
+}
+
+void MainWindow::togglePocketAccount(const core::Id& pocketId) {
+    const core::Pocket* pocket = snapshot_.pocket(pocketId);
+    if (pocket == nullptr) {
+        return;
+    }
+    const core::Account next = core::accountOf(*pocket) == core::Account::Personal
+                                   ? core::Account::Negocio
+                                   : core::Account::Personal;
+    // Si la cuenta nueva es la que ya le toca por tipo, se borra la marca en
+    // vez de guardarla: asi un cambio de tipo posterior sigue mandando.
+    core::Pocket plain = *pocket;
+    plain.accountOverride.reset();
+    repository_->setPocketAccount(pocketId, core::accountOf(plain) == next
+                                                ? std::nullopt
+                                                : std::optional<core::Account>(next));
+    reload();
+}
+
+void MainWindow::saveCategory(const core::Category& category) {
+    repository_->saveCategory(category);
+    reload();
 }
 
 void MainWindow::newPocket() {
@@ -529,6 +611,9 @@ void MainWindow::undoLast() {
             // No existia: deshacer es borrarlo. remove() deja lapida, asi que
             // el borrado tambien viaja.
             repository_->remove(*undoAfter_);
+            for (const core::Movement& also : undoAlso_) {
+                repository_->remove(also);
+            }
         }
     } catch (const std::exception& error) {
         QMessageBox::critical(this, QStringLiteral("No se pudo deshacer"),
@@ -539,6 +624,7 @@ void MainWindow::undoLast() {
     const QString hecho = undoLabel_;
     undoBefore_.reset();
     undoAfter_.reset();
+    undoAlso_.clear();
     undoLabel_.clear();
 
     afterLocalChange();

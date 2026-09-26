@@ -11,6 +11,7 @@
 #include <string>
 #include <vector>
 
+#include "dake/core/accounts.hpp"
 #include "dake/core/currency.hpp"
 #include "dake/core/model.hpp"
 
@@ -20,6 +21,7 @@ struct Snapshot {
     std::vector<core::Pocket> pockets;
     std::vector<core::Job> jobs;
     std::vector<core::Movement> movements;
+    std::vector<core::Category> categories;
     core::Currency currency = core::Currency::usd();
     core::Date today{2026, 9, 2};
 
@@ -39,6 +41,29 @@ struct Snapshot {
         const auto it = std::find_if(jobs.begin(), jobs.end(),
                                      [&id](const core::Job& j) { return j.id == id; });
         return it == jobs.end() ? QString() : QString::fromStdString(it->name);
+    }
+
+    /// La cuenta de una categoria. Si no existe todavia, la del bolsillo del
+    /// que sale: una categoria nueva escrita pagando desde la caja del taller
+    /// es del negocio hasta que alguien diga lo contrario.
+    [[nodiscard]] core::Account categoryAccount(const std::string& name,
+                                                const core::Id& pocketId) const {
+        if (const core::Category* category = core::findCategory(categories, name)) {
+            return category->account;
+        }
+        const core::Pocket* p = pocket(pocketId);
+        return p == nullptr ? core::Account::Negocio : core::accountOf(*p);
+    }
+
+    /// Adonde va un gasto personal pagado con plata del negocio: el primer
+    /// bolsillo personal no archivado. Vacio si no hay ninguno.
+    [[nodiscard]] core::Id personalPocket() const {
+        for (const core::Pocket& p : pockets) {
+            if (!p.archived && core::accountOf(p) == core::Account::Personal) {
+                return p.id;
+            }
+        }
+        return {};
     }
 
     /// Primer y ultimo dia del mes de `today`. Todo el tablero mira ese rango.

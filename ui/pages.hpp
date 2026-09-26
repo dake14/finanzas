@@ -16,6 +16,7 @@
 class QComboBox;
 class QLabel;
 class QLineEdit;
+class QTabWidget;
 class QTableWidget;
 class QVBoxLayout;
 
@@ -178,6 +179,51 @@ private:
 
 // -------------------------------------------------------------- Bolsillos
 
+/// Los reportes, en pestanas. Cada uno contesta una pregunta y la primera
+/// linea de cada uno es la respuesta.
+class ReportsPage : public QWidget {
+    Q_OBJECT
+
+public:
+    explicit ReportsPage(QWidget* parent = nullptr);
+
+    void setSnapshot(const Snapshot& snapshot);
+
+private:
+    void buildUi();
+    [[nodiscard]] QWidget* buildSpendingTab();
+    void refillSpending();
+
+    Snapshot snapshot_;
+    QTabWidget* tabs_ = nullptr;
+
+    // --- Gastos por categoria ----------------------------------------------
+    QComboBox* spendingMonth_ = nullptr;
+    QLabel* businessHeadline_ = nullptr;
+    QLabel* personalHeadline_ = nullptr;
+    CompareChart* businessChart_ = nullptr;
+    CompareChart* personalChart_ = nullptr;
+};
+
+/// Todo lo que se configura una vez y no se vuelve a mirar.
+class SettingsPage : public QWidget {
+    Q_OBJECT
+
+public:
+    explicit SettingsPage(QWidget* parent = nullptr);
+
+    void setSnapshot(const Snapshot& snapshot);
+
+signals:
+    void categoryChanged(const dake::core::Category& category);
+
+private:
+    void buildUi();
+
+    Snapshot snapshot_;
+    QTableWidget* categories_ = nullptr;
+};
+
 class PocketsPage : public QWidget {
     Q_OBJECT
 
@@ -189,6 +235,8 @@ public:
 signals:
     void newPocketRequested();
     void reconcileRequested(const dake::core::Id& pocketId);
+    /// Pasa el bolsillo de negocio a personal o al reves.
+    void accountToggled(const dake::core::Id& pocketId);
 
 private:
     void buildUi();

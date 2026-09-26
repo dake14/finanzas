@@ -56,6 +56,13 @@ enum class PocketKind {
 /// justo lo que la app tiene que saber decir en voz alta.
 [[nodiscard]] bool isReserve(PocketKind value) noexcept;
 
+/// De quien es la plata. Negocio y personal son dos cuentas separadas: lo que
+/// pasa de una a la otra es sueldo, no gasto del negocio ni ingreso personal.
+enum class Account { Negocio, Personal };
+
+[[nodiscard]] std::string_view toString(Account value) noexcept;
+[[nodiscard]] Account accountFromString(std::string_view text);
+
 struct Pocket {
     Id id;
     std::string name;
@@ -64,6 +71,13 @@ struct Pocket {
     /// saldo sale en cero y nunca cuadra contra la realidad.
     std::int64_t openingMinor = 0;
     bool archived = false;
+
+    /// Vacio = la cuenta que corresponde al tipo (ver accountOf). Solo se
+    /// guarda cuando alguien la cambia a mano, por ejemplo un ahorro personal.
+    ///
+    /// Vive en una tabla local y NO viaja en la sincronizacion: el servidor no
+    /// conoce la columna y rechazaria la fila entera.
+    std::optional<Account> accountOverride;
 
     std::string hlc;
     std::string deviceId;

@@ -16,6 +16,8 @@ set(DAKE_UI_SOURCES
     movementspage.cpp
     closingpage.cpp
     pocketspage.cpp
+    reportspage.cpp
+    settingspage.cpp
     quickentry.cpp
     quickentry.hpp
     dialogs.cpp

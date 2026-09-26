@@ -11,6 +11,7 @@
 #include <optional>
 #include <vector>
 
+#include "dake/core/accounts.hpp"
 #include "dake/core/model.hpp"
 #include "dake/storage/database.hpp"
 
@@ -41,6 +42,28 @@ public:
     void remove(const core::Movement& movement);
     void remove(const core::Job& job);
     void remove(const core::Pocket& pocket);
+
+    // --- Datos locales ----------------------------------------------------
+    //
+    // Todo lo que sigue vive en tablas que NO se sincronizan. El motor sube el
+    // JSON de cada fila tal cual, y el servidor rechaza la fila entera si trae
+    // una columna que no conoce: agregarle campos a pockets, jobs o movements
+    // frenaria la sincronizacion del telefono. Por eso los datos nuevos van
+    // al costado, unidos por id, y sobreviven a que la fila sincronizada se
+    // reemplace al bajar del servidor.
+
+    /// Fija a mano la cuenta de un bolsillo. `std::nullopt` la devuelve a la
+    /// que corresponde por tipo.
+    void setPocketAccount(const core::Id& pocketId, std::optional<core::Account> account);
+
+    /// Las categorias con cuenta y clase, por nombre.
+    [[nodiscard]] std::vector<core::Category> loadCategories();
+
+    /// Crea o reemplaza. El nombre no distingue mayusculas: guardar "luz"
+    /// cuando existe "Luz" la reemplaza en vez de crear otra.
+    void saveCategory(const core::Category& category);
+
+    void removeCategory(const std::string& name);
 
     [[nodiscard]] bool isEmpty();
 

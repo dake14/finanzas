@@ -15,6 +15,7 @@
 #include <QScrollArea>
 #include <QVBoxLayout>
 
+#include "dake/core/accounts.hpp"
 #include "cards.hpp"
 #include "pages.hpp"
 #include "tables.hpp"
@@ -79,10 +80,12 @@ void PocketsPage::buildUi() {
     layout->addWidget(total_);
 
     table_ = makeTable({QStringLiteral("Bolsillo"), QStringLiteral("Para que"),
-                        QStringLiteral("Sin cobrar"), QStringLiteral("Saldo"),
-                        QStringLiteral("")},
+                        QStringLiteral("Cuenta"), QStringLiteral("Sin cobrar"),
+                        QStringLiteral("Saldo"), QStringLiteral("")},
                        0);
     table_->setMinimumHeight(200);
+    fixColumn(table_, 2, 96);
+    fixColumn(table_, 5, 96);
     layout->addWidget(table_);
 
     auto* monthsCard = new Card(QStringLiteral("MES A MES"), page);
@@ -113,11 +116,32 @@ void PocketsPage::setSnapshot(const Snapshot& snapshot) {
         setText(table_, row, 0, QString::fromStdString(balance.name),
                 theme::pocketColor(balance.kind));
         setText(table_, row, 1, kindLabel(balance.kind), theme::kTextMuted);
-        setNumber(table_, row, 2,
+
+        // La cuenta es un boton y no un texto: cambiarla es un clic, y es lo
+        // que hace falta el dia que se abre un ahorro personal.
+        const core::Pocket* pocket = snapshot.pocket(balance.pocketId);
+        const bool personal =
+            pocket != nullptr && core::accountOf(*pocket) == core::Account::Personal;
+        auto* accountButton = new QPushButton(
+            personal ? QStringLiteral("Personal") : QStringLiteral("Negocio"), table_);
+        accountButton->setObjectName(QStringLiteral("GhostButton"));
+        accountButton->setFixedHeight(24);
+        accountButton->setCursor(Qt::PointingHandCursor);
+        accountButton->setFont(theme::bodyFont(8));
+        accountButton->setToolTip(
+            QStringLiteral("Pasarlo a %1. Lo que va de un bolsillo del negocio a uno personal\n"
+                           "cuenta como sueldo.")
+                .arg(personal ? QStringLiteral("negocio") : QStringLiteral("personal")));
+        const core::Id pocketId = balance.pocketId;
+        connect(accountButton, &QPushButton::clicked, this,
+                [this, pocketId] { emit accountToggled(pocketId); });
+        table_->setCellWidget(row, 2, accountButton);
+
+        setNumber(table_, row, 3,
                   balance.pendingIn.isZero() ? QStringLiteral("—")
                                              : theme::formatMoney(balance.pendingIn),
                   theme::kInversion);
-        setNumber(table_, row, 3, theme::formatMoney(balance.balance),
+        setNumber(table_, row, 4, theme::formatMoney(balance.balance),
                   balance.balance.isNegative() ? theme::kNegative : theme::kText);
 
         auto* button = new QPushButton(QStringLiteral("Cuadrar"), table_);
@@ -132,7 +156,7 @@ void PocketsPage::setSnapshot(const Snapshot& snapshot) {
         const core::Id id = balance.pocketId;
         connect(button, &QPushButton::clicked, this,
                 [this, id] { emit reconcileRequested(id); });
-        table_->setCellWidget(row, 4, button);
+        table_->setCellWidget(row, 5, button);
     }
 
     const core::Money all = core::totalAll(balances, currency);

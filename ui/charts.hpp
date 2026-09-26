@@ -106,4 +106,34 @@ private:
     int limit_ = 6;
 };
 
+/// Una fila por categoria: la barra es el mes elegido y la raya vertical, el
+/// mes anterior. Al lado, la diferencia en numeros. Contesta "en que gaste mas
+/// que el mes pasado" sin leer una tabla.
+struct CompareRow {
+    QString label;
+    double current = 0;
+    double previous = 0;
+    QString currentText;
+    QString changeText;  ///< "+12,00 ▲ 30%", ya formateado
+    bool rose = false;   ///< subio: se pinta en rojo, porque es gasto
+};
+
+class CompareChart : public QWidget {
+    Q_OBJECT
+
+public:
+    explicit CompareChart(QWidget* parent = nullptr);
+
+    void setData(std::vector<CompareRow> rows, const QColor& barColor);
+    [[nodiscard]] QSize sizeHint() const override;
+    [[nodiscard]] QSize minimumSizeHint() const override;
+
+protected:
+    void paintEvent(QPaintEvent* event) override;
+
+private:
+    std::vector<CompareRow> rows_;
+    QColor barColor_;
+};
+
 } // namespace dake::ui

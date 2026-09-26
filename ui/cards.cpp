@@ -26,6 +26,7 @@ Card::Card(const QString& title, QWidget* parent) : QFrame(parent) {
 
     subtitle_ = new QLabel(this);
     subtitle_->setFont(theme::bodyFont(9));
+    subtitle_->setWordWrap(true);
     subtitle_->setVisible(false);
     theme::setLabelColor(subtitle_, theme::kTextFaint);
     layout->addWidget(subtitle_);
