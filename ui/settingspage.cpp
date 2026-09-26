@@ -137,6 +137,38 @@ void SettingsPage::buildUi() {
     costsNote_->setFont(theme::bodyFont(9));
     costsCard->addContent(costsNote_);
     connect(hourlyRate_, &QLineEdit::editingFinished, this, &SettingsPage::emitCosts);
+
+    // El reparto de la utilidad: de aca sale el sueldo recomendado.
+    auto* splitRow = new QWidget(costsCard);
+    auto* splitLayout = new QHBoxLayout(splitRow);
+    splitLayout->setContentsMargins(0, 0, 0, 0);
+    splitLayout->setSpacing(8);
+    auto splitField = [splitRow, splitLayout, this](const QString& name) {
+        auto* l = new QLabel(name, splitRow);
+        l->setFont(theme::bodyFont(10));
+        theme::setLabelColor(l, theme::kTextMuted);
+        auto* edit = new QLineEdit(splitRow);
+        edit->setFixedWidth(52);
+        connect(edit, &QLineEdit::editingFinished, this, &SettingsPage::emitSplit);
+        splitLayout->addWidget(l);
+        splitLayout->addWidget(edit);
+        splitLayout->addSpacing(10);
+        return edit;
+    };
+    auto* splitTitle = new QLabel(QStringLiteral("Reparto de la utilidad %:"), splitRow);
+    splitTitle->setFont(theme::bodyFont(10));
+    theme::setLabelColor(splitTitle, theme::kTextMuted);
+    splitLayout->addWidget(splitTitle);
+    splitSalary_ = splitField(QStringLiteral("sueldo"));
+    splitTaxes_ = splitField(QStringLiteral("impuestos"));
+    splitReinvest_ = splitField(QStringLiteral("reinversión"));
+    splitEmergency_ = splitField(QStringLiteral("emergencia"));
+    splitLayout->addStretch(1);
+    costsCard->addContent(splitRow);
+    splitNote_ = new QLabel(costsCard);
+    splitNote_->setFont(theme::bodyFont(9));
+    splitNote_->setWordWrap(true);
+    costsCard->addContent(splitNote_);
     connect(targetMargin_, &QLineEdit::editingFinished, this, &SettingsPage::emitCosts);
     layout->addWidget(costsCard);
 
@@ -349,6 +381,17 @@ void SettingsPage::setSnapshot(const Snapshot& snapshot) {
     refillTemplates();
     refillFixed();
 
+    const std::pair<QLineEdit*, int> splits[] = {{splitSalary_, snapshot.split.salaryBps},
+                                                 {splitTaxes_, snapshot.split.taxesBps},
+                                                 {splitReinvest_, snapshot.split.reinvestBps},
+                                                 {splitEmergency_, snapshot.split.emergencyBps}};
+    for (const auto& [edit, bps] : splits) {
+        if (!edit->hasFocus()) edit->setText(QString::number(bps / 100.0, 'g', 4).replace(QLatin1Char('.'), QLatin1Char(',')));
+    }
+    splitNote_->setText(QStringLiteral("Los cuatro suman 100. El sueldo recomendado es la utilidad neta "
+                                       "promedio por el porcentaje de sueldo."));
+    theme::setLabelColor(splitNote_, theme::kTextFaint);
+
     if (!quoteFolder_->hasFocus()) {
         quoteFolder_->setText(snapshot.quoteFolder);
     }
@@ -456,6 +499,28 @@ void SettingsPage::emitCosts() {
     if (settings.hourlyRateMinor != snapshot_.costs.hourlyRateMinor ||
         settings.targetMarginBps != snapshot_.costs.targetMarginBps) {
         emit costSettingsChanged(settings);
+    }
+}
+
+void SettingsPage::emitSplit() {
+    auto bps = [](const QLineEdit* edit) {
+        bool ok = false;
+        const double value = edit->text().trimmed().replace(QLatin1Char(','), QLatin1Char('.')).toDouble(&ok);
+        return ok ? static_cast<int>(value * 100.0 + 0.5) : -1;
+    };
+    core::ProfitSplit split;
+    split.salaryBps = bps(splitSalary_);
+    split.taxesBps = bps(splitTaxes_);
+    split.reinvestBps = bps(splitReinvest_);
+    split.emergencyBps = bps(splitEmergency_);
+    if (!split.valid()) {
+        splitNote_->setText(QStringLiteral("No suman 100: se sigue usando el reparto anterior."));
+        theme::setLabelColor(splitNote_, theme::kNegative);
+        return;
+    }
+    if (split.salaryBps != snapshot_.split.salaryBps || split.taxesBps != snapshot_.split.taxesBps ||
+        split.reinvestBps != snapshot_.split.reinvestBps || split.emergencyBps != snapshot_.split.emergencyBps) {
+        emit splitChanged(split);
     }
 }
 

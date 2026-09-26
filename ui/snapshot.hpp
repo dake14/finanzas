@@ -19,6 +19,7 @@
 #include "dake/core/model.hpp"
 #include "dake/core/quotes.hpp"
 #include "dake/core/repairs.hpp"
+#include "dake/core/salary.hpp"
 
 namespace dake::ui {
 
@@ -37,6 +38,8 @@ struct Snapshot {
     std::vector<core::Tool> tools;
     std::vector<core::MovementMeta> metas;
     core::FixedRate fixedRate;
+    core::ProfitSplit split;
+    core::SalaryAdvice salary;
     int fallbackMinutesPerMonth = 4800;
     std::vector<core::InboxItem> inbox;
     int reminderWeekday = 6;  ///< 0 = lunes; 6 = domingo

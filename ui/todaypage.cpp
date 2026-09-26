@@ -14,7 +14,9 @@
 #include <QVBoxLayout>
 
 #include "cards.hpp"
+#include "dake/core/accounts.hpp"
 #include "dake/core/report.hpp"
+#include "dake/core/repairs.hpp"
 #include "pages.hpp"
 #include "capturewidget.hpp"
 #include "theme.hpp"
@@ -135,6 +137,17 @@ void TodayPage::buildUi() {
     capture_ = new CaptureWidget(entryCard_);
     entryCard_->addContent(capture_);
     layout->addWidget(entryCard_);
+
+    // --- Las tres preguntas ----------------------------------------------------
+    auto* questions = new QHBoxLayout();
+    questions->setSpacing(12);
+    qPrices_ = new KpiCard(QStringLiteral("¿SUBIR PRECIOS?"), theme::kInversion, page);
+    qSpend_ = new KpiCard(QStringLiteral("¿CUÁNTO GASTO? · ESTE MES"), theme::kNegative, page);
+    qSalary_ = new KpiCard(QStringLiteral("¿CUÁNTO ME PUEDO PAGAR?"), theme::kPositive, page);
+    questions->addWidget(qPrices_);
+    questions->addWidget(qSpend_);
+    questions->addWidget(qSalary_);
+    layout->addLayout(questions);
 
     // --- Cuatro cifras ----------------------------------------------------
     auto* kpiRow = new QHBoxLayout();
@@ -502,6 +515,72 @@ void TodayPage::setSnapshot(const Snapshot& snapshot) {
     }
 
     capture_->setSnapshot(snapshot);
+
+    // ¿Subir precios? El peor tipo de los ultimos seis meses, si hay alguno
+    // bajo el objetivo.
+    {
+        const auto stats = core::statsByType(snapshot.repairs, snapshot.parts, snapshot.movements,
+                                             snapshot.costs, snapshot.currency,
+                                             snapshot.today.firstDayOfMonth().addMonths(-5), snapshot.today);
+        const core::TypeStats* worst = nullptr;
+        for (const auto& s : stats) {
+            const bool judged = s.verdict == core::Verdict::Bajo || s.verdict == core::Verdict::Cerca;
+            if (judged && (worst == nullptr || *s.marginBps < *worst->marginBps)) worst = &s;
+        }
+        if (stats.empty()) {
+            qPrices_->setValue(QStringLiteral("—"));
+            qPrices_->setNote(QStringLiteral("todavía no hay reparaciones entregadas"), theme::kTextMuted);
+        } else if (worst == nullptr) {
+            qPrices_->setValue(QStringLiteral("No"));
+            qPrices_->setNote(QStringLiteral("ningún tipo con datos queda bajo el objetivo"), theme::kPositive);
+        } else {
+            static const char* const kNames[] = {"GPU", "Laptop", "Placa madre", "Otro"};
+            qPrices_->setValue(QStringLiteral("%1 a %2")
+                                   .arg(QString::fromLatin1(kNames[static_cast<int>(worst->type)]),
+                                        theme::formatMoney(*worst->suggestedPrice)));
+            qPrices_->setNote(QStringLiteral("margen %1, objetivo %2 · hoy cobras %3")
+                                  .arg(theme::formatBps(*worst->marginBps),
+                                       theme::formatBps(snapshot.costs.targetMarginBps),
+                                       theme::formatMoney(worst->averagePrice)),
+                              worst->verdict == core::Verdict::Bajo ? theme::kNegative : theme::kInversion);
+        }
+    }
+    // ¿Cuanto gasto? Negocio y personal, nunca sumados.
+    {
+        const auto business = core::spendingByCategory(snapshot.movements, snapshot.pockets,
+                                                       core::Account::Negocio, snapshot.today, snapshot.currency);
+        const auto personal = core::spendingByCategory(snapshot.movements, snapshot.pockets,
+                                                       core::Account::Personal, snapshot.today, snapshot.currency);
+        qSpend_->setValue(theme::formatMoney(personal.totalCurrent));
+        qSpend_->setNote(QStringLiteral("gasto personal (%1) · del negocio %2 (%3)")
+                             .arg(theme::changeText(personal.totalCurrent, personal.totalPrevious),
+                                  theme::formatMoney(business.totalCurrent),
+                                  theme::changeText(business.totalCurrent, business.totalPrevious)),
+                         theme::kTextMuted);
+    }
+    // ¿Cuanto me puedo pagar?
+    {
+        const core::SalaryAdvice& a = snapshot.salary;
+        if (a.closedMonths == 0) {
+            qSalary_->setValue(QStringLiteral("—"));
+            qSalary_->setNote(QStringLiteral("hace falta al menos un mes cerrado"), theme::kTextMuted);
+        } else {
+            qSalary_->setValue(theme::formatMoney(a.salary));
+            if (!a.shortfall.isZero()) {
+                qSalary_->setNote(QStringLiteral("el negocio pierde %1 por mes en promedio")
+                                      .arg(theme::formatMoney(a.shortfall)),
+                                  theme::kNegative);
+            } else if (a.margin()) {
+                const bool enough = !a.margin()->isNegative();
+                qSalary_->setNote(QStringLiteral("necesitas %1 · %2 %3%4")
+                                      .arg(theme::formatMoney(*a.personalSpend),
+                                           enough ? QStringLiteral("sobran") : QStringLiteral("faltan"),
+                                           theme::formatMoney(enough ? *a.margin() : -*a.margin()),
+                                           a.provisional ? QStringLiteral(" · provisional") : QString()),
+                                  enough ? theme::kPositive : theme::kNegative);
+            }
+        }
+    }
     const QString anywhere =
         snapshot.hotkeyRegistered
             ? QStringLiteral(" Desde cualquier programa: %1.")

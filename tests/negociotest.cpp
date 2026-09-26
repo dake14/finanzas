@@ -17,6 +17,7 @@
 #include "dake/core/fixed.hpp"
 #include "dake/core/quotes.hpp"
 #include "dake/core/repairs.hpp"
+#include "dake/core/salary.hpp"
 #include "dake/core/model.hpp"
 #include "dake/core/money.hpp"
 
@@ -1218,6 +1219,127 @@ void bandeja() {
     check(!hasQuotes, "sin documentos esperando, no hay renglon de Cotizaciones");
 }
 
+
+// ------------------------------------------------------------------- Sueldo
+
+struct CasoSueldo {
+    std::vector<Pocket> pockets;
+    std::vector<Category> categories;
+    std::vector<Tool> tools;
+    std::vector<Movement> movements;
+};
+
+[[nodiscard]] CasoSueldo casoSueldo() {
+    CasoSueldo c;
+    Pocket caja = pocket("caja", PocketKind::Operacion);
+    caja.openingMinor = 100'00;
+    c.pockets = {caja, pocket("mio", PocketKind::Personal)};
+    c.categories = {{"Herramientas", Account::Negocio, CategoryClass::Activo},
+                    {"Comida", Account::Personal}};
+    Tool soldador;
+    soldador.costMinor = 240'00;
+    soldador.bought = Date{2026, 6, 1};
+    soldador.lifeMonths = 24;
+    c.tools = {soldador};
+
+    auto ingreso = [](const char* date, std::int64_t minor, bool settled = true) {
+        Movement m = gasto(date, minor, "caja", "Reparaciones");
+        m.id = std::string("i-") + date;
+        m.kind = MovementKind::Ingreso;
+        m.settled = settled;
+        return m;
+    };
+    Movement filamento = gasto("2026-06-15", 120'00, "caja", "Filamento");
+    filamento.spreadMonths = 4;
+    c.movements = {
+        ingreso("2026-06-10", 500'00),
+        ingreso("2026-06-20", 200'00, false),
+        gasto("2026-06-05", 100'00, "caja", "Varios"),
+        filamento,
+        gasto("2026-06-01", 240'00, "caja", "Herramientas"),
+        traspaso("2026-06-28", 300'00, "caja", "mio"),
+        gasto("2026-06-12", 50'00, "mio", "Comida"),
+        ingreso("2026-07-10", 300'00),
+        traspaso("2026-07-28", 300'00, "caja", "mio"),
+        gasto("2026-07-12", 80'00, "mio", "Comida"),
+        gasto("2026-08-10", 40'00, "mio", "Comida"),
+        ingreso("2026-09-10", 1000'00),
+    };
+    return c;
+}
+
+void utilidadNetaDelMes() {
+    std::printf("\n[utilidad neta del mes]\n");
+    const CasoSueldo c = casoSueldo();
+    const MonthNet junio = businessNet(c.movements, c.pockets, c.categories, c.tools, Date{2026, 6, 1}, kUsd);
+    checkMinor(junio.income.minor(), 700'00, "ingresos de junio: 500 cobrados + 200 por cobrar");
+    checkMinor(junio.cost.minor(), 140'00,
+               "costo: 100 + 30 del filamento repartido + 10 de depreciacion (la compra no)");
+    checkMinor(junio.net.minor(), 560'00, "utilidad: el sueldo y el gasto personal no restan");
+    const MonthNet agosto = businessNet(c.movements, c.pockets, c.categories, c.tools, Date{2026, 8, 1}, kUsd);
+    checkMinor(agosto.net.minor(), -40'00, "agosto sin ingresos: filamento y depreciacion, -40");
+}
+
+void sueldoRecomendado() {
+    std::printf("\n[sueldo recomendado]\n");
+    const CasoSueldo c = casoSueldo();
+    const ProfitSplit split;
+    const SalaryAdvice a =
+        salaryAdvice(c.movements, c.pockets, c.categories, c.tools, split, Date{2026, 9, 25}, kUsd);
+    check(a.closedMonths == 3 && !a.provisional, "tres meses cerrados: junio, julio, agosto");
+    check(a.average3 && a.average3->minor() == 260'00, "promedio de 3 meses: (560 + 260 - 40) / 3");
+    checkMinor(a.base.minor(), 260'00, "base 260");
+    checkMinor(a.salary.minor(), 143'00, "sueldo: 55%");
+    checkMinor(a.taxes.minor() + a.reinvest.minor() + a.emergency.minor() + a.salary.minor(), 260'00,
+               "el reparto suma la base entera");
+    checkMinor(a.taxes.minor(), 39'00, "impuestos 15%");
+    check(a.personalSpend && a.personalSpend->minor() == 56'67, "gasto personal: (50 + 80 + 40) / 3");
+    checkMinor(a.paidAverage.minor(), 200'00, "te pagaste 200 por mes: (300 + 300 + 0) / 3");
+    check(a.margin() && a.margin()->minor() == 86'33, "te sobran 86,33");
+    check(a.months.size() == 3 && a.months[0].month == (Date{2026, 8, 1}),
+          "los meses, del mas nuevo al mas viejo");
+
+    CasoSueldo conMayo = c;
+    Movement mayo = gasto("2026-05-10", 1200'00, "caja", "Reparaciones");
+    mayo.kind = MovementKind::Ingreso;
+    conMayo.movements.push_back(mayo);
+    const SalaryAdvice b = salaryAdvice(conMayo.movements, conMayo.pockets, conMayo.categories,
+                                        conMayo.tools, split, Date{2026, 9, 25}, kUsd);
+    check(b.average6 && b.average6->minor() == 495'00, "promedio de 6 meses con lo que hay: 4 meses, 495");
+    checkMinor(b.base.minor(), 260'00, "se usa el menor: 260 y no 495");
+
+    const SalaryAdvice p =
+        salaryAdvice(c.movements, c.pockets, c.categories, c.tools, split, Date{2026, 8, 15}, kUsd);
+    check(p.provisional && p.closedMonths == 2 && p.average3 && p.average3->minor() == 410'00,
+          "con dos meses cerrados: provisional, (560 + 260) / 2");
+
+    const SalaryAdvice none =
+        salaryAdvice(c.movements, c.pockets, c.categories, c.tools, split, Date{2026, 6, 20}, kUsd);
+    check(none.closedMonths == 0 && !none.average3 && none.base.isZero(),
+          "sin meses cerrados no hay promedio: no se inventa un sueldo");
+
+    const std::vector<Movement> perdida{gasto("2026-08-10", 100'00, "caja", "Varios")};
+    const SalaryAdvice neg =
+        salaryAdvice(perdida, c.pockets, c.categories, {}, split, Date{2026, 9, 10}, kUsd);
+    check(neg.base.isZero() && neg.salary.isZero(), "con perdida, el sueldo sostenible es cero");
+    checkMinor(neg.shortfall.minor(), 100'00, "y dice cuanto falta");
+}
+
+void flujoDeCaja() {
+    std::printf("\n[flujo de caja del negocio]\n");
+    const CasoSueldo c = casoSueldo();
+    const auto months = businessCashFlow(c.movements, c.pockets, Date{2026, 6, 1}, Date{2026, 8, 31}, kUsd);
+    check(months.size() == 3, "tres meses");
+    if (months.size() != 3) return;
+    checkMinor(months[0].in.minor(), 500'00, "junio entra lo cobrado; lo por cobrar no");
+    checkMinor(months[0].outExpenses.minor(), 460'00,
+               "salen los gastos pagados enteros: el filamento y la herramienta, el dia de la compra");
+    checkMinor(months[0].outSalary.minor(), 300'00, "el sueldo sale aparte");
+    checkMinor(months[0].balance.minor(), -160'00, "saldo al cierre: 100 + 500 - 460 - 300");
+    checkMinor(months[1].balance.minor(), -160'00, "julio: entra 300 y sale 300 de sueldo");
+    check(months[2].month == (Date{2026, 8, 1}) && months[2].in.isZero(), "agosto sin movimiento");
+}
+
 } // namespace
 
 int main() {
@@ -1258,6 +1380,9 @@ int main() {
     herramientas();
     tasaDeFijos();
     bandeja();
+    utilidadNetaDelMes();
+    sueldoRecomendado();
+    flujoDeCaja();
 
     std::printf("\n%s\n", gFailures == 0 ? "Todo pasa." : "HAY FALLAS.");
     return gFailures == 0 ? 0 : 1;

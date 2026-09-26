@@ -71,6 +71,12 @@ private:
 
     CaptureWidget* capture_ = nullptr;
     Card* entryCard_ = nullptr;
+
+    // --- Las tres preguntas ------------------------------------------------
+    // Arriba de todo, despues de anotar: son la razon de la aplicacion.
+    KpiCard* qPrices_ = nullptr;  ///< ¿subir precios?
+    KpiCard* qSpend_ = nullptr;   ///< ¿cuanto gasto?
+    KpiCard* qSalary_ = nullptr;  ///< ¿cuanto me pago?
     QLabel* heading_ = nullptr;
     QLabel* subheading_ = nullptr;
 
@@ -176,29 +182,6 @@ private:
 
 
 
-class ClosingPage : public QWidget {
-    Q_OBJECT
-
-public:
-    explicit ClosingPage(QWidget* parent = nullptr);
-
-    void setSnapshot(const Snapshot& snapshot);
-
-private:
-    void buildUi();
-    void refill();
-
-    Snapshot snapshot_;
-    QComboBox* month_ = nullptr;
-    KpiCard* result_ = nullptr;
-    KpiCard* income_ = nullptr;
-    KpiCard* cost_ = nullptr;
-    KpiCard* cash_ = nullptr;
-    KpiCard* pending_ = nullptr;
-    QLabel* versus_ = nullptr;
-    QTableWidget* categories_ = nullptr;
-};
-
 class MovementsPage : public QWidget {
     Q_OBJECT
 
@@ -221,8 +204,6 @@ private:
     QTableWidget* table_ = nullptr;
 };
 
-// -------------------------------------------------------------- Bolsillos
-
 /// Los reportes, en pestanas. Cada uno contesta una pregunta y la primera
 /// linea de cada uno es la respuesta.
 class ReportsPage : public QWidget {
@@ -239,6 +220,10 @@ private:
     [[nodiscard]] QWidget* buildSpendingTab();
     [[nodiscard]] QWidget* buildRepairsTab();
     [[nodiscard]] QWidget* buildTypesTab();
+    [[nodiscard]] QWidget* buildCashTab();
+    [[nodiscard]] QWidget* buildSalaryTab();
+    void refillCash();
+    void refillSalary();
     void refillSpending();
     void refillRepairs();
     void refillTypes();
@@ -261,6 +246,19 @@ private:
     QLabel* typesHeadline_ = nullptr;
     QLabel* typesNote_ = nullptr;
     TypeChart* typesChart_ = nullptr;
+
+    // --- Flujo de caja ---------------------------------------------------
+    QLabel* cashHeadline_ = nullptr;
+    BarChart* cashBars_ = nullptr;
+    LineChart* cashLine_ = nullptr;
+    QTableWidget* cashTable_ = nullptr;
+
+    // --- Sueldo ------------------------------------------------------------
+    QLabel* salaryHeadline_ = nullptr;
+    SalaryScale* salaryScale_ = nullptr;
+    QLabel* salaryBasis_ = nullptr;
+    SplitBar* salarySplit_ = nullptr;
+    QLabel* salaryMonths_ = nullptr;
 };
 
 /// La revision de la semana: un pendiente por vez, con la sugerencia puesta.
@@ -346,11 +344,13 @@ signals:
     void toolRemoved(const dake::core::Id& id);
     void fallbackHoursChanged(int minutesPerMonth);
     void reminderChanged(int weekday, int hour);
+    void splitChanged(const dake::core::ProfitSplit& split);
 
 private:
     void buildUi();
     void refillTemplates();
     void emitCosts();
+    void emitSplit();
     void emitTemplate(int row);
     void refillFixed();
     void emitRecurring(int row);
@@ -365,6 +365,11 @@ private:
     QLineEdit* hourlyRate_ = nullptr;
     QLineEdit* targetMargin_ = nullptr;
     QLabel* costsNote_ = nullptr;
+    QLineEdit* splitSalary_ = nullptr;
+    QLineEdit* splitTaxes_ = nullptr;
+    QLineEdit* splitReinvest_ = nullptr;
+    QLineEdit* splitEmergency_ = nullptr;
+    QLabel* splitNote_ = nullptr;
     QTableWidget* templates_ = nullptr;
     QLineEdit* quoteFolder_ = nullptr;
     QLabel* quoteStatus_ = nullptr;

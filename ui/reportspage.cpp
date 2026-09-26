@@ -111,9 +111,12 @@ void ReportsPage::buildUi() {
     tabs_ = new QTabWidget(this);
     tabs_->setDocumentMode(true);
     tabs_->setFont(theme::bodyFont(10, QFont::DemiBold));
+    // En el orden del diseño: caja, reparaciones, tipos, gastos, sueldo.
+    tabs_->addTab(buildCashTab(), QStringLiteral("Flujo de caja"));
     tabs_->addTab(buildRepairsTab(), QStringLiteral("Por reparación"));
     tabs_->addTab(buildTypesTab(), QStringLiteral("Por tipo"));
     tabs_->addTab(buildSpendingTab(), QStringLiteral("Gastos por categoría"));
+    tabs_->addTab(buildSalaryTab(), QStringLiteral("Sueldo"));
     layout->addWidget(tabs_, 1);
 }
 
@@ -188,6 +191,8 @@ void ReportsPage::setSnapshot(const Snapshot& snapshot) {
     refillSpending();
     refillRepairs();
     refillTypes();
+    refillCash();
+    refillSalary();
 }
 
 void ReportsPage::refillSpending() {
@@ -442,6 +447,186 @@ void ReportsPage::refillTypes() {
                note;
     }
     typesNote_->setText(note);
+}
+
+// ---------------------------------------------------------- Flujo de caja
+
+QWidget* ReportsPage::buildCashTab() {
+    auto* tab = new QWidget(this);
+    QVBoxLayout* layout = scrollingTab(tab);
+    QWidget* body = layout->parentWidget();
+    cashHeadline_ = headline(body);
+    layout->addWidget(cashHeadline_);
+
+    auto* barsCard = new Card(QStringLiteral("ENTRADAS Y SALIDAS DEL NEGOCIO, POR MES"), body);
+    barsCard->setSubtitle(QStringLiteral("Lo que entró y salió de verdad de los bolsillos del negocio, en "
+                                         "la fecha en que pasó. Las salidas incluyen el sueldo."));
+    cashBars_ = new BarChart(barsCard);
+    cashBars_->setSeries(QStringLiteral("entradas"), QStringLiteral("salidas"));
+    cashBars_->setMinimumHeight(220);
+    barsCard->addContent(cashBars_);
+    layout->addWidget(barsCard);
+
+    auto* lineCard = new Card(QStringLiteral("CAJA DEL NEGOCIO AL CIERRE DE CADA MES"), body);
+    cashLine_ = new LineChart(lineCard);
+    cashLine_->setMinimumHeight(180);
+    lineCard->addContent(cashLine_);
+    layout->addWidget(lineCard);
+
+    cashTable_ = makeTable({QStringLiteral("Mes"), QStringLiteral("Entradas"), QStringLiteral("Gastos"),
+                            QStringLiteral("Sueldo"), QStringLiteral("Saldo")},
+                           0);
+    cashTable_->setMinimumHeight(260);
+    layout->addWidget(cashTable_);
+    return tab;
+}
+
+void ReportsPage::refillCash() {
+    const core::Date to = snapshot_.today;
+    const core::Date from = to.firstDayOfMonth().addMonths(-11);
+    const auto months = core::businessCashFlow(snapshot_.movements, snapshot_.pockets, from, to, snapshot_.currency);
+
+    std::vector<ChartPoint> bars;
+    std::vector<ChartPoint> line;
+    for (const core::CashMonth& m : months) {
+        const core::Money out = m.outExpenses + m.outSalary;
+        ChartPoint bar;
+        bar.label = theme::monthName(m.month).left(3) + QLatin1Char(' ') + QString::number(m.month.year % 100);
+        bar.primary = static_cast<double>(m.in.minor()) / 100.0;
+        bar.secondary = static_cast<double>(out.minor()) / 100.0;
+        bar.primaryText = theme::formatMoney(m.in);
+        bars.push_back(bar);
+        ChartPoint point;
+        point.label = bar.label;
+        point.primary = static_cast<double>(m.balance.minor()) / 100.0;
+        point.primaryText = theme::formatMoney(m.balance);
+        line.push_back(point);
+    }
+    cashBars_->setData(bars);
+    cashLine_->setData(line);
+
+    cashTable_->setRowCount(static_cast<int>(months.size()));
+    for (int row = 0; row < static_cast<int>(months.size()); ++row) {
+        const core::CashMonth& m = months[months.size() - 1 - static_cast<std::size_t>(row)];
+        setText(cashTable_, row, 0, theme::monthName(m.month));
+        setNumber(cashTable_, row, 1, theme::formatMoney(m.in), theme::kPositive);
+        setNumber(cashTable_, row, 2, theme::formatMoney(m.outExpenses), theme::kNegative);
+        setNumber(cashTable_, row, 3, theme::formatMoney(m.outSalary), theme::kAccent);
+        setNumber(cashTable_, row, 4, theme::formatMoney(m.balance),
+                  m.balance.isNegative() ? theme::kNegative : theme::kText);
+    }
+
+    if (!months.empty()) {
+        const core::CashMonth& now = months.back();
+        cashHeadline_->setText(QStringLiteral("En %1 entraron %2; salieron %3 en gastos y %4 en sueldo. "
+                                              "La caja del negocio está en %5.")
+                                   .arg(theme::monthName(now.month), theme::formatMoney(now.in),
+                                        theme::formatMoney(now.outExpenses), theme::formatMoney(now.outSalary),
+                                        theme::formatMoney(now.balance)));
+    }
+}
+
+// ----------------------------------------------------------------- Sueldo
+
+QWidget* ReportsPage::buildSalaryTab() {
+    auto* tab = new QWidget(this);
+    QVBoxLayout* layout = scrollingTab(tab);
+    QWidget* body = layout->parentWidget();
+    auto* card = new Card(QStringLiteral("¿CUÁNTO ME PUEDO PAGAR?"), body);
+    salaryHeadline_ = new QLabel(card);
+    salaryHeadline_->setFont(theme::displayFont(16, QFont::Bold));
+    salaryHeadline_->setWordWrap(true);
+    card->addContent(salaryHeadline_);
+    salaryScale_ = new SalaryScale(card);
+    salaryScale_->setMinimumHeight(150);
+    card->addContent(salaryScale_);
+    salaryBasis_ = new QLabel(card);
+    salaryBasis_->setWordWrap(true);
+    salaryBasis_->setFont(theme::bodyFont(10));
+    theme::setLabelColor(salaryBasis_, theme::kTextMuted);
+    card->addContent(salaryBasis_);
+    salarySplit_ = new SplitBar(card);
+    salarySplit_->setMinimumHeight(64);
+    card->addContent(salarySplit_);
+    salaryMonths_ = new QLabel(card);
+    salaryMonths_->setWordWrap(true);
+    salaryMonths_->setFont(theme::bodyFont(9));
+    theme::setLabelColor(salaryMonths_, theme::kTextFaint);
+    card->addContent(salaryMonths_);
+    layout->addWidget(card);
+    layout->addStretch(1);
+    return tab;
+}
+
+void ReportsPage::refillSalary() {
+    const core::SalaryAdvice& a = snapshot_.salary;
+    const auto money = [](const core::Money& m) { return theme::formatMoney(m); };
+
+    if (a.closedMonths == 0) {
+        salaryHeadline_->setText(QStringLiteral("Todavía no hay un mes cerrado: el sueldo sostenible se "
+                                                "calcula con meses completos, no con uno a medias."));
+        theme::setLabelColor(salaryHeadline_, theme::kTextMuted);
+    } else if (!a.shortfall.isZero()) {
+        salaryHeadline_->setText(QStringLiteral("Hoy no hay sueldo sostenible: el negocio pierde %1 por mes "
+                                                "en promedio. Mira el reporte Por tipo para ver qué precio "
+                                                "subir.")
+                                     .arg(money(a.shortfall)));
+        theme::setLabelColor(salaryHeadline_, theme::kNegative);
+    } else if (a.margin() && a.margin()->isNegative()) {
+        salaryHeadline_->setText(QStringLiteral("Te puedes pagar %1 y necesitas %2. Faltan %3 por mes.")
+                                     .arg(money(a.salary), money(*a.personalSpend), money(-*a.margin())));
+        theme::setLabelColor(salaryHeadline_, theme::kNegative);
+    } else if (a.margin()) {
+        salaryHeadline_->setText(QStringLiteral("Te puedes pagar %1 al mes. Necesitas %2. Te sobran %3.")
+                                     .arg(money(a.salary), money(*a.personalSpend), money(*a.margin())));
+        theme::setLabelColor(salaryHeadline_, theme::kPositive);
+    }
+    if (a.closedMonths > 0 && a.paidAverage > a.salary) {
+        salaryHeadline_->setText(salaryHeadline_->text() +
+                                 QStringLiteral(" Te pagaste %1 por mes: la diferencia sale de la caja del negocio.")
+                                     .arg(money(a.paidAverage)));
+    }
+
+    salaryScale_->setValues(static_cast<double>(a.salary.minor()),
+                            a.personalSpend ? static_cast<double>(a.personalSpend->minor()) : -1.0,
+                            a.closedMonths > 0 ? static_cast<double>(a.paidAverage.minor()) : -1.0,
+                            money(a.salary), a.personalSpend ? money(*a.personalSpend) : QString(),
+                            money(a.paidAverage));
+
+    if (a.average3 && a.average6) {
+        salaryBasis_->setText(
+            QStringLiteral("Utilidad neta promedio: %1 meses %2 · %3 meses %4 → se usa %5, la menor.%6")
+                .arg(std::min(3, a.closedMonths))
+                .arg(money(*a.average3))
+                .arg(a.closedMonths)
+                .arg(money(*a.average6), money(std::min(*a.average3, *a.average6)),
+                     a.provisional ? QStringLiteral(" Provisional: hay %1 mes(es) cerrados, la cuenta pide 3.")
+                                         .arg(a.closedMonths)
+                                   : QString()));
+    } else {
+        salaryBasis_->clear();
+    }
+
+    const auto pct = [](int bps) { return QString::number(bps / 100.0, 'g', 4).replace(QLatin1Char('.'), QLatin1Char(',')); };
+    salarySplit_->setSegments({
+        {QStringLiteral("Sueldo %1%").arg(pct(snapshot_.split.salaryBps)), money(a.salary),
+         static_cast<double>(a.salary.minor()), theme::kPositive},
+        {QStringLiteral("Impuestos %1%").arg(pct(snapshot_.split.taxesBps)), money(a.taxes),
+         static_cast<double>(a.taxes.minor()), theme::kInversion},
+        {QStringLiteral("Reinversión %1%").arg(pct(snapshot_.split.reinvestBps)), money(a.reinvest),
+         static_cast<double>(a.reinvest.minor()), theme::kAccent},
+        {QStringLiteral("Emergencia %1%").arg(pct(snapshot_.split.emergencyBps)), money(a.emergency),
+         static_cast<double>(a.emergency.minor()), theme::kAhorro},
+    });
+
+    QStringList months;
+    for (const core::MonthNet& m : a.months) {
+        months << QStringLiteral("%1: %2").arg(theme::monthName(m.month), money(m.net));
+    }
+    salaryMonths_->setText(months.isEmpty() ? QString()
+                                            : QStringLiteral("Utilidad neta por mes (ingresos − costos del "
+                                                             "negocio; el sueldo no resta): ") +
+                                                  months.join(QStringLiteral(" · ")));
 }
 
 } // namespace dake::ui

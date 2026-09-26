@@ -19,7 +19,6 @@ set(DAKE_UI_SOURCES
     repairdialogs.hpp
     fields.hpp
     movementspage.cpp
-    closingpage.cpp
     pocketspage.cpp
     reportspage.cpp
     reviewpage.cpp

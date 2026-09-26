@@ -18,6 +18,7 @@ add_library(dake_core STATIC
     src/repairs.cpp
     src/quotes.cpp
     src/fixed.cpp
+    src/salary.cpp
 )
 
 target_include_directories(dake_core PUBLIC

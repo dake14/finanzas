@@ -33,7 +33,6 @@ class RepairsPage;
 class ReviewPage;
 class MovementsPage;
 class PocketsPage;
-class ClosingPage;
 class CaptureWindow;
 class GlobalHotkey;
 class ReportsPage;
@@ -249,7 +248,6 @@ private:
     QTimer* hourlyTimer_ = nullptr;
     MovementsPage* movements_ = nullptr;
     PocketsPage* pockets_ = nullptr;
-    ClosingPage* closing_ = nullptr;
     ReportsPage* reports_ = nullptr;
     SettingsPage* settings_ = nullptr;
     QLabel* footer_ = nullptr;

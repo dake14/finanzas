@@ -28,6 +28,7 @@
 #include "dake/storage/quotefolder.hpp"
 #include "dake/storage/repository.hpp"
 #include "dake/core/repairs.hpp"
+#include "dake/core/salary.hpp"
 #include "capturewidget.hpp"
 #include "capturewindow.hpp"
 #include "pages.hpp"
@@ -97,6 +98,11 @@ namespace {
     sample(RepairType::Laptop, "Lenovo T480", "Pedro", 70'00, 90, 95, 8'00, "2026-07-15", RepairStatus::Entregada);
     sample(RepairType::PlacaMadre, "Asus B450-F", "Sr. Diovis", 40'00, 180, 240, 6'00, "2026-08-18", RepairStatus::Cobrada);
     sample(RepairType::GPU, "RTX 2060", "Carla", 80'00, 120, 0, 0, "2026-08-30", RepairStatus::EnProceso);
+    // Para el sueldo, el banco visual se para a fin de noviembre: el caso de
+    // agosto tiene movimientos hasta ahi y asi hay meses cerrados.
+    snapshot.salary = dake::core::salaryAdvice(snapshot.movements, snapshot.pockets, snapshot.categories,
+                                               {}, snapshot.split, dake::core::Date{2026, 12, 5},
+                                               currency);
     for (auto tpl : dake::core::defaultTemplates()) {
         tpl.id = "demo-tpl-" + tpl.name;
         snapshot.templates.push_back(tpl);
@@ -167,11 +173,6 @@ namespace {
         page->setSnapshot(snapshot);
         return page;
     }
-    if (screen == QLatin1String("cierre")) {
-        auto page = std::make_unique<dake::ui::ClosingPage>();
-        page->setSnapshot(snapshot);
-        return page;
-    }
     return nullptr;
 }
 
@@ -222,7 +223,7 @@ int main(int argc, char** argv) {
     if (arguments.size() < 2 || (arguments.size() < 3 && arguments.at(1) != QLatin1String("cotizaciones"))) {
         std::cout << "Uso: dake_uipreview <pantalla|todas> <salida.png|carpeta> "
                      "[ancho] [alto]\n"
-                  << "Pantallas: hoy | reparaciones | movimientos | bolsillos | cierre | reportes | ajustes | todas\n";
+                  << "Pantallas: hoy | reparaciones | movimientos | bolsillos | revision | reportes | ajustes | todas\n";
         return 2;
     }
 
@@ -311,7 +312,7 @@ int main(int argc, char** argv) {
         bool ok = true;
         for (const QString& one : {QStringLiteral("hoy"), QStringLiteral("reparaciones"),
                                    QStringLiteral("movimientos"), QStringLiteral("bolsillos"),
-                                   QStringLiteral("cierre"), QStringLiteral("reportes"),
+                                   QStringLiteral("revision"), QStringLiteral("reportes"),
                                    QStringLiteral("ajustes")}) {
             ok = render(one, output + QLatin1Char('/') + one + QStringLiteral(".png"), width,
                         height, snapshot) &&

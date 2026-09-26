@@ -166,4 +166,55 @@ private:
     double target_ = 30;
 };
 
+/// Una sola escala: la barra es el sueldo sostenible; el triangulo, lo que
+/// gastas por mes en lo personal; el rombo, lo que te pagaste. Se entiende
+/// sin leer numeros: si la barra no llega al triangulo, no alcanza.
+class SalaryScale : public QWidget {
+    Q_OBJECT
+
+public:
+    explicit SalaryScale(QWidget* parent = nullptr);
+
+    /// Los tres en la misma unidad (centavos). `personal` o `paid` < 0: no se
+    /// dibujan.
+    void setValues(double salary, double personal, double paid, const QString& salaryText,
+                   const QString& personalText, const QString& paidText);
+    [[nodiscard]] QSize sizeHint() const override;
+
+protected:
+    void paintEvent(QPaintEvent* event) override;
+
+private:
+    double salary_ = 0;
+    double personal_ = -1;
+    double paid_ = -1;
+    QString salaryText_;
+    QString personalText_;
+    QString paidText_;
+};
+
+/// Una barra partida en tramos que suman el todo: el reparto de la utilidad.
+struct SplitSegment {
+    QString label;   ///< "Sueldo 55%"
+    QString amount;  ///< "143,00"
+    double value = 0;
+    QColor color;
+};
+
+class SplitBar : public QWidget {
+    Q_OBJECT
+
+public:
+    explicit SplitBar(QWidget* parent = nullptr);
+
+    void setSegments(std::vector<SplitSegment> segments);
+    [[nodiscard]] QSize sizeHint() const override;
+
+protected:
+    void paintEvent(QPaintEvent* event) override;
+
+private:
+    std::vector<SplitSegment> segments_;
+};
+
 } // namespace dake::ui

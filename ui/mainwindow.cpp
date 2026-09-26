@@ -377,15 +377,13 @@ void MainWindow::buildUi() {
     movements_ = new MovementsPage(stack_);
     review_ = new ReviewPage(stack_);
     pockets_ = new PocketsPage(stack_);
-    closing_ = new ClosingPage(stack_);
     reports_ = new ReportsPage(stack_);
     settings_ = new SettingsPage(stack_);
     // El orden importa: es el mismo que el de los botones de la barra y el que
     // usa showPage().
     for (QWidget* page : {static_cast<QWidget*>(today_), static_cast<QWidget*>(repairs_),
                           static_cast<QWidget*>(movements_), static_cast<QWidget*>(review_),
-                          static_cast<QWidget*>(pockets_),
-                          static_cast<QWidget*>(closing_), static_cast<QWidget*>(reports_),
+                          static_cast<QWidget*>(pockets_), static_cast<QWidget*>(reports_),
                           static_cast<QWidget*>(settings_)}) {
         stack_->addWidget(page);
     }
@@ -576,6 +574,15 @@ void MainWindow::buildUi() {
                 reload();
             },
             Qt::QueuedConnection);
+    connect(settings_, &SettingsPage::splitChanged, this,
+            [this](const core::ProfitSplit& split) {
+                repository_->setSetting(QStringLiteral("config.reparto.sueldo"), QString::number(split.salaryBps));
+                repository_->setSetting(QStringLiteral("config.reparto.impuestos"), QString::number(split.taxesBps));
+                repository_->setSetting(QStringLiteral("config.reparto.reinversion"), QString::number(split.reinvestBps));
+                repository_->setSetting(QStringLiteral("config.reparto.emergencia"), QString::number(split.emergencyBps));
+                reload();
+            },
+            Qt::QueuedConnection);
     connect(settings_, &SettingsPage::templateRemoved, this,
             [this](const core::Id& id) {
                 repository_->removeTemplate(id);
@@ -583,8 +590,8 @@ void MainWindow::buildUi() {
             },
             Qt::QueuedConnection);
 
-    // Ctrl+1 a Ctrl+8: cada seccion a una tecla, para no tocar el mouse.
-    for (int index = 0; index < 8; ++index) {
+    // Ctrl+1 a Ctrl+7: cada seccion a una tecla, para no tocar el mouse.
+    for (int index = 0; index < 7; ++index) {
         auto* go = new QShortcut(QKeySequence(Qt::CTRL | static_cast<Qt::Key>(Qt::Key_1 + index)),
                                  this);
         connect(go, &QShortcut::activated, this, [this, index] { showPage(index); });
@@ -632,8 +639,7 @@ void MainWindow::buildSidebar(QWidget* parent) {
     group->setExclusive(true);
     const QStringList names{QStringLiteral("Hoy"), QStringLiteral("Reparaciones"),
                             QStringLiteral("Movimientos"), QStringLiteral("Revisión"),
-                            QStringLiteral("Bolsillos"),
-                            QStringLiteral("Cierre"), QStringLiteral("Reportes"),
+                            QStringLiteral("Bolsillos"), QStringLiteral("Reportes"),
                             QStringLiteral("Ajustes")};
     for (int index = 0; index < names.size(); ++index) {
         QPushButton* button = navButton(names[index], parent);
@@ -739,6 +745,17 @@ void MainWindow::reload() {
                                           snapshot_.today, snapshot_.fallbackMinutesPerMonth,
                                           snapshot_.currency);
     snapshot_.costs.fixedPerHourMinor = snapshot_.fixedRate.perHour.minor();
+    {
+        core::ProfitSplit split;
+        split.salaryBps = repository_->setting(QStringLiteral("config.reparto.sueldo")).value_or(QStringLiteral("5500")).toInt();
+        split.taxesBps = repository_->setting(QStringLiteral("config.reparto.impuestos")).value_or(QStringLiteral("1500")).toInt();
+        split.reinvestBps = repository_->setting(QStringLiteral("config.reparto.reinversion")).value_or(QStringLiteral("2000")).toInt();
+        split.emergencyBps = repository_->setting(QStringLiteral("config.reparto.emergencia")).value_or(QStringLiteral("1000")).toInt();
+        snapshot_.split = split.valid() ? split : core::ProfitSplit{};
+    }
+    snapshot_.salary = core::salaryAdvice(snapshot_.movements, snapshot_.pockets, snapshot_.categories,
+                                          snapshot_.tools, snapshot_.split, snapshot_.today,
+                                          snapshot_.currency);
     snapshot_.reminderWeekday =
         repository_->setting(QStringLiteral("revision.dia")).value_or(QStringLiteral("6")).toInt();
     snapshot_.reminderHour =
@@ -771,7 +788,6 @@ void MainWindow::reload() {
     repairs_->setSnapshot(snapshot_);
     movements_->setSnapshot(snapshot_);
     pockets_->setSnapshot(snapshot_);
-    closing_->setSnapshot(snapshot_);
     snapshot_.hotkey = hotkey_ != nullptr ? hotkey_->shortcut().toString(QKeySequence::PortableText)
                                           : QString();
     snapshot_.hotkeyRegistered = hotkey_ != nullptr && hotkey_->isRegistered();

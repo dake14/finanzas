@@ -560,4 +560,131 @@ void TypeChart::paintEvent(QPaintEvent* event) {
     painter.drawLine(targetX, kTypeTop, targetX, y);
 }
 
+// --- SalaryScale ------------------------------------------------------------
+
+SalaryScale::SalaryScale(QWidget* parent) : QWidget(parent) {}
+
+void SalaryScale::setValues(double salary, double personal, double paid, const QString& salaryText,
+                            const QString& personalText, const QString& paidText) {
+    salary_ = salary;
+    personal_ = personal;
+    paid_ = paid;
+    salaryText_ = salaryText;
+    personalText_ = personalText;
+    paidText_ = paidText;
+    update();
+}
+
+QSize SalaryScale::sizeHint() const {
+    return {760, 150};
+}
+
+void SalaryScale::paintEvent(QPaintEvent* event) {
+    Q_UNUSED(event);
+    QPainter painter(this);
+    painter.setRenderHint(QPainter::Antialiasing);
+
+    const double top = std::max({salary_, personal_, paid_, 1.0}) * 1.2;
+    const int left = 12;
+    const int right = width() - 12;
+    const int span = std::max(40, right - left);
+    auto x = [&](double value) { return left + static_cast<int>(span * std::clamp(value, 0.0, top) / top); };
+    const int barY = 40;
+
+    painter.setPen(Qt::NoPen);
+    painter.setBrush(theme::kSurfaceRaised);
+    painter.drawRoundedRect(QRectF(left, barY, span, 22), 5, 5);
+    const bool enough = personal_ < 0 || salary_ >= personal_;
+    painter.setBrush(enough ? theme::kPositive : theme::kNegative);
+    if (salary_ > 0) {
+        painter.drawRoundedRect(QRectF(left, barY, x(salary_) - left, 22), 5, 5);
+    }
+    painter.setFont(theme::bodyFont(9, QFont::DemiBold));
+    painter.setPen(theme::kText);
+    painter.drawText(QRect(left, barY - 26, span, 20), Qt::AlignLeft | Qt::AlignVCenter,
+                     QStringLiteral("Sueldo sostenible: ") + salaryText_);
+
+    // Gasto personal: triangulo debajo de la barra.
+    painter.setFont(theme::bodyFont(9));
+    if (personal_ >= 0) {
+        const int px = x(personal_);
+        QPainterPath triangle;
+        triangle.moveTo(px, barY + 26);
+        triangle.lineTo(px - 7, barY + 38);
+        triangle.lineTo(px + 7, barY + 38);
+        triangle.closeSubpath();
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(theme::kInversion);
+        painter.drawPath(triangle);
+        painter.setPen(QPen(theme::kInversion, 2));
+        painter.drawLine(px, barY - 4, px, barY + 26);
+        painter.setPen(theme::kInversion);
+        const QString text = QStringLiteral("gasto personal promedio: ") + personalText_;
+        const int w = QFontMetrics(painter.font()).horizontalAdvance(text) + 8;
+        const int tx = std::clamp(px - w / 2, left, right - w);
+        painter.drawText(QRect(tx, barY + 40, w, 18), Qt::AlignCenter, text);
+    }
+    // Lo que te pagaste: rombo.
+    if (paid_ >= 0) {
+        const int dx = x(paid_);
+        QPainterPath diamond;
+        diamond.moveTo(dx, barY + 60);
+        diamond.lineTo(dx + 7, barY + 67);
+        diamond.lineTo(dx, barY + 74);
+        diamond.lineTo(dx - 7, barY + 67);
+        diamond.closeSubpath();
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(theme::kAccent);
+        painter.drawPath(diamond);
+        painter.setPen(theme::kAccent);
+        const QString text = QStringLiteral("te pagaste por mes: ") + paidText_;
+        const int w = QFontMetrics(painter.font()).horizontalAdvance(text) + 8;
+        const int tx = std::clamp(dx - w / 2, left, right - w);
+        painter.drawText(QRect(tx, barY + 76, w, 18), Qt::AlignCenter, text);
+    }
+}
+
+// --- SplitBar ---------------------------------------------------------------
+
+SplitBar::SplitBar(QWidget* parent) : QWidget(parent) {}
+
+void SplitBar::setSegments(std::vector<SplitSegment> segments) {
+    segments_ = std::move(segments);
+    update();
+}
+
+QSize SplitBar::sizeHint() const {
+    return {760, 64};
+}
+
+void SplitBar::paintEvent(QPaintEvent* event) {
+    Q_UNUSED(event);
+    QPainter painter(this);
+    painter.setRenderHint(QPainter::Antialiasing);
+    double total = 0;
+    for (const SplitSegment& s : segments_) total += std::max(0.0, s.value);
+    if (total <= 0) {
+        painter.setPen(theme::kTextFaint);
+        painter.setFont(theme::bodyFont(9));
+        painter.drawText(rect(), Qt::AlignCenter, QStringLiteral("sin utilidad para repartir"));
+        return;
+    }
+    const int left = 12;
+    const int span = std::max(40, width() - 24);
+    double x = left;
+    for (const SplitSegment& s : segments_) {
+        const double w = span * std::max(0.0, s.value) / total;
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(s.color);
+        painter.drawRect(QRectF(x, 6, std::max(0.0, w - 2), 18));
+        painter.setPen(theme::kText);
+        painter.setFont(theme::bodyFont(8, QFont::DemiBold));
+        painter.drawText(QRectF(x, 28, std::max(60.0, w), 14), Qt::AlignLeft | Qt::AlignVCenter, s.label);
+        painter.setFont(theme::numericFont(8));
+        painter.setPen(theme::kTextMuted);
+        painter.drawText(QRectF(x, 43, std::max(60.0, w), 14), Qt::AlignLeft | Qt::AlignVCenter, s.amount);
+        x += w;
+    }
+}
+
 } // namespace dake::ui
