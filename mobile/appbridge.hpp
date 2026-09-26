@@ -24,6 +24,7 @@
 class QTimer;
 
 #include "dake/core/hlc.hpp"
+#include "dake/core/model.hpp"
 #include "dake/storage/repository.hpp"
 #include "dake/sync/supabase_client.hpp"
 #include "dake/sync/sync_engine.hpp"
@@ -35,6 +36,20 @@ class AppBridge : public QObject {
 
     Q_PROPERTY(QVariantList pockets READ pockets NOTIFY dataChanged)
     Q_PROPERTY(QVariantList jobs READ jobs NOTIFY dataChanged)
+
+    /// TODOS los trabajos, cerrados incluidos, con ingreso, costo, margen y
+    /// porcentaje. `jobs` trae solo los abiertos porque es lo que alimenta el
+    /// selector de Anotar; esta es la pantalla de Trabajos entera, la misma que
+    /// muestra el escritorio.
+    Q_PROPERTY(QVariantList allJobs READ allJobs NOTIFY dataChanged)
+
+    /// Lo que va arriba de la lista de Bolsillos: total, reserva y la frase que
+    /// explica por que ese numero es el unico que se puede contar a mano.
+    Q_PROPERTY(QVariantMap pocketsSummary READ pocketsSummary NOTIFY dataChanged)
+
+    /// Lo que va arriba de la lista de Trabajos: margen total, estructura del
+    /// mes y cuanto quedo entregado sin cobrar.
+    Q_PROPERTY(QVariantMap jobsSummary READ jobsSummary NOTIFY dataChanged)
     Q_PROPERTY(QVariantList recent READ recent NOTIFY dataChanged)
     Q_PROPERTY(QVariantList alerts READ alerts NOTIFY dataChanged)
     Q_PROPERTY(QVariantMap summary READ summary NOTIFY dataChanged)
@@ -74,6 +89,10 @@ class AppBridge : public QObject {
     Q_PROPERTY(QString today READ today CONSTANT)
     Q_PROPERTY(QString dbPath READ dbPath CONSTANT)
 
+    /// Por que no se pudo arrancar. Vacio cuando todo esta bien.
+    Q_PROPERTY(QString fatalError READ fatalError CONSTANT)
+    Q_PROPERTY(bool ready READ ready CONSTANT)
+
     // --- Nube --------------------------------------------------------------
     //
     // Tres propiedades y dos acciones. El telefono no configura nada: la URL y
@@ -90,8 +109,31 @@ public:
     explicit AppBridge(QObject* parent = nullptr);
     ~AppBridge() override;
 
+    /// Vacio si el arranque salio bien; si no, POR QUE no salio bien, escrito
+    /// para que lo lea el dueno de la aplicacion y no un programador.
+    ///
+    /// El constructor NO lanza. Antes lo hacia, y en Android una excepcion sin
+    /// atrapar mata el proceso antes de que exista una sola ventana: la
+    /// aplicacion se quedaba en negro sin decir una palabra. Ahora el fallo se
+    /// guarda aca y la interfaz lo muestra. Una aplicacion de finanzas que se
+    /// abre en negro es una aplicacion que se desinstala.
+    [[nodiscard]] QString fatalError() const { return fatalError_; }
+
+    /// true cuando la base abrio y se puede trabajar.
+    [[nodiscard]] bool ready() const { return repository_ != nullptr; }
+
+    /// Las ultimas lineas del cuaderno de arranque, para mirarlas desde el
+    /// propio telefono cuando algo no anda.
+    Q_INVOKABLE QStringList startupLog() const;
+
+    /// Donde esta ese cuaderno, por si hay que sacarlo del telefono.
+    Q_INVOKABLE QString startupLogPath() const;
+
     [[nodiscard]] QVariantList pockets() const { return pockets_; }
     [[nodiscard]] QVariantList jobs() const { return jobs_; }
+    [[nodiscard]] QVariantList allJobs() const { return allJobs_; }
+    [[nodiscard]] QVariantMap pocketsSummary() const { return pocketsSummary_; }
+    [[nodiscard]] QVariantMap jobsSummary() const { return jobsSummary_; }
     [[nodiscard]] QVariantList recent() const { return recent_; }
     [[nodiscard]] QVariantList alerts() const { return alerts_; }
     [[nodiscard]] QVariantMap summary() const { return summary_; }
@@ -116,6 +158,30 @@ public:
 
     Q_INVOKABLE QString addPocket(const QString& name, int kind, const QString& opening);
     Q_INVOKABLE QString addJob(const QString& name, const QString& client);
+
+    /// Cierra o reabre un trabajo. Un trabajo cerrado deja de aparecer en el
+    /// selector de Anotar, que es todo lo que significa: sus numeros siguen
+    /// contando en los reportes, porque el trabajo se hizo igual.
+    Q_INVOKABLE QString setJobClosed(const QString& id, bool closed);
+
+    // --- Cierre de mes -----------------------------------------------------
+    //
+    // Los meses van del MAS NUEVO al mas viejo: el cierre que se mira es el
+    // ultimo. `closing` recibe el indice dentro de esa misma lista.
+
+    /// Etiquetas de los meses con actividad, del mas nuevo al mas viejo.
+    Q_INVOKABLE QStringList closingMonths() const;
+
+    /// Los numeros del cierre de un mes. Claves: etiqueta, resultado,
+    /// resultadoNegativo, facturado, costo, caja, cajaNegativa, porCobrar,
+    /// contra (la comparacion con el mes anterior) y categorias (lista de
+    /// {etiqueta, texto}).
+    Q_INVOKABLE QVariantMap closing(int index) const;
+
+    /// Borra bolsillos, trabajos y movimientos dejando lapida de cada uno, para
+    /// que el borrado tambien viaje a la nube y a la computadora. Devuelve ""
+    /// si salio bien.
+    Q_INVOKABLE QString eraseAll();
 
     /// Anota la diferencia entre lo que dice la app y lo que hay de verdad,
     /// como un movimiento visible y no como un saldo corregido por debajo.
@@ -153,6 +219,10 @@ signals:
     void cloudChanged();
 
 private:
+    /// Todo lo que antes estaba en el constructor. Devuelve el motivo del fallo
+    /// o vacio. Separado para que el constructor pueda atraparlo entero.
+    QString abrir();
+
     void reload();
 
     /// Lo que sigue a TODO cambio hecho en este telefono: recarga las
@@ -172,6 +242,7 @@ private:
     std::unique_ptr<sync::SupabaseClient> supabase_;
     std::unique_ptr<sync::SyncEngine> syncEngine_;
     QString cloudStatus_;
+    QString fatalError_;
 
     /// Disparo unico. Cada cambio local lo reinicia, asi que una tanda de
     /// anotaciones seguidas es una sola subida —que en el telefono no es
@@ -182,8 +253,19 @@ private:
     core::Currency currency_;
     core::Date today_;
 
+    /// La ultima lectura de la base. Se refresca en reload() y la usan todas
+    /// las consultas que antes volvian a leer la base entera cada vez
+    /// —categoriesFor, removeMovement, reconcile, el cierre de mes—. En un
+    /// telefono eso no es prolijidad: cada lectura de mas es bateria.
+    std::vector<core::Pocket> pocketsData_;
+    std::vector<core::Job> jobsData_;
+    std::vector<core::Movement> movementsData_;
+
     QVariantList pockets_;
     QVariantList jobs_;
+    QVariantList allJobs_;
+    QVariantMap pocketsSummary_;
+    QVariantMap jobsSummary_;
     QVariantList recent_;
     QVariantList alerts_;
     QVariantMap summary_;

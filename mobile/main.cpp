@@ -4,7 +4,9 @@
 // la interfaz desde la computadora:
 //
 //   --captura <archivo.png>   dibuja la pantalla y se va
-//   --pagina <0..3>           con cual de las cuatro pestañas arrancar
+//   --pagina <0..4>           con cual de las cinco pestañas arrancar
+//   --pantalla <Nombre>       ademas, abrir encima una de las apiladas
+//                             (Trabajos, Cierre, Diagnostico)
 //   --alto <px>               alto de la ventana al capturar
 //
 // `--alto` existe porque la pantalla Hoy no entra en un telefono: se recorre
@@ -30,6 +32,7 @@
 #include <cstdio>
 
 #include "appbridge.hpp"
+#include "bitacora.hpp"
 
 namespace {
 
@@ -72,14 +75,23 @@ int main(int argc, char** argv) {
     QGuiApplication::setApplicationName(QStringLiteral(DAKE_APP_NAME));
     QGuiApplication::setOrganizationName(QStringLiteral("DakeLabs"));
 
+    // El cuaderno se abre en cuanto la carpeta de datos tiene nombre, y antes
+    // de tocar nada mas. Desde aca cada paso del arranque queda escrito, y los
+    // avisos de Qt --incluidos los del motor de QML, que son los que dejan la
+    // ventana vacia-- tambien. En un telefono no hay consola donde mirarlos.
+    dake::mobile::bitacora::instalar();
+    dake::mobile::bitacora::anotar(QStringLiteral("Aplicacion creada."));
+
     // El estilo se fija una vez aca y no con imports por archivo: mezclar
     // `import QtQuick.Controls` con `import QtQuick.Controls.Material` en
     // distintos archivos vuelve ambiguo que tipo se instancia.
     QQuickStyle::setStyle(QStringLiteral("Material"));
 
     // El puente se construye ANTES de cargar el QML: abre la base y siembra si
-    // hace falta, y si eso falla es mejor enterarse por consola que con una
-    // ventana en blanco.
+    // hace falta. Ya no puede lanzar: si algo falla lo deja escrito en
+    // `fatalError` y la interfaz lo muestra en una pantalla que se lee. Esa es
+    // la diferencia entre una aplicacion que explica lo que le pasa y una que
+    // se abre en negro.
     dake::mobile::AppBridge bridge;
 
     // Va como SINGLETON del modulo y no como propiedad de contexto. El QML de
@@ -99,20 +111,38 @@ int main(int argc, char** argv) {
         },
         Qt::QueuedConnection);
 
+    dake::mobile::bitacora::anotar(QStringLiteral("Cargando la interfaz."));
     engine.loadFromModule("DakeMobile", "Main");
     if (engine.rootObjects().isEmpty()) {
+        // Aca no hay forma de mostrar nada: lo que fallo es el propio motor de
+        // QML, asi que no queda ventana donde escribir el motivo. Lo unico util
+        // es dejarlo anotado, porque en Android esta salida se ve como una
+        // pantalla negra y sin el cuaderno no habria de donde sacar el porque.
+        dake::mobile::bitacora::anotar(
+            QStringLiteral("FALLO: el QML no cargo. La aplicacion no puede abrir."));
         return 1;
     }
 
     auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().first());
     if (window == nullptr) {
+        dake::mobile::bitacora::anotar(
+            QStringLiteral("FALLO: la raiz del QML no es una ventana."));
         std::fprintf(stderr, "La raiz del QML no es una ventana.\n");
         return 1;
     }
+    dake::mobile::bitacora::anotar(QStringLiteral("Interfaz en pantalla."));
 
     const QString pagina = valorDe(crudos, QStringLiteral("--pagina"));
     if (!pagina.isEmpty()) {
         window->setProperty("paginaInicial", pagina.toInt());
+    }
+
+    // Las pantallas apiladas —Trabajos, Cierre, Diagnostico— no tienen pestaña
+    // propia, asi que sin esto no habria forma de mirarlas sin un telefono. Va
+    // DESPUES de la pagina: la pila se dibuja encima de la pestaña que quedo.
+    const QString pantalla = valorDe(crudos, QStringLiteral("--pantalla"));
+    if (!pantalla.isEmpty()) {
+        window->setProperty("pantallaInicial", pantalla);
     }
 
     const QString alto = valorDe(crudos, QStringLiteral("--alto"));
@@ -141,5 +171,7 @@ int main(int argc, char** argv) {
         });
     }
 
-    return QGuiApplication::exec();
+    const int codigo = QGuiApplication::exec();
+    dake::mobile::bitacora::anotar(QStringLiteral("Cerrando (%1).").arg(codigo));
+    return codigo;
 }

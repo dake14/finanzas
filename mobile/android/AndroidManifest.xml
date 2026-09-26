@@ -59,8 +59,15 @@
         android:requestLegacyExternalStorage="true"
         android:allowBackup="true"
         android:fullBackupOnly="false">
+        <!--
+          La actividad es la NUESTRA, no la de Qt, y hereda de ella. Lo unico
+          que agrega es matar el proceso cuando Android la destruye de verdad:
+          sin eso, cerrar la aplicacion y volver a abrirla deja la pantalla en
+          negro para siempre. El porque completo esta en
+          src/com/dakelabs/finanzas/pruebas/DakeActivity.java.
+        -->
         <activity
-            android:name="org.qtproject.qt.android.bindings.QtActivity"
+            android:name="com.dakelabs.finanzas.pruebas.DakeActivity"
             android:configChanges="orientation|uiMode|screenLayout|screenSize|smallestScreenSize|layoutDirection|locale|fontScale|keyboard|keyboardHidden|navigation|mcc|mnc|density"
             android:launchMode="singleTop"
             android:screenOrientation="unspecified"

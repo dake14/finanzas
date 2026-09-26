@@ -17,6 +17,8 @@ qt_add_executable(dake_movil
     main.cpp
     appbridge.cpp
     appbridge.hpp
+    bitacora.cpp
+    bitacora.hpp
 )
 
 # Estilo.qml es un singleton, y esta marca va ANTES de qt_add_qml_module: la
@@ -34,11 +36,18 @@ qt_add_qml_module(dake_movil
         qml/Anotar.qml
         qml/Hoy.qml
         qml/Historial.qml
-        qml/Datos.qml
+        qml/Bolsillos.qml
+        qml/Mas.qml
+        qml/Trabajos.qml
+        qml/Cierre.qml
+        qml/Diagnostico.qml
+        qml/Fallo.qml
         qml/Nube.qml
         qml/Estilo.qml
         qml/Selector.qml
         qml/Fila.qml
+        qml/Cifra.qml
+        qml/Encabezado.qml
         qml/Grafica.qml
 )
 

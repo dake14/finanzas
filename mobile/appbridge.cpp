@@ -1,5 +1,7 @@
 #include "appbridge.hpp"
 
+#include "bitacora.hpp"
+
 #include <QDate>
 #include <QDateTime>
 #include <QTimer>
@@ -66,6 +68,37 @@ constexpr int kAutoSyncDelayMs = 5000;
 
 AppBridge::AppBridge(QObject* parent)
     : QObject(parent), currency_(core::Currency::usd()), today_(core::Date::fromYmd(2026, 1, 1)) {
+    // El constructor NO lanza, y eso es una decision de producto, no de estilo.
+    //
+    // En Android una excepcion que sale de main() mata el proceso antes de que
+    // exista una sola ventana, y lo que ve el usuario es una pantalla negra sin
+    // ningun mensaje. Un fallo al abrir la base —permisos, disco lleno, una
+    // migracion que no puede correr— tiene que terminar en una pantalla que
+    // explique que paso, no en la aplicacion desapareciendo.
+    try {
+        fatalError_ = abrir();
+    } catch (const std::exception& error) {
+        fatalError_ = QString::fromUtf8(error.what());
+    } catch (...) {
+        fatalError_ = QStringLiteral("Fallo desconocido al abrir la base.");
+    }
+
+    if (!fatalError_.isEmpty()) {
+        bitacora::anotar(QStringLiteral("FALLO el arranque: ") + fatalError_);
+        // Lo que se haya alcanzado a abrir se cierra: dejar medio motor armado
+        // hace que la primera pantalla que lo toque falle de una forma
+        // distinta y mas dificil de leer que la que ya tenemos escrita.
+        syncEngine_.reset();
+        supabase_.reset();
+        repository_.reset();
+        db_.reset();
+    } else {
+        bitacora::anotar(QStringLiteral("Arranque listo."));
+    }
+}
+
+QString AppBridge::abrir() {
+    bitacora::anotar(QStringLiteral("Abriendo la base."));
     db_ = std::make_unique<storage::Database>(storage::Database::defaultPath());
     repository_ = std::make_unique<storage::Repository>(*db_);
     deviceId_ = storage::deviceId(*repository_);
@@ -112,6 +145,7 @@ AppBridge::AppBridge(QObject* parent)
 
     const auto token = repository_->setting(QStringLiteral("sync.refresh_token"));
     if (token) {
+        bitacora::anotar(QStringLiteral("Reanudando la sesion guardada."));
         supabase_->restoreSession(*token);
     }
 
@@ -122,9 +156,12 @@ AppBridge::AppBridge(QObject* parent)
     // Igual que en la version de escritorio: arrancar en blanco no deja nada
     // contra que comparar. Solo corre sobre una base sin un solo movimiento:
     // sobre datos existentes no hace nada, asi que no puede pisar lo anotado.
+    bitacora::anotar(QStringLiteral("Sembrando si hace falta."));
     repository_->seedIfEmpty(currency_);
 
+    bitacora::anotar(QStringLiteral("Calculando las pantallas."));
     reload();
+    return {};
 }
 
 AppBridge::~AppBridge() = default;
@@ -134,7 +171,15 @@ QString AppBridge::today() const {
 }
 
 QString AppBridge::dbPath() const {
-    return db_->path();
+    return db_ ? db_->path() : storage::Database::defaultPath();
+}
+
+QStringList AppBridge::startupLog() const {
+    return bitacora::ultimas(60);
+}
+
+QString AppBridge::startupLogPath() const {
+    return bitacora::ruta();
 }
 
 void AppBridge::stamp(std::string& hlc, std::string& deviceId) {
@@ -145,9 +190,21 @@ void AppBridge::stamp(std::string& hlc, std::string& deviceId) {
 // -------------------------------------------------------------- Recarga ----
 
 void AppBridge::reload() {
-    const auto pockets = repository_->loadPockets();
-    const auto jobs = repository_->loadJobs();
-    const auto movements = repository_->loadMovements();
+    if (!repository_) {
+        return;
+    }
+    // Se lee UNA vez y se guarda. Antes cada pregunta —las categorias ya
+    // usadas, borrar un movimiento, cuadrar un bolsillo, el cierre de un mes—
+    // volvia a leer la base entera. Son cientos de filas, no millones, pero en
+    // un telefono cada lectura de mas es bateria y no hay ninguna razon para
+    // pagarla.
+    pocketsData_ = repository_->loadPockets();
+    jobsData_ = repository_->loadJobs();
+    movementsData_ = repository_->loadMovements();
+
+    const auto& pockets = pocketsData_;
+    const auto& jobs = jobsData_;
+    const auto& movements = movementsData_;
 
     const auto balances = core::pocketBalances(pockets, movements, currency_, today_);
 
@@ -293,6 +350,24 @@ void AppBridge::reload() {
         row["caja"] = static_cast<double>(accumulatedCash.minor()) / 100.0;
         row["resultadoTexto"] = qs(core::formatAmount(ms.result));
         row["cajaTexto"] = qs(core::formatAmount(accumulatedCash));
+        row["resultadoNegativo"] = ms.result.isNegative();
+
+        // De donde salio la plata ese mes. Es la frase que la pantalla de
+        // Bolsillos pone al lado de cada mes, y la misma que arma el
+        // escritorio: sacar de la reserva no es una perdida y no aparece en
+        // ningun resultado, pero se repite hasta que no queda reserva.
+        if (ms.netFunding.isNegative()) {
+            row["fondeoTexto"] = QStringLiteral("y guardo %1")
+                                     .arg(qs(core::formatAmount(core::Money::zero(currency_) - ms.netFunding)));
+            row["fondeoNivel"] = 1;   // guardo
+        } else if (ms.netFunding.isZero()) {
+            row["fondeoTexto"] = QStringLiteral("sin tocar las reservas");
+            row["fondeoNivel"] = 0;   // neutro
+        } else {
+            row["fondeoTexto"] = QStringLiteral("y saco %1 de las reservas")
+                                     .arg(qs(core::formatAmount(ms.netFunding)));
+            row["fondeoNivel"] = 2;   // saco
+        }
         months_.append(row);
     }
 
@@ -306,15 +381,65 @@ void AppBridge::reload() {
         categories_.append(row);
     }
 
+    // --- La pantalla de Trabajos entera ---
+    //
+    // Los mismos numeros y en el mismo orden que la tabla del escritorio. Si
+    // aca se calculara algo distinto, las dos aplicaciones diriaan cosas
+    // distintas del mismo trabajo y no habria forma de saber cual miente.
+    allJobs_.clear();
+    core::Money totalMargin = core::Money::zero(currency_);
+    core::Money totalJobPending = core::Money::zero(currency_);
+
     jobMargins_.clear();
     const std::vector<core::JobResult> jrs = core::jobResults(jobs, movements, currency_);
     for (const core::JobResult& jr : jrs) {
+        totalMargin += jr.margin;
+        totalJobPending += jr.pending;
+
+        QVariantMap fila;
+        fila["id"] = qs(jr.jobId);
+        fila["name"] = qs(jr.name);
+        fila["client"] = qs(jr.client);
+        fila["closed"] = jr.closed;
+        fila["income"] = qs(core::formatAmount(jr.income));
+        fila["cost"] = qs(core::formatAmount(jr.cost));
+        fila["margin"] = qs(core::formatAmount(jr.margin));
+        fila["marginNegative"] = jr.margin.isNegative();
+        fila["marginBps"] = jr.income.isZero() ? QStringLiteral("—")
+                                               : qs(core::formatBps(jr.marginBps));
+        fila["pending"] = jr.pending.isZero() ? QString()
+                                              : qs(core::formatAmount(jr.pending));
+        // El estado es una sola linea porque en un telefono no entra una tabla
+        // de siete columnas. Lo que mas importa saber de un trabajo no es si
+        // esta abierto: es si te deben plata.
+        fila["state"] = jr.pending.isZero()
+                            ? (jr.closed ? QStringLiteral("cerrado") : QStringLiteral("abierto"))
+                            : QStringLiteral("sin cobrar %1").arg(qs(core::formatAmount(jr.pending)));
+        fila["stateLevel"] = jr.pending.isZero() ? 0 : 1;
+        allJobs_.append(fila);
+
         QVariantMap row;
         row["etiqueta"] = qs(jr.name);
         row["valor"] = static_cast<double>(jr.margin.minor()) / 100.0;
         row["texto"] = QStringLiteral("%1 (%2)").arg(qs(core::formatAmount(jr.margin)), qs(core::formatBps(jr.marginBps)));
         jobMargins_.append(row);
     }
+
+    jobsSummary_.clear();
+    jobsSummary_["margin"] = qs(core::formatAmount(totalMargin));
+    jobsSummary_["structure"] = qs(core::formatAmount(core::overhead(movements, currency_, from, to)));
+    jobsSummary_["pending"] = totalJobPending.isZero() ? QString()
+                                                       : qs(core::formatAmount(totalJobPending));
+    jobsSummary_["count"] = static_cast<int>(jrs.size());
+
+    // --- Lo que va arriba de Bolsillos ---
+    const core::Money todoElDinero = core::totalAll(balances, currency_);
+    const core::Money reserva = core::totalFor(balances, core::PocketKind::Ahorro, currency_) +
+                                core::totalFor(balances, core::PocketKind::Inversion, currency_);
+    pocketsSummary_.clear();
+    pocketsSummary_["total"] = qs(core::formatAmount(todoElDinero));
+    pocketsSummary_["reserves"] = qs(core::formatAmount(reserva));
+    pocketsSummary_["negative"] = todoElDinero.isNegative();
 
     stats_.clear();
     const core::BreakEven be = core::breakEven(jobs, movements, currency_, from, to);
@@ -378,6 +503,9 @@ void AppBridge::reload() {
 // ------------------------------------------------------------ Escrituras ---
 
 QString AppBridge::saveMovement(const QVariantMap& draft) {
+    if (!repository_) {
+        return fatalError_;
+    }
     const QString name = draft.value("name").toString().trimmed();
     if (name.isEmpty()) {
         return QStringLiteral("Falta decir que fue.");
@@ -448,7 +576,10 @@ QString AppBridge::saveMovement(const QVariantMap& draft) {
 }
 
 QString AppBridge::removeMovement(const QString& id) {
-    for (const core::Movement& movement : repository_->loadMovements()) {
+    if (!repository_) {
+        return fatalError_;
+    }
+    for (const core::Movement& movement : movementsData_) {
         if (qs(movement.id) != id) {
             continue;
         }
@@ -464,10 +595,13 @@ QString AppBridge::removeMovement(const QString& id) {
 }
 
 QStringList AppBridge::categoriesFor(int kind) const {
+    if (!repository_) {
+        return {};
+    }
     const core::MovementKind wanted = kindFromIndex(kind);
 
     std::vector<std::pair<std::string, int>> counts;
-    for (const core::Movement& movement : repository_->loadMovements()) {
+    for (const core::Movement& movement : movementsData_) {
         if (movement.kind != wanted || movement.category.empty()) {
             continue;
         }
@@ -491,6 +625,9 @@ QStringList AppBridge::categoriesFor(int kind) const {
 }
 
 QString AppBridge::addPocket(const QString& name, int kind, const QString& opening) {
+    if (!repository_) {
+        return fatalError_;
+    }
     if (name.trimmed().isEmpty()) {
         return QStringLiteral("El bolsillo necesita un nombre.");
     }
@@ -507,12 +644,19 @@ QString AppBridge::addPocket(const QString& name, int kind, const QString& openi
 
     pocket.id = storage::newId();
     stamp(pocket.hlc, pocket.deviceId);
-    repository_->save(pocket);
+    try {
+        repository_->save(pocket);
+    } catch (const std::exception& error) {
+        return QString::fromUtf8(error.what());
+    }
     afterLocalChange();
     return {};
 }
 
 QString AppBridge::addJob(const QString& name, const QString& client) {
+    if (!repository_) {
+        return fatalError_;
+    }
     if (name.trimmed().isEmpty()) {
         return QStringLiteral("El trabajo necesita un nombre.");
     }
@@ -522,15 +666,139 @@ QString AppBridge::addJob(const QString& name, const QString& client) {
     job.opened = today_;
     job.id = storage::newId();
     stamp(job.hlc, job.deviceId);
-    repository_->save(job);
+    try {
+        repository_->save(job);
+    } catch (const std::exception& error) {
+        return QString::fromUtf8(error.what());
+    }
     afterLocalChange();
     return {};
 }
 
+QString AppBridge::setJobClosed(const QString& id, bool closed) {
+    if (!repository_) {
+        return fatalError_;
+    }
+    for (core::Job job : jobsData_) {
+        if (qs(job.id) != id) {
+            continue;
+        }
+        if (job.closed == closed) {
+            return {};
+        }
+        job.closed = closed;
+        stamp(job.hlc, job.deviceId);
+        try {
+            repository_->save(job);
+        } catch (const std::exception& error) {
+            return QString::fromUtf8(error.what());
+        }
+        afterLocalChange();
+        return {};
+    }
+    return QStringLiteral("Ese trabajo ya no esta.");
+}
+
+QString AppBridge::eraseAll() {
+    if (!repository_) {
+        return fatalError_;
+    }
+    try {
+        const std::size_t borrados = repository_->deleteEverything();
+        afterLocalChange();
+        return QStringLiteral("Se borraron %1 registros.").arg(borrados);
+    } catch (const std::exception& error) {
+        return QStringLiteral("No se pudo borrar: ") + QString::fromUtf8(error.what());
+    }
+}
+
+// ------------------------------------------------------- Cierre de mes ----
+//
+// El mismo calculo que ClosingPage en el escritorio, con el mismo nucleo. La
+// unica diferencia es la forma: alla es una tabla ancha, aca son tarjetas que
+// entran en una pantalla de telefono.
+
+QStringList AppBridge::closingMonths() const {
+    QStringList salida;
+    // Del mas nuevo al mas viejo: el cierre que uno mira es el ultimo, no el
+    // primero. summarizeByMonth los devuelve al reves.
+    const auto meses = core::summarizeByMonth(pocketsData_, movementsData_, currency_);
+    for (std::size_t i = meses.size(); i-- > 0;) {
+        salida << qs(meses[i].label());
+    }
+    return salida;
+}
+
+QVariantMap AppBridge::closing(int index) const {
+    QVariantMap salida;
+    const auto meses = core::summarizeByMonth(pocketsData_, movementsData_, currency_);
+    if (meses.empty()) {
+        salida["vacio"] = true;
+        salida["contra"] = QStringLiteral("Todavia no hay ningun mes con movimientos.");
+        return salida;
+    }
+
+    // `index` viene de closingMonths(), que va al reves. Se traduce aca y no en
+    // QML: una pantalla que tiene que saber en que orden guarda los datos el
+    // motor es una pantalla que se rompe la proxima vez que ese orden cambie.
+    const int ultimo = static_cast<int>(meses.size()) - 1;
+    const int elegido = std::clamp(ultimo - index, 0, ultimo);
+    const core::MonthSummary& mes = meses[static_cast<std::size_t>(elegido)];
+
+    const core::Date desde = core::Date::fromYmd(mes.year, mes.month, 1);
+    const core::Date hasta = desde.lastDayOfMonth();
+    const core::CashFlow flujo = core::cashFlow(movementsData_, currency_, desde, hasta);
+
+    salida["vacio"] = false;
+    salida["etiqueta"] = qs(mes.label());
+    salida["resultado"] = qs(core::formatAmount(flujo.result));
+    salida["resultadoNegativo"] = flujo.result.isNegative();
+    salida["facturado"] = qs(core::formatAmount(flujo.incomeAccrued));
+    salida["costo"] = qs(core::formatAmount(flujo.cost));
+    salida["caja"] = qs(core::formatAmount(flujo.cashDelta));
+    salida["cajaNegativa"] = flujo.cashDelta.isNegative();
+
+    // Lo que quedo por cobrar se mira AL CIERRE de ese mes, no hoy: preguntarlo
+    // con la fecha de hoy contestaria otra pregunta.
+    const auto balances = core::pocketBalances(pocketsData_, movementsData_, currency_, hasta);
+    core::Money porCobrar = core::Money::zero(currency_);
+    for (const core::PocketBalance& balance : balances) {
+        porCobrar += balance.pendingIn;
+    }
+    salida["porCobrar"] = qs(core::formatAmount(porCobrar));
+
+    if (elegido > 0) {
+        const core::MonthSummary& anterior = meses[static_cast<std::size_t>(elegido) - 1];
+        const core::Money diferencia = mes.result - anterior.result;
+        QString texto = qs(core::formatAmount(diferencia));
+        if (!diferencia.isNegative() && !diferencia.isZero()) {
+            texto.prepend(QLatin1Char('+'));
+        }
+        salida["contra"] = QStringLiteral("Contra %1: %2 de resultado.")
+                               .arg(qs(anterior.label()), texto);
+    } else {
+        salida["contra"] =
+            QStringLiteral("Es el primer mes con movimientos: no hay contra que compararlo.");
+    }
+
+    QVariantList categorias;
+    for (const core::CategoryTotal& ct : core::costByCategory(movementsData_, currency_, desde, hasta)) {
+        QVariantMap fila;
+        fila["etiqueta"] = ct.category.empty() ? QStringLiteral("Sin categoria")
+                                               : qs(ct.category);
+        fila["texto"] = qs(core::formatAmount(ct.total));
+        categorias.append(fila);
+    }
+    salida["categorias"] = categorias;
+    return salida;
+}
+
 QString AppBridge::reconcile(const QString& pocketId, const QString& realAmount) {
-    const auto pockets = repository_->loadPockets();
-    const auto movements = repository_->loadMovements();
-    const auto balances = core::pocketBalances(pockets, movements, currency_, today_);
+    if (!repository_) {
+        return fatalError_;
+    }
+    const auto balances =
+        core::pocketBalances(pocketsData_, movementsData_, currency_, today_);
 
     const auto it = std::find_if(balances.begin(), balances.end(),
                                  [&pocketId](const core::PocketBalance& balance) {
@@ -579,6 +847,9 @@ QString AppBridge::suggestedFileName() const {
 }
 
 QString AppBridge::exportTo(const QUrl& url) {
+    if (!repository_) {
+        return fatalError_;
+    }
     try {
         const int written = storage::exportAll(*repository_, pathFromUrl(url));
         return QStringLiteral("Se exportaron %1 registros.").arg(written);
@@ -588,6 +859,9 @@ QString AppBridge::exportTo(const QUrl& url) {
 }
 
 QString AppBridge::importFrom(const QUrl& url) {
+    if (!repository_) {
+        return fatalError_;
+    }
     try {
         const auto report = storage::importFile(*repository_, pathFromUrl(url));
         afterLocalChange();

@@ -26,6 +26,15 @@ QtObject {
     readonly property color aviso:      "#fbbf24"
     readonly property color ahorro:     "#a78bfa"
 
+    // --- Bolsillos ---
+    // Los mismos cuatro colores que ui/theme.hpp, y por el mismo motivo: la
+    // caja de operacion toma el cian de la marca porque es la que se mira todos
+    // los dias; las reservas van en colores calidos porque tocarlas tiene que
+    // destacar, no pasar desapercibido.
+    readonly property color operacion:  "#38bdf8"
+    readonly property color inversion:  "#fbbf24"
+    readonly property color personal:   "#9ca3af"
+
     // Un dedo necesita 48 dp para no errarle al objetivo. Todo lo que se toca
     // respeta ese minimo: es la diferencia entre anotar el gasto ahi mismo en
     // la ferreteria y guardar el telefono para hacerlo despues, que es como se
@@ -45,6 +54,15 @@ QtObject {
         if (kind === ingreso) return positivo
         if (kind === gasto) return negativo
         return ahorro
+    }
+
+    /// El numero es core::PocketKind: 0 operacion, 1 ahorro, 2 inversion,
+    /// 3 personal.
+    function colorBolsillo(kind) {
+        if (kind === 1) return ahorro
+        if (kind === 2) return inversion
+        if (kind === 3) return personal
+        return operacion
     }
 
     function colorAviso(nivel) {
