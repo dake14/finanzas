@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "dake/core/accounts.hpp"
+#include "dake/core/fixed.hpp"
 #include "dake/core/model.hpp"
 #include "dake/core/repairs.hpp"
 #include "dake/storage/database.hpp"
@@ -89,6 +90,22 @@ public:
     /// se guarda: se calcula.
     [[nodiscard]] core::CostSettings loadCostSettings();
     void saveCostSettings(const core::CostSettings& settings);
+
+    // --- Fijos y bandeja --------------------------------------------------
+
+    [[nodiscard]] std::vector<core::Recurring> loadRecurring();
+    void saveRecurring(const core::Recurring& recurring);
+    void removeRecurring(const core::Id& id);
+
+    [[nodiscard]] std::vector<core::Tool> loadTools();
+    void saveTool(const core::Tool& tool);
+    void removeTool(const core::Id& id);
+
+    /// Lo que se sabe de cada movimiento ademas de el mismo: de donde vino y
+    /// que falta revisar. Sobrevive a que el movimiento se reemplace al bajar
+    /// del servidor, y a que se borre (un recurrente borrado no vuelve).
+    [[nodiscard]] std::vector<core::MovementMeta> loadMovementMeta();
+    void saveMovementMeta(const core::MovementMeta& meta);
 
     /// Anota cuanto tardo una captura ("captura", "reparacion", "revision").
     void addTiming(const QString& what, qint64 millis);

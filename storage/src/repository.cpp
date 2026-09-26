@@ -779,6 +779,125 @@ void Repository::saveCostSettings(const core::CostSettings& settings) {
     setSetting(QStringLiteral("config.margen_objetivo"), QString::number(settings.targetMarginBps));
 }
 
+// ------------------------------------------------------- Fijos y bandeja
+
+std::vector<core::Recurring> Repository::loadRecurring() {
+    QSqlQuery query(db_.handle());
+    query.prepare(QStringLiteral(
+        "SELECT id, name, category, pocket_id, amount_minor, day_of_month, starts, ends, active "
+        "FROM recurring ORDER BY rowid"));
+    run(query);
+    std::vector<core::Recurring> out;
+    while (query.next()) {
+        core::Recurring r;
+        r.id = ss(query.value(0));
+        r.name = ss(query.value(1));
+        r.category = ss(query.value(2));
+        r.pocketId = ss(query.value(3));
+        r.amountMinor = query.value(4).toLongLong();
+        r.dayOfMonth = query.value(5).toInt();
+        r.starts = core::Date::fromIso(ss(query.value(6)));
+        r.ends = dateOrNothing(query.value(7));
+        r.active = query.value(8).toInt() != 0;
+        out.push_back(std::move(r));
+    }
+    return out;
+}
+
+void Repository::saveRecurring(const core::Recurring& r) {
+    QSqlQuery query(db_.handle());
+    query.prepare(QStringLiteral(
+        "INSERT OR REPLACE INTO recurring (id, name, category, pocket_id, amount_minor, "
+        "day_of_month, starts, ends, active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"));
+    query.addBindValue(qs(r.id));
+    query.addBindValue(qs(r.name));
+    query.addBindValue(qs(r.category));
+    query.addBindValue(qs(r.pocketId));
+    query.addBindValue(static_cast<qlonglong>(r.amountMinor));
+    query.addBindValue(r.dayOfMonth);
+    query.addBindValue(qs(r.starts.toIso()));
+    query.addBindValue(isoOrEmpty(r.ends));
+    query.addBindValue(r.active ? 1 : 0);
+    run(query);
+}
+
+void Repository::removeRecurring(const core::Id& id) {
+    QSqlQuery query(db_.handle());
+    query.prepare(QStringLiteral("DELETE FROM recurring WHERE id = ?"));
+    query.addBindValue(qs(id));
+    run(query);
+}
+
+std::vector<core::Tool> Repository::loadTools() {
+    QSqlQuery query(db_.handle());
+    query.prepare(QStringLiteral(
+        "SELECT id, name, cost_minor, bought, life_months, retired, movement_id FROM tools "
+        "ORDER BY bought, rowid"));
+    run(query);
+    std::vector<core::Tool> out;
+    while (query.next()) {
+        core::Tool t;
+        t.id = ss(query.value(0));
+        t.name = ss(query.value(1));
+        t.costMinor = query.value(2).toLongLong();
+        t.bought = core::Date::fromIso(ss(query.value(3)));
+        t.lifeMonths = query.value(4).toInt();
+        t.retired = dateOrNothing(query.value(5));
+        t.movementId = ss(query.value(6));
+        out.push_back(std::move(t));
+    }
+    return out;
+}
+
+void Repository::saveTool(const core::Tool& t) {
+    QSqlQuery query(db_.handle());
+    query.prepare(QStringLiteral(
+        "INSERT OR REPLACE INTO tools (id, name, cost_minor, bought, life_months, retired, "
+        "movement_id) VALUES (?, ?, ?, ?, ?, ?, ?)"));
+    query.addBindValue(qs(t.id));
+    query.addBindValue(qs(t.name));
+    query.addBindValue(static_cast<qlonglong>(t.costMinor));
+    query.addBindValue(qs(t.bought.toIso()));
+    query.addBindValue(t.lifeMonths);
+    query.addBindValue(isoOrEmpty(t.retired));
+    query.addBindValue(qs(t.movementId));
+    run(query);
+}
+
+void Repository::removeTool(const core::Id& id) {
+    QSqlQuery query(db_.handle());
+    query.prepare(QStringLiteral("DELETE FROM tools WHERE id = ?"));
+    query.addBindValue(qs(id));
+    run(query);
+}
+
+std::vector<core::MovementMeta> Repository::loadMovementMeta() {
+    QSqlQuery query(db_.handle());
+    query.prepare(QStringLiteral(
+        "SELECT movement_id, origin, review, recurring_id, period, external_ref FROM movement_meta"));
+    run(query);
+    std::vector<core::MovementMeta> out;
+    while (query.next()) {
+        out.push_back({ss(query.value(0)), ss(query.value(1)), ss(query.value(2)), ss(query.value(3)),
+                       ss(query.value(4)), ss(query.value(5))});
+    }
+    return out;
+}
+
+void Repository::saveMovementMeta(const core::MovementMeta& m) {
+    QSqlQuery query(db_.handle());
+    query.prepare(QStringLiteral(
+        "INSERT OR REPLACE INTO movement_meta (movement_id, origin, review, recurring_id, period, "
+        "external_ref) VALUES (?, ?, ?, ?, ?, ?)"));
+    query.addBindValue(qs(m.movementId));
+    query.addBindValue(qs(m.origin.empty() ? std::string("Manual") : m.origin));
+    query.addBindValue(qs(m.review));
+    query.addBindValue(qs(m.recurringId));
+    query.addBindValue(qs(m.period));
+    query.addBindValue(qs(m.externalRef));
+    run(query);
+}
+
 void Repository::addTiming(const QString& what, qint64 millis) {
     QSqlQuery query(db_.handle());
     query.prepare(QStringLiteral("INSERT INTO timings (what, millis, at) VALUES (?, ?, ?)"));

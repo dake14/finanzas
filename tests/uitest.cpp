@@ -424,6 +424,123 @@ int main(int argc, char** argv) {
         check(findMovement(qrepo.loadMovements(), "cot-i2-saldo") == nullptr, "y no entra");
     }
 
+    // --- Revision de la semana -------------------------------------------------
+    std::printf("\n[revision de la semana, con el teclado]\n");
+    {
+        const QString reviewPath = temp.path() + QStringLiteral("/revision.db");
+        const QDate now = QDate::currentDate();
+        const core::Date today = core::Date::fromYmd(now.year(), static_cast<unsigned>(now.month()),
+                                                     static_cast<unsigned>(now.day()));
+        {
+            storage::Database setup(reviewPath);
+            storage::Repository repo(setup);
+            repo.seedIfEmpty(core::Currency::usd());
+            repo.setSetting(QStringLiteral("cot.carpeta"), temp.path() + QStringLiteral("/sin-cotizaciones"));
+            core::Recurring luz;
+            luz.id = "R-luz";
+            luz.name = "Luz";
+            luz.category = "Luz";
+            luz.pocketId = repo.loadPockets().front().id;
+            luz.amountMinor = 40'00;
+            luz.dayOfMonth = 1;
+            luz.starts = today.firstDayOfMonth().addMonths(-2);
+            repo.saveRecurring(luz);
+            repo.saveCategory({"Herramientas", core::Account::Negocio, core::CategoryClass::Activo,
+                               core::MovementKind::Gasto});
+        }
+        qputenv("DAKE_TEST_DB_PATH", reviewPath.toLocal8Bit());
+        ui::MainWindow reviewWindow(reviewPath);
+        reviewWindow.show();
+        (void)QTest::qWaitForWindowExposed(&reviewWindow);
+        reviewWindow.activateWindow();
+        (void)QTest::qWaitForWindowActive(&reviewWindow);
+        settle();
+
+        storage::Database rdb(reviewPath);
+        storage::Repository rrepo(rdb);
+        int generated = 0;
+        for (const core::MovementMeta& m : rrepo.loadMovementMeta()) {
+            if (m.recurringId == "R-luz" && m.review == "confirmar") ++generated;
+        }
+        check(generated == 3, "la luz se anoto sola los tres meses, por confirmar");
+
+        auto* input = reviewWindow.findChild<QLineEdit*>(QStringLiteral("CaptureInput"));
+        if (input != nullptr) {
+            input->setFocus();
+            QTest::keyClicks(input, QStringLiteral("300 soldador herramientas"));
+            QTest::keyClick(input, Qt::Key_Return);
+            settle();
+        }
+        const auto tools = rrepo.loadTools();
+        check(tools.size() == 1 && tools[0].costMinor == 300'00 && tools[0].lifeMonths == 24,
+              "una compra de Herramientas se da de alta como herramienta, a 24 meses");
+
+        // A la revision, con Ctrl+4.
+        QTest::keyClick(&reviewWindow, Qt::Key_4, Qt::ControlModifier);
+        settle();
+        auto* review = reviewWindow.findChild<ui::ReviewPage*>();
+        check(review != nullptr && review->isVisible(), "Ctrl+4 abre la revision");
+
+        auto typeInFocus = [](const QString& text) {
+            QWidget* focus = QApplication::focusWidget();
+            if (focus == nullptr) {
+                check(false, "sin foco para escribir " + text.toStdString());
+                return;
+            }
+            if (auto* edit = qobject_cast<QLineEdit*>(focus)) edit->selectAll();
+            if (!text.isEmpty()) QTest::keyClicks(focus, text);
+            QTest::keyClick(QApplication::focusWidget(), Qt::Key_Return);
+            settle();
+        };
+
+        // El caso sembrado trae movimientos sin categoria; se resuelven todos
+        // con la sugerencia o con "Varios". Despues la luz y la herramienta.
+        int guard = 0;
+        for (;;) {
+            const auto metas = rrepo.loadMovementMeta();
+            bool uncategorized = false;
+            for (const core::Movement& m : rrepo.loadMovements()) {
+                if (m.kind != core::MovementKind::Traspaso && m.category.empty()) uncategorized = true;
+            }
+            if (!uncategorized || ++guard > 20) break;
+            typeInFocus(QStringLiteral("Varios"));
+        }
+        check(guard <= 20, "los movimientos sin categoria se resuelven escribiendola y Enter");
+
+        typeInFocus(QStringLiteral("45"));  // primer mes: la factura vino por 45
+        typeInFocus(QString());             // los otros dos: Enter
+        typeInFocus(QString());
+        int pendingLight = 0;
+        std::int64_t firstAmount = 0;
+        for (const core::MovementMeta& m : rrepo.loadMovementMeta()) {
+            if (m.recurringId == "R-luz" && m.review == "confirmar") ++pendingLight;
+        }
+        for (const core::Movement& m : rrepo.loadMovements()) {
+            if (m.id == "rec-R-luz-" + core::periodOf(today.firstDayOfMonth().addMonths(-2))) {
+                firstAmount = m.amountMinor;
+            }
+        }
+        check(pendingLight == 0, "la luz queda confirmada los tres meses");
+        check(firstAmount == 45'00, "el primer mes, con el monto corregido");
+        const auto recurring = rrepo.loadRecurring();
+        check(!recurring.empty() && recurring[0].amountMinor == 45'00,
+              "y 45 pasa a ser el estimado del mes que viene");
+
+        typeInFocus(QStringLiteral("36"));  // vida util del soldador
+        const auto after = rrepo.loadTools();
+        check(!after.empty() && after[0].lifeMonths == 36, "la vida util se corrige a 36 meses");
+        // Lo que queda (reparaciones del caso sembrado sin horas, un cobro
+        // atrasado) se pospone una semana con Ctrl+P.
+        for (int i = 0; i < 20 && rrepo.timingMedian(QStringLiteral("revision")) < 0; ++i) {
+            QTest::keyClick(&reviewWindow, Qt::Key_P, Qt::ControlModifier);
+            settle();
+        }
+        check(rrepo.setting(QStringLiteral("bandeja.pospuestos")).has_value(),
+              "Ctrl+P pospone lo que no se quiere resolver hoy");
+        check(rrepo.timingMedian(QStringLiteral("revision")) >= 0,
+              "con la bandeja vacia, la revision quedo cronometrada");
+    }
+
     std::printf("\n%s\n", gFailures == 0 ? "Todo pasa." : "HAY FALLAS.");
     std::fflush(stdout);
     return gFailures == 0 ? 0 : 1;

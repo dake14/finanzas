@@ -15,6 +15,7 @@
 #include <QButtonGroup>
 #include <QDate>
 #include <QDateTime>
+#include <QTime>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QMessageBox>
@@ -179,6 +180,21 @@ MainWindow::MainWindow(const QString& dbPath, QWidget* parent) : QMainWindow(par
 
     reload();
     importQuotes(false);
+    generateRecurring();
+
+    // Cada hora: si cambio el dia con la aplicacion abierta, puede haber
+    // recurrentes nuevos y el recordatorio de la semana.
+    hourlyTimer_ = new QTimer(this);
+    hourlyTimer_->setInterval(60 * 60 * 1000);
+    connect(hourlyTimer_, &QTimer::timeout, this, [this] {
+        const QDate now = QDate::currentDate();
+        snapshot_.today = core::Date::fromYmd(now.year(), static_cast<unsigned>(now.month()),
+                                              static_cast<unsigned>(now.day()));
+        generateRecurring();
+        checkReminder();
+    });
+    hourlyTimer_->start();
+    checkReminder();
 
     const auto token = repository_->setting(QStringLiteral("sync.refresh_token"));
     if (token) {
@@ -231,6 +247,10 @@ void MainWindow::buildTray() {
         QCoreApplication::quit();
     });
     tray_->setContextMenu(menu);
+    connect(tray_, &QSystemTrayIcon::messageClicked, this, [this] {
+        showMainWindow();
+        if (!snapshot_.inbox.empty()) showPage(3);
+    });
 
     connect(tray_, &QSystemTrayIcon::activated, this,
             [this](QSystemTrayIcon::ActivationReason reason) {
@@ -355,6 +375,7 @@ void MainWindow::buildUi() {
     today_ = new TodayPage(stack_);
     repairs_ = new RepairsPage(stack_);
     movements_ = new MovementsPage(stack_);
+    review_ = new ReviewPage(stack_);
     pockets_ = new PocketsPage(stack_);
     closing_ = new ClosingPage(stack_);
     reports_ = new ReportsPage(stack_);
@@ -362,7 +383,8 @@ void MainWindow::buildUi() {
     // El orden importa: es el mismo que el de los botones de la barra y el que
     // usa showPage().
     for (QWidget* page : {static_cast<QWidget*>(today_), static_cast<QWidget*>(repairs_),
-                          static_cast<QWidget*>(movements_), static_cast<QWidget*>(pockets_),
+                          static_cast<QWidget*>(movements_), static_cast<QWidget*>(review_),
+                          static_cast<QWidget*>(pockets_),
                           static_cast<QWidget*>(closing_), static_cast<QWidget*>(reports_),
                           static_cast<QWidget*>(settings_)}) {
         stack_->addWidget(page);
@@ -429,6 +451,27 @@ void MainWindow::buildUi() {
     connect(repairs_, &RepairsPage::partChanged, this, &MainWindow::changePart, Qt::QueuedConnection);
     connect(repairs_, &RepairsPage::partRemoved, this, &MainWindow::removePart, Qt::QueuedConnection);
 
+    // La revision: todo encolado, porque cada accion recarga la pagina que
+    // la emitio.
+    connect(review_, &ReviewPage::categorySet, this, &MainWindow::setMovementCategory, Qt::QueuedConnection);
+    connect(review_, &ReviewPage::recurringConfirmed, this, &MainWindow::confirmRecurring, Qt::QueuedConnection);
+    connect(review_, &ReviewPage::toolLifeSet, this, &MainWindow::setToolLife, Qt::QueuedConnection);
+    connect(review_, &ReviewPage::quotesReviewRequested, this, &MainWindow::reviewQuotes, Qt::QueuedConnection);
+    connect(review_, &ReviewPage::chargeRequested, this, &MainWindow::chargeRepair, Qt::QueuedConnection);
+    connect(review_, &ReviewPage::repairOpened, this,
+            [this](const core::Id& jobId) {
+                showPage(1);
+                repairs_->selectRepair(jobId);
+            },
+            Qt::QueuedConnection);
+    connect(review_, &ReviewPage::realHoursSet, this, &MainWindow::setRealHours, Qt::QueuedConnection);
+    connect(review_, &ReviewPage::partCostSet, this, &MainWindow::setPartCost, Qt::QueuedConnection);
+    connect(review_, &ReviewPage::snoozed, this, &MainWindow::snooze, Qt::QueuedConnection);
+    connect(review_, &ReviewPage::movementDeleted, this, &MainWindow::deleteMovementById, Qt::QueuedConnection);
+    connect(review_, &ReviewPage::reviewFinished, this, [this](qint64 ms) {
+        repository_->addTiming(QStringLiteral("revision"), ms);
+    });
+
     auto* repairShortcut = new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_R), this);
     connect(repairShortcut, &QShortcut::activated, this, &MainWindow::newRepair);
     connect(movements_, &MovementsPage::movementActivated, this, &MainWindow::editMovement);
@@ -471,6 +514,68 @@ void MainWindow::buildUi() {
             Qt::QueuedConnection);
     connect(settings_, &SettingsPage::quoteReviewRequested, this, &MainWindow::reviewQuotes,
             Qt::QueuedConnection);
+    connect(settings_, &SettingsPage::recurringChanged, this,
+            [this](const core::Recurring& r) {
+                repository_->saveRecurring(r);
+                reload();
+                generateRecurring();
+            },
+            Qt::QueuedConnection);
+    connect(settings_, &SettingsPage::recurringAdded, this,
+            [this] {
+                // Empieza este mes y en cero: no genera nada hasta tener monto.
+                core::Recurring r;
+                r.id = storage::newId();
+                r.name = "Nuevo gasto fijo";
+                r.category = r.name;
+                r.pocketId = businessPocket();
+                r.dayOfMonth = 1;
+                r.starts = snapshot_.today.firstDayOfMonth();
+                repository_->saveRecurring(r);
+                reload();
+            },
+            Qt::QueuedConnection);
+    connect(settings_, &SettingsPage::recurringRemoved, this,
+            [this](const core::Id& id) {
+                repository_->removeRecurring(id);
+                reload();
+            },
+            Qt::QueuedConnection);
+    connect(settings_, &SettingsPage::toolChanged, this,
+            [this](const core::Tool& t) {
+                repository_->saveTool(t);
+                reload();
+            },
+            Qt::QueuedConnection);
+    connect(settings_, &SettingsPage::toolAdded, this,
+            [this] {
+                core::Tool t;
+                t.id = storage::newId();
+                t.name = "Nueva herramienta";
+                t.bought = snapshot_.today;
+                repository_->saveTool(t);
+                reload();
+            },
+            Qt::QueuedConnection);
+    connect(settings_, &SettingsPage::toolRemoved, this,
+            [this](const core::Id& id) {
+                repository_->removeTool(id);
+                reload();
+            },
+            Qt::QueuedConnection);
+    connect(settings_, &SettingsPage::fallbackHoursChanged, this,
+            [this](int minutes) {
+                repository_->setSetting(QStringLiteral("config.horas_mes"), QString::number(minutes));
+                reload();
+            },
+            Qt::QueuedConnection);
+    connect(settings_, &SettingsPage::reminderChanged, this,
+            [this](int weekday, int hour) {
+                repository_->setSetting(QStringLiteral("revision.dia"), QString::number(weekday));
+                repository_->setSetting(QStringLiteral("revision.hora"), QString::number(hour));
+                reload();
+            },
+            Qt::QueuedConnection);
     connect(settings_, &SettingsPage::templateRemoved, this,
             [this](const core::Id& id) {
                 repository_->removeTemplate(id);
@@ -478,8 +583,8 @@ void MainWindow::buildUi() {
             },
             Qt::QueuedConnection);
 
-    // Ctrl+1 a Ctrl+7: cada seccion a una tecla, para no tocar el mouse.
-    for (int index = 0; index < 7; ++index) {
+    // Ctrl+1 a Ctrl+8: cada seccion a una tecla, para no tocar el mouse.
+    for (int index = 0; index < 8; ++index) {
         auto* go = new QShortcut(QKeySequence(Qt::CTRL | static_cast<Qt::Key>(Qt::Key_1 + index)),
                                  this);
         connect(go, &QShortcut::activated, this, [this, index] { showPage(index); });
@@ -526,7 +631,8 @@ void MainWindow::buildSidebar(QWidget* parent) {
     auto* group = new QButtonGroup(this);
     group->setExclusive(true);
     const QStringList names{QStringLiteral("Hoy"), QStringLiteral("Reparaciones"),
-                            QStringLiteral("Movimientos"), QStringLiteral("Bolsillos"),
+                            QStringLiteral("Movimientos"), QStringLiteral("Revisión"),
+                            QStringLiteral("Bolsillos"),
                             QStringLiteral("Cierre"), QStringLiteral("Reportes"),
                             QStringLiteral("Ajustes")};
     for (int index = 0; index < names.size(); ++index) {
@@ -574,7 +680,11 @@ void MainWindow::buildSidebar(QWidget* parent) {
 }
 
 void MainWindow::showPage(int index) {
+    const bool enteringReview = stack_->currentWidget() != review_ && stack_->widget(index) == review_;
     stack_->setCurrentIndex(index);
+    if (enteringReview) {
+        review_->startReview();
+    }
     for (int i = 0; i < navButtons_.size(); ++i) {
         navButtons_[i]->setChecked(i == index);
     }
@@ -620,6 +730,43 @@ void MainWindow::reload() {
     snapshot_.costs = repository_->loadCostSettings();
     snapshot_.jobs = repository_->loadJobs();
 
+    snapshot_.recurring = repository_->loadRecurring();
+    snapshot_.tools = repository_->loadTools();
+    snapshot_.metas = repository_->loadMovementMeta();
+    snapshot_.fallbackMinutesPerMonth =
+        repository_->setting(QStringLiteral("config.horas_mes")).value_or(QStringLiteral("4800")).toInt();
+    snapshot_.fixedRate = core::fixedRate(snapshot_.recurring, snapshot_.tools, snapshot_.repairs,
+                                          snapshot_.today, snapshot_.fallbackMinutesPerMonth,
+                                          snapshot_.currency);
+    snapshot_.costs.fixedPerHourMinor = snapshot_.fixedRate.perHour.minor();
+    snapshot_.reminderWeekday =
+        repository_->setting(QStringLiteral("revision.dia")).value_or(QStringLiteral("6")).toInt();
+    snapshot_.reminderHour =
+        repository_->setting(QStringLiteral("revision.hora")).value_or(QStringLiteral("18")).toInt();
+    snapshot_.reviewMedianMs = repository_->timingMedian(QStringLiteral("revision"));
+    snapshot_.repairMedianMs = repository_->timingMedian(QStringLiteral("reparacion"));
+
+    core::InboxInput inboxInput;
+    inboxInput.movements = snapshot_.movements;
+    inboxInput.metas = snapshot_.metas;
+    inboxInput.repairs = snapshot_.repairs;
+    inboxInput.parts = snapshot_.parts;
+    inboxInput.quoteHolds = snapshot_.quoteHolds();
+    inboxInput.today = snapshot_.today;
+    {
+        const QString raw = repository_->setting(QStringLiteral("bandeja.pospuestos")).value_or(QString());
+        const QJsonObject object = QJsonDocument::fromJson(raw.toUtf8()).object();
+        for (auto it = object.begin(); it != object.end(); ++it) {
+            try {
+                inboxInput.snoozed.emplace_back(it.key().toStdString(),
+                                                core::Date::fromIso(it.value().toString().toStdString()));
+            } catch (const std::exception&) {
+                // Una fecha rota en los ajustes no puede tumbar la recarga.
+            }
+        }
+    }
+    snapshot_.inbox = core::inbox(inboxInput);
+
     today_->setSnapshot(snapshot_);
     repairs_->setSnapshot(snapshot_);
     movements_->setSnapshot(snapshot_);
@@ -634,6 +781,13 @@ void MainWindow::reload() {
 
     reports_->setSnapshot(snapshot_);
     settings_->setSnapshot(snapshot_);
+    review_->setSnapshot(snapshot_);
+    const int pending = static_cast<int>(snapshot_.inbox.size());
+    navButtons_[3]->setText(pending > 0 ? QStringLiteral("Revisión (%1)").arg(pending)
+                                        : QStringLiteral("Revisión"));
+    if (tray_ != nullptr) {
+        tray_->setToolTip(QStringLiteral("Finanzas DakeLabs · %1 pendientes").arg(pending));
+    }
     if (captureWindow_ != nullptr) {
         captureWindow_->capture()->setSnapshot(snapshot_);
     }
@@ -667,6 +821,22 @@ void MainWindow::addMovement(const core::Movement& draft, const core::Category& 
         }
         for (const core::Movement& part : parts) {
             repository_->save(part);
+        }
+        // Una compra de herramienta no es un gasto del mes: se deprecia. Se
+        // da de alta con 24 meses de vida y la revision pregunta si son otros.
+        const core::Category* category = core::findCategory(snapshot_.categories, draft.category);
+        const bool isTool = (category != nullptr && category->cls == core::CategoryClass::Activo);
+        if (isTool && draft.kind == core::MovementKind::Gasto) {
+            const core::Movement& purchase = parts.back();
+            core::Tool tool;
+            tool.id = storage::newId();
+            tool.name = purchase.name;
+            tool.costMinor = purchase.amountMinor;
+            tool.bought = purchase.date;
+            tool.lifeMonths = 24;
+            tool.movementId = purchase.id;
+            repository_->saveTool(tool);
+            repository_->saveMovementMeta({purchase.id, "Manual", "vida", {}, {}, {}});
         }
         if (ownTx && !db_->handle().commit()) {
             throw storage::StorageError(QStringLiteral("No se pudo confirmar la transaccion."));
@@ -720,6 +890,164 @@ void MainWindow::newPocket() {
     core::Pocket saved = *pocket;
     saved.id = stamp(saved.hlc, saved.deviceId);
     repository_->save(saved);
+    afterLocalChange();
+}
+
+// ------------------------------------------------------- Fijos y bandeja
+
+void MainWindow::clearReview(const core::Id& movementId) {
+    if (const core::MovementMeta* meta = snapshot_.meta(movementId)) {
+        core::MovementMeta cleared = *meta;
+        cleared.review.clear();
+        repository_->saveMovementMeta(cleared);
+    }
+}
+
+void MainWindow::generateRecurring() {
+    const auto due = core::dueRecurring(snapshot_.recurring, snapshot_.metas, snapshot_.today);
+    if (due.empty()) {
+        return;
+    }
+    const bool ownTx = db_->handle().transaction();
+    try {
+        for (const core::GeneratedRecurring& g : due) {
+            // La categoria de un recurrente es un gasto fijo del negocio: es
+            // lo que forma la tasa de fijos por hora.
+            if (!g.movement.category.empty() &&
+                core::findCategory(snapshot_.categories, g.movement.category) == nullptr) {
+                repository_->saveCategory({g.movement.category, core::Account::Negocio,
+                                           core::CategoryClass::Fija, core::MovementKind::Gasto});
+                snapshot_.categories = repository_->loadCategories();
+            }
+            persistGenerated(g.movement);
+            repository_->saveMovementMeta(g.meta);
+        }
+        if (ownTx && !db_->handle().commit()) {
+            throw storage::StorageError(QStringLiteral("No se pudo confirmar la transaccion."));
+        }
+    } catch (const std::exception& error) {
+        if (ownTx) db_->handle().rollback();
+        updateCloudUi(QStringLiteral("Recurrentes: ") + QString::fromUtf8(error.what()));
+        return;
+    }
+    afterLocalChange();
+}
+
+void MainWindow::checkReminder() {
+    if (tray_ == nullptr || snapshot_.inbox.empty()) {
+        return;
+    }
+    // El recordatorio de esta semana: el ultimo dia y hora elegidos que ya
+    // pasaron. Si la computadora estuvo apagada, se avisa al encenderla.
+    const QDateTime now = QDateTime::currentDateTime();
+    const int back = (now.date().dayOfWeek() - 1 - snapshot_.reminderWeekday + 7) % 7;
+    QDateTime scheduled(now.date().addDays(-back), QTime(snapshot_.reminderHour, 0));
+    if (scheduled > now) {
+        scheduled = scheduled.addDays(-7);
+    }
+    const QString last = repository_->setting(QStringLiteral("revision.aviso")).value_or(QString());
+    const QDateTime lastShown = QDateTime::fromString(last, Qt::ISODate);
+    if (lastShown.isValid() && lastShown >= scheduled) {
+        return;
+    }
+    repository_->setSetting(QStringLiteral("revision.aviso"), now.toString(Qt::ISODate));
+    const int pending = static_cast<int>(snapshot_.inbox.size());
+    tray_->showMessage(QStringLiteral("Revisión de la semana"),
+                       QStringLiteral("%1 pendientes · %2. Clic para empezar.")
+                           .arg(pending)
+                           .arg((pending * 10 + 59) / 60 <= 1
+                                    ? QStringLiteral("menos de un minuto")
+                                    : QStringLiteral("unos %1 minutos").arg((pending * 10 + 59) / 60)),
+                       QSystemTrayIcon::Information, 10000);
+}
+
+void MainWindow::setMovementCategory(const core::Id& movementId, const QString& category) {
+    const core::Movement* movement = snapshot_.movement(movementId);
+    if (movement == nullptr) return;
+    core::Movement updated = *movement;
+    updated.category = category.toStdString();
+    const core::Account account = snapshot_.categoryAccount(updated.category, updated.pocketId);
+    if (core::findCategory(snapshot_.categories, updated.category) == nullptr) {
+        repository_->saveCategory({updated.category, account, core::CategoryClass::General, updated.kind});
+    }
+    restamp(updated.hlc, updated.deviceId);
+    repository_->save(updated);
+    clearReview(movementId);
+    afterLocalChange();
+}
+
+void MainWindow::confirmRecurring(const core::Id& movementId, qint64 amountMinor) {
+    const core::Movement* movement = snapshot_.movement(movementId);
+    const core::MovementMeta* meta = snapshot_.meta(movementId);
+    if (movement == nullptr) return;
+    if (movement->amountMinor != amountMinor) {
+        core::Movement updated = *movement;
+        updated.amountMinor = amountMinor;
+        restamp(updated.hlc, updated.deviceId);
+        repository_->save(updated);
+        // La factura vino distinta: ese es el estimado del mes que viene.
+        if (meta != nullptr) {
+            for (core::Recurring r : snapshot_.recurring) {
+                if (r.id == meta->recurringId) {
+                    r.amountMinor = amountMinor;
+                    repository_->saveRecurring(r);
+                }
+            }
+        }
+    }
+    clearReview(movementId);
+    afterLocalChange();
+}
+
+void MainWindow::setToolLife(const core::Id& movementId, int months) {
+    for (core::Tool tool : snapshot_.tools) {
+        if (tool.movementId == movementId) {
+            tool.lifeMonths = months;
+            repository_->saveTool(tool);
+        }
+    }
+    clearReview(movementId);
+    afterLocalChange();
+}
+
+void MainWindow::setRealHours(const core::Id& jobId, int minutes) {
+    const core::Repair* repair = snapshot_.repair(jobId);
+    if (repair == nullptr) return;
+    core::Repair updated = *repair;
+    updated.realMinutes = minutes;
+    repository_->saveRepair(updated);
+    afterLocalChange();
+}
+
+void MainWindow::setPartCost(const core::Id& partId, qint64 costMinor) {
+    const core::RepairPart* part = snapshot_.part(partId);
+    if (part == nullptr) return;
+    core::RepairPart updated = *part;
+    updated.costMinor = costMinor;
+    updated.costKnown = true;
+    changePart(updated);
+}
+
+void MainWindow::snooze(const std::string& id, int days) {
+    const QString raw = repository_->setting(QStringLiteral("bandeja.pospuestos")).value_or(QString());
+    QJsonObject object = QJsonDocument::fromJson(raw.toUtf8()).object();
+    // Lo vencido se limpia de paso: la lista no crece para siempre.
+    const QString today = QString::fromStdString(snapshot_.today.toIso());
+    for (const QString& key : object.keys()) {
+        if (object.value(key).toString() <= today) object.remove(key);
+    }
+    object.insert(QString::fromStdString(id), QString::fromStdString(snapshot_.today.addDays(days).toIso()));
+    repository_->setSetting(QStringLiteral("bandeja.pospuestos"),
+                            QString::fromUtf8(QJsonDocument(object).toJson(QJsonDocument::Compact)));
+    reload();
+}
+
+void MainWindow::deleteMovementById(const core::Id& movementId) {
+    const core::Movement* movement = snapshot_.movement(movementId);
+    if (movement == nullptr) return;
+    const core::Movement gone = *movement;
+    repository_->remove(gone);
+    rememberUndo(gone, gone, QStringLiteral("borrar «%1»").arg(QString::fromStdString(gone.name)));
     afterLocalChange();
 }
 

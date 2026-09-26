@@ -14,6 +14,7 @@
 
 #include "dake/core/accounts.hpp"
 #include "dake/core/capture.hpp"
+#include "dake/core/fixed.hpp"
 #include "dake/core/quotes.hpp"
 #include "dake/core/repairs.hpp"
 #include "dake/core/model.hpp"
@@ -1019,6 +1020,204 @@ void tipoPorElEquipo() {
     check(guessRepairType(d) == RepairType::GPU, "los conceptos tambien cuentan");
 }
 
+
+// -------------------------------------------------------------- Fijos y bandeja
+
+[[nodiscard]] Recurring recurrente(const char* id, const char* name, std::int64_t amount, int day,
+                                   const char* starts, bool active = true) {
+    Recurring r;
+    r.id = id;
+    r.name = name;
+    r.category = name;
+    r.pocketId = "caja";
+    r.amountMinor = amount;
+    r.dayOfMonth = day;
+    r.starts = Date::fromIso(starts);
+    r.active = active;
+    return r;
+}
+
+void recurrentes() {
+    std::printf("\n[recurrentes: cada mes, una sola vez]\n");
+    checkText(periodOf(Date{2026, 9, 25}), "2026-09", "el periodo de un dia es su mes");
+
+    const Recurring luz = recurrente("R1", "Luz", 40'00, 10, "2026-07-01");
+    MovementMeta julio;
+    julio.movementId = "rec-R1-2026-07";
+    julio.recurringId = "R1";
+    julio.period = "2026-07";
+    const auto due = dueRecurring({luz}, {julio}, Date{2026, 9, 25});
+    check(due.size() == 2, "julio ya estaba: faltan agosto y septiembre");
+    if (due.size() == 2) {
+        check(due[0].movement.id == "rec-R1-2026-08" && due[1].movement.id == "rec-R1-2026-09",
+              "con id del recurrente y el mes: nunca dos veces");
+        check(due[0].movement.date == (Date{2026, 8, 10}), "el dia 10 de cada mes");
+        const Movement& m = due[1].movement;
+        check(m.kind == MovementKind::Gasto && m.amountMinor == 40'00 && m.category == "Luz" &&
+                  m.pocketId == "caja" && m.name == "Luz" && m.isWellFormed(),
+              "un gasto por el estimado, en su categoria y bolsillo");
+        check(due[1].meta.origin == "Recurrente" && due[1].meta.review == "confirmar" &&
+                  due[1].meta.recurringId == "R1" && due[1].meta.period == "2026-09" &&
+                  due[1].meta.movementId == m.id,
+              "marcado por confirmar");
+    }
+
+    const Recurring finDeMes = recurrente("R2", "Alquiler", 300'00, 31, "2026-09-01");
+    check(dueRecurring({finDeMes}, {}, Date{2026, 9, 25}).empty(), "el 30 todavia no llego");
+    Recurring febrero = recurrente("R3", "Software", 10'00, 31, "2026-02-01");
+    febrero.ends = Date{2026, 2, 28};
+    const auto feb = dueRecurring({febrero}, {}, Date{2026, 3, 15});
+    check(feb.size() == 1 && feb[0].movement.date == (Date{2026, 2, 28}),
+          "el 31 en febrero es el 28, y despues del fin no genera");
+    check(dueRecurring({recurrente("R4", "X", 1'00, 1, "2026-01-01", false)}, {}, Date{2026, 9, 25})
+              .empty(),
+          "uno inactivo no genera nada");
+}
+
+void herramientas() {
+    std::printf("\n[herramientas: por depreciacion, no como gasto]\n");
+    Tool osciloscopio;
+    osciloscopio.id = "t1";
+    osciloscopio.name = "Osciloscopio";
+    osciloscopio.costMinor = 1000'00;
+    osciloscopio.bought = Date{2026, 8, 15};
+    osciloscopio.lifeMonths = 24;
+    checkMinor(depreciationInMonth(osciloscopio, Date{2026, 8, 1}, kUsd).minor(), 41'67,
+               "1000 en 24 meses: 41,67 el primero");
+    checkMinor(depreciationInMonth(osciloscopio, Date{2026, 7, 31}, kUsd).minor(), 0,
+               "antes de comprarla, nada");
+    checkMinor(depreciationInMonth(osciloscopio, Date{2028, 8, 1}, kUsd).minor(), 0,
+               "despues de su vida util, nada");
+    std::int64_t total = 0;
+    for (int i = 0; i < 30; ++i) {
+        total += depreciationInMonth(osciloscopio, Date{2026, 8, 1}.addMonths(i), kUsd).minor();
+    }
+    checkMinor(total, 1000'00, "sumados todos los meses, exactamente el costo");
+
+    Tool retirada = osciloscopio;
+    retirada.retired = Date{2026, 12, 5};
+    checkMinor(depreciationInMonth(retirada, Date{2026, 11, 1}, kUsd).minor(), 41'67,
+               "hasta el mes antes de darla de baja");
+    checkMinor(depreciationInMonth(retirada, Date{2026, 12, 1}, kUsd).minor(), 0,
+               "dada de baja, deja de costar");
+    Tool soldador = osciloscopio;
+    soldador.costMinor = 120'00;
+    soldador.lifeMonths = 12;
+    checkMinor(depreciationInMonth({osciloscopio, soldador}, Date{2026, 9, 1}, kUsd).minor(),
+               41'67 + 10'00, "varias herramientas se suman");
+}
+
+void tasaDeFijos() {
+    std::printf("\n[tasa de fijos por hora]\n");
+    const std::vector<Recurring> rs{recurrente("R1", "Luz", 40'00, 10, "2026-01-01"),
+                                    recurrente("R2", "Internet", 30'00, 5, "2026-01-01"),
+                                    recurrente("R3", "Viejo", 99'00, 5, "2026-01-01", false)};
+    Tool osciloscopio;
+    osciloscopio.costMinor = 1000'00;
+    osciloscopio.bought = Date{2026, 8, 15};
+    osciloscopio.lifeMonths = 24;
+
+    auto entregada = [](const char* id, const char* date, int minutes) {
+        Repair r;
+        r.jobId = id;
+        r.status = RepairStatus::Cobrada;
+        r.delivered = Date::fromIso(date);
+        r.realMinutes = minutes;
+        return r;
+    };
+    const std::vector<Repair> reps{entregada("a", "2026-06-10", 1800), entregada("b", "2026-07-10", 1200),
+                                   entregada("c", "2026-08-10", 600), entregada("d", "2026-09-10", 9999),
+                                   entregada("e", "2026-05-10", 9999)};
+    const FixedRate rate = fixedRate(rs, {osciloscopio}, reps, Date{2026, 9, 25}, 4800, kUsd);
+    checkMinor(rate.monthlyFixed.minor(), 111'67, "fijos del mes: 40 + 30 + 41,67 (sin el inactivo)");
+    check(rate.monthlyMinutes == 1200 && !rate.minutesFromSettings,
+          "20 h por mes: junio, julio y agosto; septiembre sigue abierto y mayo quedo afuera");
+    checkMinor(rate.perHour.minor(), 5'58, "5,58 por hora");
+
+    const FixedRate nueva = fixedRate(rs, {osciloscopio}, {entregada("c", "2026-08-10", 600)},
+                                      Date{2026, 9, 25}, 4800, kUsd);
+    check(nueva.monthlyMinutes == 600, "con un solo mes de historia, ese mes: no se divide por tres");
+
+    const FixedRate sinHistoria = fixedRate(rs, {}, {}, Date{2026, 9, 25}, 4800, kUsd);
+    check(sinHistoria.minutesFromSettings && sinHistoria.monthlyMinutes == 4800,
+          "sin reparaciones entregadas, las horas de Ajustes");
+    checkMinor(sinHistoria.perHour.minor(), 88, "70 en 80 horas: 0,875 por hora, redondeado a 0,88");
+}
+
+void bandeja() {
+    std::printf("\n[la bandeja de pendientes]\n");
+    InboxInput in;
+    in.today = Date{2026, 9, 25};
+    auto mov = [](const char* id, const char* category, MovementKind kind = MovementKind::Gasto) {
+        Movement m;
+        m.id = id;
+        m.date = Date{2026, 9, 20};
+        m.name = id;
+        m.kind = kind;
+        m.amountMinor = 1'00;
+        m.pocketId = "caja";
+        m.category = category;
+        if (kind == MovementKind::Traspaso) m.targetPocketId = "mio";
+        return m;
+    };
+    Movement borrado = mov("borrado", "");
+    borrado.deleted = true;
+    in.movements = {mov("sin", ""), mov("conf", "Luz"), mov("sug", "Comida"), mov("vida", "Herramientas"),
+                    mov("sueldo", "", MovementKind::Traspaso), borrado};
+    in.metas = {{"conf", "Recurrente", "confirmar"}, {"sug", "Importado", "sugerido"},
+                {"vida", "Manual", "vida"}};
+    auto rep = [](const char* id, RepairStatus status, const char* received, const char* delivered,
+                  std::optional<int> real) {
+        Repair r;
+        r.jobId = id;
+        r.status = status;
+        r.received = Date::fromIso(received);
+        if (delivered[0] != 0) r.delivered = Date::fromIso(delivered);
+        r.realMinutes = real;
+        return r;
+    };
+    in.repairs = {rep("A", RepairStatus::Entregada, "2026-09-01", "2026-09-10", 60),
+                  rep("B", RepairStatus::Entregada, "2026-09-01", "2026-09-20", 60),
+                  rep("C", RepairStatus::EnProceso, "2026-09-01", "", std::nullopt),
+                  rep("D", RepairStatus::Cobrada, "2026-09-01", "2026-09-15", std::nullopt)};
+    RepairPart sinCosto;
+    sinCosto.id = "p1";
+    sinCosto.jobId = "D";
+    sinCosto.costKnown = false;
+    in.parts = {sinCosto};
+    in.quoteHolds = 2;
+
+    const auto items = inbox(in);
+    std::vector<InboxKind> kinds;
+    for (const auto& item : items) kinds.push_back(item.kind);
+    const std::vector<InboxKind> want{InboxKind::SinCategoria, InboxKind::PorConfirmar,
+                                      InboxKind::Sugerido,     InboxKind::VidaUtil,
+                                      InboxKind::Cotizaciones, InboxKind::PorCobrar,
+                                      InboxKind::SinEntregar,  InboxKind::SinHoras,
+                                      InboxKind::CostoRepuesto};
+    check(kinds == want, "nueve pendientes, en el orden en que conviene resolverlos");
+    if (items.size() == 9) {
+        check(items[0].refId == "sin", "sin categoria: el gasto, no el traspaso ni el borrado");
+        check(items[5].refId == "A" && items[5].days == 15,
+              "por cobrar: la entregada hace 15 dias, no la de hace 5");
+        check(items[6].refId == "C" && items[6].days == 24, "en proceso hace 24 dias");
+        check(items[7].refId == "D", "cobrada sin horas reales");
+        check(items[8].refId == "p1", "un repuesto sin costo");
+    }
+
+    in.snoozed = {{"A", Date{2026, 9, 30}}};
+    in.quoteHolds = 0;
+    const auto later = inbox(in);
+    bool hasA = false;
+    bool hasQuotes = false;
+    for (const auto& item : later) {
+        hasA = hasA || item.refId == "A";
+        hasQuotes = hasQuotes || item.kind == InboxKind::Cotizaciones;
+    }
+    check(!hasA, "lo pospuesto hasta el 30 no aparece el 25");
+    check(!hasQuotes, "sin documentos esperando, no hay renglon de Cotizaciones");
+}
+
 } // namespace
 
 int main() {
@@ -1055,6 +1254,10 @@ int main() {
     reparacionAMano();
     anotadoConTrabajo();
     tipoPorElEquipo();
+    recurrentes();
+    herramientas();
+    tasaDeFijos();
+    bandeja();
 
     std::printf("\n%s\n", gFailures == 0 ? "Todo pasa." : "HAY FALLAS.");
     return gFailures == 0 ? 0 : 1;

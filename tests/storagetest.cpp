@@ -594,6 +594,67 @@ int main(int argc, char** argv) {
               "la carpeta por defecto es la de Cotizaciones en Documentos");
     }
 
+    // --- Recurrentes, herramientas y metadatos ------------------------------
+    {
+        storage::Database db(path + QStringLiteral(".fijos"));
+        storage::Repository repository(db);
+        const int cola = repository.pendingOutboxCount();
+
+        core::Recurring luz;
+        luz.id = "R1";
+        luz.name = "Luz";
+        luz.category = "Luz";
+        luz.pocketId = "caja";
+        luz.amountMinor = 40'00;
+        luz.dayOfMonth = 10;
+        luz.starts = core::Date{2026, 7, 1};
+        luz.ends = core::Date{2027, 6, 30};
+        repository.saveRecurring(luz);
+        auto rs = repository.loadRecurring();
+        check(rs.size() == 1 && rs[0].name == "Luz" && rs[0].amountMinor == 40'00 &&
+                  rs[0].dayOfMonth == 10 && rs[0].starts == luz.starts && rs[0].ends == luz.ends &&
+                  rs[0].active && rs[0].pocketId == "caja",
+              "un recurrente vuelve entero");
+        luz.active = false;
+        luz.ends.reset();
+        repository.saveRecurring(luz);
+        rs = repository.loadRecurring();
+        check(rs.size() == 1 && !rs[0].active && !rs[0].ends, "se desactiva y pierde el fin");
+        repository.removeRecurring("R1");
+        check(repository.loadRecurring().empty(), "y se borra");
+
+        core::Tool osc;
+        osc.id = "T1";
+        osc.name = "Osciloscopio";
+        osc.costMinor = 1000'00;
+        osc.bought = core::Date{2026, 8, 15};
+        osc.lifeMonths = 36;
+        osc.movementId = "m-osc";
+        repository.saveTool(osc);
+        auto ts = repository.loadTools();
+        check(ts.size() == 1 && ts[0].name == "Osciloscopio" && ts[0].costMinor == 1000'00 &&
+                  ts[0].bought == osc.bought && ts[0].lifeMonths == 36 && !ts[0].retired &&
+                  ts[0].movementId == "m-osc",
+              "una herramienta vuelve entera");
+        osc.retired = core::Date{2027, 1, 1};
+        repository.saveTool(osc);
+        ts = repository.loadTools();
+        check(!ts.empty() && ts[0].retired == osc.retired, "con su baja");
+        repository.removeTool("T1");
+        check(repository.loadTools().empty(), "y se borra");
+
+        core::MovementMeta meta{"m-1", "Recurrente", "confirmar", "R1", "2026-09", "huella"};
+        repository.saveMovementMeta(meta);
+        meta.review.clear();
+        repository.saveMovementMeta(meta);
+        const auto metas = repository.loadMovementMeta();
+        check(metas.size() == 1 && metas[0].movementId == "m-1" && metas[0].origin == "Recurrente" &&
+                  metas[0].review.empty() && metas[0].recurringId == "R1" &&
+                  metas[0].period == "2026-09" && metas[0].externalRef == "huella",
+              "los metadatos de un movimiento se reemplazan, no se duplican");
+        checkMinor(repository.pendingOutboxCount(), cola, "nada de esto viaja al telefono");
+    }
+
     // --- Cronometro de capturas --------------------------------------------
     {
         storage::Database db(path + QStringLiteral(".tiempos"));

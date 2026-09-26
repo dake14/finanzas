@@ -167,6 +167,107 @@ void SettingsPage::buildUi() {
     templatesCard->addContent(addTemplate);
     layout->addWidget(templatesCard);
 
+    // --- Gastos fijos y herramientas ---------------------------------------------
+    auto* fixedCard = new Card(QStringLiteral("GASTOS FIJOS DEL TALLER"), page);
+    fixedCard->setSubtitle(
+        QStringLiteral("Se anotan solos cada mes con el monto estimado y quedan por confirmar en la "
+                       "Revisión. Si pagas algo fijo que no está acá, agrégalo: sin eso, la tasa de "
+                       "fijos por hora sale baja."));
+    fixedSummary_ = new QLabel(fixedCard);
+    fixedSummary_->setWordWrap(true);
+    fixedSummary_->setFont(theme::bodyFont(10));
+    fixedCard->addContent(fixedSummary_);
+    recurring_ = makeTable({QStringLiteral("Nombre"), QStringLiteral("Monto"), QStringLiteral("Día"),
+                            QStringLiteral("Bolsillo"), QStringLiteral("Activo"), QString()},
+                           0);
+    recurring_->setMinimumHeight(150);
+    recurring_->setEditTriggers(QAbstractItemView::DoubleClicked | QAbstractItemView::EditKeyPressed |
+                                QAbstractItemView::AnyKeyPressed);
+    fixColumn(recurring_, 3, 170);
+    fixColumn(recurring_, 4, 70);
+    fixColumn(recurring_, 5, 76);
+    connect(recurring_, &QTableWidget::itemChanged, this, [this](QTableWidgetItem* item) {
+        if (!filling_) emitRecurring(item->row());
+    });
+    fixedCard->addContent(recurring_);
+    auto* addRecurring = new QPushButton(QStringLiteral("Nuevo gasto fijo"), fixedCard);
+    addRecurring->setObjectName(QStringLiteral("GhostButton"));
+    addRecurring->setCursor(Qt::PointingHandCursor);
+    connect(addRecurring, &QPushButton::clicked, this, &SettingsPage::recurringAdded);
+    fixedCard->addContent(addRecurring);
+
+    auto* toolsLabel = new QLabel(QStringLiteral("HERRAMIENTAS"), fixedCard);
+    toolsLabel->setFont(theme::bodyFont(8, QFont::DemiBold));
+    theme::setLabelColor(toolsLabel, theme::kTextFaint);
+    fixedCard->addContent(toolsLabel);
+    tools_ = makeTable({QStringLiteral("Herramienta"), QStringLiteral("Costo"), QStringLiteral("Compra"),
+                        QStringLiteral("Meses de vida"), QStringLiteral("Por mes"), QString()},
+                       0);
+    tools_->setMinimumHeight(120);
+    tools_->setEditTriggers(QAbstractItemView::DoubleClicked | QAbstractItemView::EditKeyPressed |
+                            QAbstractItemView::AnyKeyPressed);
+    fixColumn(tools_, 5, 76);
+    connect(tools_, &QTableWidget::itemChanged, this, [this](QTableWidgetItem* item) {
+        if (!filling_) emitTool(item->row());
+    });
+    fixedCard->addContent(tools_);
+    auto* addTool = new QPushButton(QStringLiteral("Nueva herramienta"), fixedCard);
+    addTool->setObjectName(QStringLiteral("GhostButton"));
+    addTool->setCursor(Qt::PointingHandCursor);
+    connect(addTool, &QPushButton::clicked, this, &SettingsPage::toolAdded);
+    fixedCard->addContent(addTool);
+
+    auto* hoursRow = new QWidget(fixedCard);
+    auto* hoursLayout = new QHBoxLayout(hoursRow);
+    hoursLayout->setContentsMargins(0, 0, 0, 0);
+    auto* hoursLabel = new QLabel(QStringLiteral("Horas de trabajo por mes, mientras no haya historia"), hoursRow);
+    hoursLabel->setFont(theme::bodyFont(10));
+    theme::setLabelColor(hoursLabel, theme::kTextMuted);
+    hoursPerMonth_ = new QLineEdit(hoursRow);
+    hoursPerMonth_->setFixedWidth(80);
+    connect(hoursPerMonth_, &QLineEdit::editingFinished, this, [this] {
+        if (const auto minutes = parseHoursText(hoursPerMonth_->text())) {
+            if (*minutes > 0 && *minutes != snapshot_.fallbackMinutesPerMonth) emit fallbackHoursChanged(*minutes);
+        }
+    });
+    hoursLayout->addWidget(hoursLabel);
+    hoursLayout->addWidget(hoursPerMonth_);
+    hoursLayout->addStretch(1);
+    fixedCard->addContent(hoursRow);
+    layout->addWidget(fixedCard);
+
+    // --- Revision de la semana ---------------------------------------------------
+    auto* reviewCard = new Card(QStringLiteral("REVISIÓN DE LA SEMANA"), page);
+    reviewCard->setSubtitle(QStringLiteral("Un aviso en la bandeja del sistema si hay pendientes. Si la "
+                                           "computadora estaba apagada, avisa al encenderla."));
+    auto* reminderRow = new QWidget(reviewCard);
+    auto* reminderLayout = new QHBoxLayout(reminderRow);
+    reminderLayout->setContentsMargins(0, 0, 0, 0);
+    reminderDay_ = new QComboBox(reminderRow);
+    reminderDay_->addItems({QStringLiteral("lunes"), QStringLiteral("martes"), QStringLiteral("miércoles"),
+                            QStringLiteral("jueves"), QStringLiteral("viernes"), QStringLiteral("sábado"),
+                            QStringLiteral("domingo")});
+    reminderHour_ = new QComboBox(reminderRow);
+    for (int h = 6; h <= 22; ++h) reminderHour_->addItem(QStringLiteral("%1:00").arg(h), h);
+    auto emitReminder = [this] {
+        if (!filling_) emit reminderChanged(reminderDay_->currentIndex(), reminderHour_->currentData().toInt());
+    };
+    connect(reminderDay_, &QComboBox::currentIndexChanged, this, emitReminder);
+    connect(reminderHour_, &QComboBox::currentIndexChanged, this, emitReminder);
+    auto* every = new QLabel(QStringLiteral("Cada"), reminderRow);
+    every->setFont(theme::bodyFont(10));
+    theme::setLabelColor(every, theme::kTextMuted);
+    reminderLayout->addWidget(every);
+    reminderLayout->addWidget(reminderDay_);
+    reminderLayout->addWidget(reminderHour_);
+    reminderLayout->addStretch(1);
+    reviewCard->addContent(reminderRow);
+    timings_ = new QLabel(reviewCard);
+    timings_->setWordWrap(true);
+    timings_->setFont(theme::bodyFont(10));
+    reviewCard->addContent(timings_);
+    layout->addWidget(reviewCard);
+
     // --- DakeLabs Cotizaciones ------------------------------------------------
     auto* quotesCard = new Card(QStringLiteral("DAKELABS COTIZACIONES"), page);
     quotesCard->setSubtitle(
@@ -246,6 +347,7 @@ void SettingsPage::setSnapshot(const Snapshot& snapshot) {
         theme::setLabelColor(costsNote_, theme::kTextMuted);
     }
     refillTemplates();
+    refillFixed();
 
     if (!quoteFolder_->hasFocus()) {
         quoteFolder_->setText(snapshot.quoteFolder);
@@ -458,6 +560,142 @@ void SettingsPage::emitTemplate(int row) {
     tpl.shippingMinor = parseMoneyText(text(5), snapshot_.currency).value_or(0);
     tpl.parts = parsePartsText(text(6), snapshot_.currency);
     emit templateChanged(tpl);
+}
+
+// ----------------------------------------------------- Fijos y herramientas
+
+namespace {
+
+[[nodiscard]] QString seconds(qint64 ms) {
+    return QString::number(static_cast<double>(ms) / 1000.0, 'f', 1).replace(QLatin1Char('.'), QLatin1Char(','));
+}
+
+} // namespace
+
+void SettingsPage::refillFixed() {
+    filling_ = true;
+    const core::FixedRate& rate = snapshot_.fixedRate;
+    fixedSummary_->setText(
+        QStringLiteral("Fijos del mes: %1 (gastos fijos activos + depreciación). %2 h de trabajo por mes%3. "
+                       "Cada hora de reparación carga %4 de fijos.")
+            .arg(theme::formatMoney(rate.monthlyFixed), hoursText(rate.monthlyMinutes),
+                 rate.minutesFromSettings ? QStringLiteral(" (las de abajo: todavía no hay horas reales)")
+                                          : QStringLiteral(" según tus últimas entregas"),
+                 theme::formatMoney(rate.perHour)));
+    theme::setLabelColor(fixedSummary_, theme::kText);
+
+    recurring_->setRowCount(static_cast<int>(snapshot_.recurring.size()));
+    for (int row = 0; row < static_cast<int>(snapshot_.recurring.size()); ++row) {
+        const core::Recurring& r = snapshot_.recurring[static_cast<std::size_t>(row)];
+        auto* name = new QTableWidgetItem(QString::fromStdString(r.name));
+        name->setData(Qt::UserRole, QString::fromStdString(r.id));
+        recurring_->setItem(row, 0, name);
+        setNumber(recurring_, row, 1, moneyFieldText(r.amountMinor, snapshot_.currency));
+        setNumber(recurring_, row, 2, QString::number(r.dayOfMonth));
+        auto* pocket = cellCombo(recurring_);
+        for (const core::Pocket& p : snapshot_.pockets) {
+            if (!p.archived) pocket->addItem(QString::fromStdString(p.name), QString::fromStdString(p.id));
+        }
+        pocket->setCurrentIndex(std::max(0, pocket->findData(QString::fromStdString(r.pocketId))));
+        connect(pocket, &QComboBox::currentIndexChanged, this, [this, row] {
+            if (!filling_) emitRecurring(row);
+        });
+        recurring_->setCellWidget(row, 3, pocket);
+        auto* active = new QTableWidgetItem();
+        active->setFlags(Qt::ItemIsUserCheckable | Qt::ItemIsEnabled | Qt::ItemIsSelectable);
+        active->setCheckState(r.active ? Qt::Checked : Qt::Unchecked);
+        recurring_->setItem(row, 4, active);
+        auto* remove = new QPushButton(QStringLiteral("Quitar"), recurring_);
+        remove->setObjectName(QStringLiteral("GhostButton"));
+        remove->setFont(theme::bodyFont(8));
+        const core::Id id = r.id;
+        connect(remove, &QPushButton::clicked, this, [this, id] { emit recurringRemoved(id); });
+        recurring_->setCellWidget(row, 5, remove);
+    }
+
+    tools_->setRowCount(static_cast<int>(snapshot_.tools.size()));
+    for (int row = 0; row < static_cast<int>(snapshot_.tools.size()); ++row) {
+        const core::Tool& t = snapshot_.tools[static_cast<std::size_t>(row)];
+        auto* name = new QTableWidgetItem(QString::fromStdString(t.name));
+        name->setData(Qt::UserRole, QString::fromStdString(t.id));
+        tools_->setItem(row, 0, name);
+        setNumber(tools_, row, 1, moneyFieldText(t.costMinor, snapshot_.currency));
+        setText(tools_, row, 2, QString::fromStdString(t.bought.toIso()));
+        setNumber(tools_, row, 3, QString::number(t.lifeMonths));
+        setNumber(tools_, row, 4,
+                  theme::formatMoney(core::depreciationInMonth(t, snapshot_.today, snapshot_.currency)),
+                  theme::kTextMuted);
+        tools_->item(row, 4)->setFlags(Qt::ItemIsEnabled);
+        auto* remove = new QPushButton(QStringLiteral("Quitar"), tools_);
+        remove->setObjectName(QStringLiteral("GhostButton"));
+        remove->setFont(theme::bodyFont(8));
+        const core::Id id = t.id;
+        connect(remove, &QPushButton::clicked, this, [this, id] { emit toolRemoved(id); });
+        tools_->setCellWidget(row, 5, remove);
+    }
+
+    if (!hoursPerMonth_->hasFocus()) hoursPerMonth_->setText(hoursText(snapshot_.fallbackMinutesPerMonth));
+    reminderDay_->setCurrentIndex(std::clamp(snapshot_.reminderWeekday, 0, 6));
+    reminderHour_->setCurrentIndex(std::max(0, reminderHour_->findData(snapshot_.reminderHour)));
+
+    QStringList lines;
+    lines << (snapshot_.repairMedianMs < 0
+                  ? QStringLiteral("Alta de reparación: sin medir todavía (meta: menos de 30 s).")
+                  : QStringLiteral("Alta de reparación: %1 s de mediana (meta: menos de 30).")
+                        .arg(seconds(snapshot_.repairMedianMs)));
+    lines << (snapshot_.reviewMedianMs < 0
+                  ? QStringLiteral("Revisión completa: sin medir todavía (meta: menos de 5 minutos).")
+                  : QStringLiteral("Revisión completa: %1 s de mediana (meta: menos de 300).")
+                        .arg(seconds(snapshot_.reviewMedianMs)));
+    timings_->setText(lines.join(QLatin1Char('\n')));
+    theme::setLabelColor(timings_, theme::kTextMuted);
+    filling_ = false;
+}
+
+void SettingsPage::emitRecurring(int row) {
+    if (row < 0 || row >= static_cast<int>(snapshot_.recurring.size())) return;
+    core::Recurring r = snapshot_.recurring[static_cast<std::size_t>(row)];
+    const auto text = [this, row](int column) {
+        const QTableWidgetItem* item = recurring_->item(row, column);
+        return item == nullptr ? QString() : item->text();
+    };
+    const QString name = text(0).trimmed();
+    if (!name.isEmpty()) {
+        r.name = name.toStdString();
+        r.category = r.name;
+    }
+    r.amountMinor = parseMoneyText(text(1), snapshot_.currency).value_or(r.amountMinor);
+    bool ok = false;
+    const int day = text(2).trimmed().toInt(&ok);
+    if (ok && day >= 1 && day <= 31) r.dayOfMonth = day;
+    if (auto* pocket = qobject_cast<QComboBox*>(recurring_->cellWidget(row, 3))) {
+        r.pocketId = pocket->currentData().toString().toStdString();
+    }
+    if (const QTableWidgetItem* active = recurring_->item(row, 4)) {
+        r.active = active->checkState() == Qt::Checked;
+    }
+    emit recurringChanged(r);
+}
+
+void SettingsPage::emitTool(int row) {
+    if (row < 0 || row >= static_cast<int>(snapshot_.tools.size())) return;
+    core::Tool t = snapshot_.tools[static_cast<std::size_t>(row)];
+    const auto text = [this, row](int column) {
+        const QTableWidgetItem* item = tools_->item(row, column);
+        return item == nullptr ? QString() : item->text();
+    };
+    const QString name = text(0).trimmed();
+    if (!name.isEmpty()) t.name = name.toStdString();
+    t.costMinor = parseMoneyText(text(1), snapshot_.currency).value_or(t.costMinor);
+    try {
+        t.bought = core::Date::fromIso(text(2).trimmed().toStdString());
+    } catch (const std::exception&) {
+        // Una fecha mal escrita no cambia la que habia.
+    }
+    bool ok = false;
+    const int months = text(3).trimmed().toInt(&ok);
+    if (ok && months > 0) t.lifeMonths = months;
+    emit toolChanged(t);
 }
 
 } // namespace dake::ui

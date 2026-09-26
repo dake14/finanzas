@@ -22,6 +22,7 @@ set(DAKE_UI_SOURCES
     closingpage.cpp
     pocketspage.cpp
     reportspage.cpp
+    reviewpage.cpp
     settingspage.cpp
     capturewidget.cpp
     capturewidget.hpp

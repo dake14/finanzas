@@ -149,6 +149,19 @@ namespace {
         page->showTab(screen.section(QLatin1Char(':'), 1).toInt());
         return page;
     }
+    if (screen == QLatin1String("revision")) {
+        dake::ui::Snapshot withInbox = snapshot;
+        dake::core::InboxInput in;
+        in.movements = snapshot.movements;
+        in.repairs = snapshot.repairs;
+        in.parts = snapshot.parts;
+        in.quoteHolds = 2;
+        in.today = snapshot.today;
+        withInbox.inbox = dake::core::inbox(in);
+        auto page = std::make_unique<dake::ui::ReviewPage>();
+        page->setSnapshot(withInbox);
+        return page;
+    }
     if (screen == QLatin1String("ajustes")) {
         auto page = std::make_unique<dake::ui::SettingsPage>();
         page->setSnapshot(snapshot);

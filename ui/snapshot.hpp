@@ -14,6 +14,7 @@
 
 #include "dake/core/accounts.hpp"
 #include "dake/core/capture.hpp"
+#include "dake/core/fixed.hpp"
 #include "dake/core/currency.hpp"
 #include "dake/core/model.hpp"
 #include "dake/core/quotes.hpp"
@@ -30,6 +31,38 @@ struct Snapshot {
     std::vector<core::RepairPart> parts;
     std::vector<core::RepairTemplate> templates;
     core::CostSettings costs;
+
+    // --- Fijos y bandeja --------------------------------------------------
+    std::vector<core::Recurring> recurring;
+    std::vector<core::Tool> tools;
+    std::vector<core::MovementMeta> metas;
+    core::FixedRate fixedRate;
+    int fallbackMinutesPerMonth = 4800;
+    std::vector<core::InboxItem> inbox;
+    int reminderWeekday = 6;  ///< 0 = lunes; 6 = domingo
+    int reminderHour = 18;
+    /// Mediana de lo que tarda una revision completa, en ms. -1 sin datos.
+    qint64 reviewMedianMs = -1;
+    qint64 repairMedianMs = -1;
+
+    [[nodiscard]] const core::Movement* movement(const core::Id& id) const {
+        const auto it = std::find_if(movements.begin(), movements.end(),
+                                     [&id](const core::Movement& m) { return m.id == id; });
+        return it == movements.end() ? nullptr : &*it;
+    }
+
+    [[nodiscard]] const core::MovementMeta* meta(const core::Id& movementId) const {
+        const auto it = std::find_if(metas.begin(), metas.end(), [&movementId](const core::MovementMeta& m) {
+            return m.movementId == movementId;
+        });
+        return it == metas.end() ? nullptr : &*it;
+    }
+
+    [[nodiscard]] const core::RepairPart* part(const core::Id& id) const {
+        const auto it = std::find_if(parts.begin(), parts.end(),
+                                     [&id](const core::RepairPart& p) { return p.id == id; });
+        return it == parts.end() ? nullptr : &*it;
+    }
 
     // --- DakeLabs Cotizaciones ------------------------------------------
     QString quoteFolder;
