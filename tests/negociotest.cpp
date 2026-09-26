@@ -205,6 +205,10 @@ void categoriasDeducidas() {
     const Category* rep = findCategory(nuevas, "Reparaciones");
     check(rep != nullptr && rep->kind == MovementKind::Ingreso, "Reparaciones es de ingreso");
     check(findCategory(nuevas, "Ya conocida") == nullptr, "las ya conocidas no se repiten");
+
+    // La aplicacion vieja escribia "Sin categoria" como si fuera una.
+    const auto viejas = inferCategories({gasto("2026-09-01", 1'00, "caja", "Sin categoria")}, ps, {});
+    check(viejas.empty(), "\"Sin categoria\" no se adopta como categoria");
 }
 
 void gastoPorCategoria() {
@@ -1217,6 +1221,13 @@ void bandeja() {
         hasQuotes = hasQuotes || item.kind == InboxKind::Cotizaciones;
     }
     check(!hasA, "lo pospuesto hasta el 30 no aparece el 25");
+
+    InboxInput viejo;
+    viejo.today = Date{2026, 9, 25};
+    viejo.movements = {mov("legado", "Sin categoria")};
+    const auto legado = inbox(viejo);
+    check(legado.size() == 1 && legado[0].kind == InboxKind::SinCategoria,
+          "un movimiento con \"Sin categoria\" escrito tambien esta sin categoria");
     check(!hasQuotes, "sin documentos esperando, no hay renglon de Cotizaciones");
 }
 

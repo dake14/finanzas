@@ -101,8 +101,10 @@ std::vector<Category> inferCategories(const std::vector<Movement>& movements,
     };
     std::vector<Tally> tallies;
     for (const Movement& m : movements) {
-        if (m.deleted || m.category.empty() || m.kind == MovementKind::Traspaso ||
-            findCategory(known, m.category) != nullptr) {
+        // "Sin categoria" lo escribia la aplicacion vieja en lugar de nada: no
+        // es una categoria, es la falta de una.
+        if (m.deleted || m.category.empty() || m.category == kUncategorized ||
+            m.kind == MovementKind::Traspaso || findCategory(known, m.category) != nullptr) {
             continue;
         }
         auto it = std::find_if(tallies.begin(), tallies.end(), [&m](const Tally& t) {

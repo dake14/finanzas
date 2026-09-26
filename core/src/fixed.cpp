@@ -144,8 +144,8 @@ std::vector<InboxItem> inbox(const InboxInput& input) {
 
     // Lo que ensucia los numeros.
     for (const Movement& m : input.movements) {
-        if (!m.deleted && m.kind != MovementKind::Traspaso && m.category.empty() &&
-            !isSnoozed(input, m.id)) {
+        const bool uncategorized = m.category.empty() || m.category == kUncategorized;
+        if (!m.deleted && m.kind != MovementKind::Traspaso && uncategorized && !isSnoozed(input, m.id)) {
             add(InboxKind::SinCategoria, m.id);
         }
     }
