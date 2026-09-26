@@ -345,6 +345,7 @@ signals:
     void fallbackHoursChanged(int minutesPerMonth);
     void reminderChanged(int weekday, int hour);
     void splitChanged(const dake::core::ProfitSplit& split);
+    void bankImportRequested();
 
 private:
     void buildUi();

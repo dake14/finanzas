@@ -300,6 +300,20 @@ void SettingsPage::buildUi() {
     reviewCard->addContent(timings_);
     layout->addWidget(reviewCard);
 
+    // --- Bancos --------------------------------------------------------------
+    auto* bankCard = new Card(QStringLiteral("EXTRACTOS DEL BANCO"), page);
+    bankCard->setSubtitle(
+        QStringLiteral("Un CSV del banco. La primera vez se dice qué columna es cada cosa y queda "
+                       "guardado. Lo que ya anotaste a mano se enlaza en vez de duplicarse, e importar "
+                       "el mismo extracto dos veces no agrega nada. También con Ctrl+I."));
+    auto* bankButton = new QPushButton(QStringLiteral("Importar extracto…"), bankCard);
+    bankButton->setObjectName(QStringLiteral("PrimaryButton"));
+    bankButton->setCursor(Qt::PointingHandCursor);
+    bankButton->setFixedHeight(32);
+    connect(bankButton, &QPushButton::clicked, this, &SettingsPage::bankImportRequested);
+    bankCard->addContent(bankButton);
+    layout->addWidget(bankCard);
+
     // --- DakeLabs Cotizaciones ------------------------------------------------
     auto* quotesCard = new Card(QStringLiteral("DAKELABS COTIZACIONES"), page);
     quotesCard->setSubtitle(

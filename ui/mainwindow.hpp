@@ -13,6 +13,7 @@
 #include <string>
 #include <vector>
 
+#include "dake/core/bankcsv.hpp"
 #include "dake/storage/database.hpp"
 #include "dake/storage/repository.hpp"
 #include "dake/sync/supabase_client.hpp"
@@ -55,6 +56,10 @@ public:
     /// Abrir la aplicacion dos veces no abre dos aplicaciones: le avisa a la
     /// que ya esta andando.
     void handleInstanceMessage(const QString& message);
+
+    /// Importa un extracto: abre el dialogo con ese archivo. Publico para que
+    /// la prueba de la interfaz lo llame sin el selector de archivos.
+    void importBankFile(const QString& path);
 
 protected:
     /// Cerrar la ventana la esconde en la bandeja: el atajo global solo
@@ -105,6 +110,9 @@ private slots:
     void setPartCost(const dake::core::Id& partId, qint64 costMinor);
     void snooze(const std::string& id, int days);
     void deleteMovementById(const dake::core::Id& movementId);
+
+    /// Elige el archivo del extracto y lo importa.
+    void chooseBankFile();
     void reconcile(const dake::core::Id& pocketId);
     void editMovement(const dake::core::Id& movementId);
     void togglePocketAccount(const dake::core::Id& pocketId);
@@ -188,6 +196,9 @@ private:
 
     /// Borra la marca de revision de un movimiento (confirmado, revisado).
     void clearReview(const core::Id& movementId);
+
+    [[nodiscard]] std::vector<core::BankProfile> loadBankProfiles();
+    void saveBankProfile(const core::BankProfile& profile);
 
     [[nodiscard]] core::QuoteDecisions loadQuoteDecisions();
     void saveQuoteDecisions(const core::QuoteDecisions& decisions);

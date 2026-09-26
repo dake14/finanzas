@@ -19,6 +19,7 @@ add_library(dake_core STATIC
     src/quotes.cpp
     src/fixed.cpp
     src/salary.cpp
+    src/bankcsv.cpp
 )
 
 target_include_directories(dake_core PUBLIC

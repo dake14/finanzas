@@ -16,6 +16,8 @@ set(DAKE_UI_SOURCES
     repairdialogs.cpp
     quotedialog.cpp
     quotedialog.hpp
+    bankdialog.cpp
+    bankdialog.hpp
     repairdialogs.hpp
     fields.hpp
     movementspage.cpp

@@ -541,6 +541,71 @@ int main(int argc, char** argv) {
               "con la bandeja vacia, la revision quedo cronometrada");
     }
 
+    // --- Extracto del banco --------------------------------------------------
+    std::printf("\n[extracto del banco]\n");
+    {
+        const QString bankPath = temp.path() + QStringLiteral("/banco.db");
+        core::Id pocketId;
+        {
+            storage::Database setup(bankPath);
+            storage::Repository repo(setup);
+            repo.seedIfEmpty(core::Currency::usd());
+            repo.setSetting(QStringLiteral("cot.carpeta"), temp.path() + QStringLiteral("/sin-cotizaciones"));
+            pocketId = repo.loadPockets().front().id;
+            core::Movement aMano;
+            aMano.id = "m-cobro-a-mano";
+            aMano.date = core::Date{2026, 9, 3};
+            aMano.name = "cobro gpu";
+            aMano.kind = core::MovementKind::Ingreso;
+            aMano.amountMinor = 120'00;
+            aMano.pocketId = pocketId;
+            aMano.category = "Reparacion";
+            repo.save(aMano);
+        }
+        const QString csvPath = temp.path() + QStringLiteral("/extracto.csv");
+        {
+            QFile csv(csvPath);
+            csv.open(QIODevice::WriteOnly);
+            csv.write("Fecha;Descripcion;Monto\r\n"
+                      "01/09/2026;CAFE LA ESQUINA;-2,50\r\n"
+                      "02/09/2026;TRANSFERENCIA JUAN PEREZ;120,00\r\n"
+                      "03/09/2026;UBER *TRIP;-8,40\r\n");
+        }
+        qputenv("DAKE_TEST_DB_PATH", bankPath.toLocal8Bit());
+        ui::MainWindow bankWindow(bankPath);
+        bankWindow.show();
+        (void)QTest::qWaitForWindowExposed(&bankWindow);
+        settle();
+
+        storage::Database bdb(bankPath);
+        storage::Repository brepo(bdb);
+        const std::size_t before = brepo.loadMovements().size();
+
+        onNextDialog([](QWidget* dialog) { QTest::keyClick(dialog, Qt::Key_Return); });
+        bankWindow.importBankFile(csvPath);
+        reactivate(&bankWindow);
+        const auto after = brepo.loadMovements();
+        check(after.size() == before + 2, "el cafe y el uber entran; la transferencia no");
+        bool cafe = false;
+        for (const core::Movement& m : after) {
+            if (m.name == "CAFE LA ESQUINA" && m.amountMinor == 2'50 && m.kind == core::MovementKind::Gasto &&
+                m.date == (core::Date{2026, 9, 1})) {
+                cafe = true;
+            }
+        }
+        check(cafe, "el cafe, como gasto de 2,50 el 1 de septiembre");
+        bool linked = false;
+        for (const core::MovementMeta& meta : brepo.loadMovementMeta()) {
+            if (meta.movementId == "m-cobro-a-mano" && !meta.externalRef.empty()) linked = true;
+        }
+        check(linked, "la transferencia se enlazo al cobro que ya estaba anotado a mano");
+
+        onNextDialog([](QWidget* dialog) { QTest::keyClick(dialog, Qt::Key_Return); });
+        bankWindow.importBankFile(csvPath);
+        reactivate(&bankWindow);
+        check(brepo.loadMovements().size() == before + 2, "importar el mismo extracto otra vez no agrega nada");
+    }
+
     std::printf("\n%s\n", gFailures == 0 ? "Todo pasa." : "HAY FALLAS.");
     std::fflush(stdout);
     return gFailures == 0 ? 0 : 1;

@@ -4,7 +4,10 @@
 #include <QCloseEvent>
 #include <QCoreApplication>
 #include <QDir>
+#include <QFileDialog>
+#include <QFileInfo>
 #include <QFileSystemWatcher>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QMenu>
@@ -35,6 +38,7 @@
 #include "dake/storage/quotefolder.hpp"
 #include "dake/sync/config.hpp"
 #include "dialogs.hpp"
+#include "bankdialog.hpp"
 #include "quotedialog.hpp"
 #include "repairdialogs.hpp"
 #include "pages.hpp"
@@ -469,6 +473,11 @@ void MainWindow::buildUi() {
     connect(review_, &ReviewPage::reviewFinished, this, [this](qint64 ms) {
         repository_->addTiming(QStringLiteral("revision"), ms);
     });
+
+    auto* bankShortcut = new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_I), this);
+    connect(bankShortcut, &QShortcut::activated, this, &MainWindow::chooseBankFile);
+    connect(settings_, &SettingsPage::bankImportRequested, this, &MainWindow::chooseBankFile,
+            Qt::QueuedConnection);
 
     auto* repairShortcut = new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_R), this);
     connect(repairShortcut, &QShortcut::activated, this, &MainWindow::newRepair);
@@ -1065,6 +1074,137 @@ void MainWindow::deleteMovementById(const core::Id& movementId) {
     repository_->remove(gone);
     rememberUndo(gone, gone, QStringLiteral("borrar «%1»").arg(QString::fromStdString(gone.name)));
     afterLocalChange();
+}
+
+// ------------------------------------------------------------------ Bancos
+
+std::vector<core::BankProfile> MainWindow::loadBankProfiles() {
+    std::vector<core::BankProfile> out;
+    const QString raw = repository_->setting(QStringLiteral("banco.perfiles")).value_or(QString());
+    for (const QJsonValue& value : QJsonDocument::fromJson(raw.toUtf8()).array()) {
+        const QJsonObject o = value.toObject();
+        core::BankProfile p;
+        p.name = o.value(QStringLiteral("nombre")).toString().toStdString();
+        p.dateColumn = o.value(QStringLiteral("fecha")).toInt();
+        p.descriptionColumn = o.value(QStringLiteral("descripcion")).toInt(1);
+        p.amountColumn = o.value(QStringLiteral("monto")).toInt(2);
+        p.debitColumn = o.value(QStringLiteral("cargo")).toInt(-1);
+        p.creditColumn = o.value(QStringLiteral("abono")).toInt(-1);
+        p.negativeIsExpense = o.value(QStringLiteral("negativoGasto")).toBool(true);
+        p.dateFormat = static_cast<core::DateFormat>(o.value(QStringLiteral("formato")).toInt());
+        p.headerRows = o.value(QStringLiteral("cabecera")).toInt(1);
+        out.push_back(p);
+    }
+    return out;
+}
+
+void MainWindow::saveBankProfile(const core::BankProfile& profile) {
+    if (profile.name.empty()) {
+        return;
+    }
+    QJsonArray array;
+    array.append(QJsonObject{{QStringLiteral("nombre"), QString::fromStdString(profile.name)},
+                             {QStringLiteral("fecha"), profile.dateColumn},
+                             {QStringLiteral("descripcion"), profile.descriptionColumn},
+                             {QStringLiteral("monto"), profile.amountColumn},
+                             {QStringLiteral("cargo"), profile.debitColumn},
+                             {QStringLiteral("abono"), profile.creditColumn},
+                             {QStringLiteral("negativoGasto"), profile.negativeIsExpense},
+                             {QStringLiteral("formato"), static_cast<int>(profile.dateFormat)},
+                             {QStringLiteral("cabecera"), profile.headerRows}});
+    // El recien usado va primero: es el que se propone la proxima vez.
+    for (const core::BankProfile& other : loadBankProfiles()) {
+        if (other.name == profile.name) continue;
+        array.append(QJsonObject{{QStringLiteral("nombre"), QString::fromStdString(other.name)},
+                                 {QStringLiteral("fecha"), other.dateColumn},
+                                 {QStringLiteral("descripcion"), other.descriptionColumn},
+                                 {QStringLiteral("monto"), other.amountColumn},
+                                 {QStringLiteral("cargo"), other.debitColumn},
+                                 {QStringLiteral("abono"), other.creditColumn},
+                                 {QStringLiteral("negativoGasto"), other.negativeIsExpense},
+                                 {QStringLiteral("formato"), static_cast<int>(other.dateFormat)},
+                                 {QStringLiteral("cabecera"), other.headerRows}});
+    }
+    repository_->setSetting(QStringLiteral("banco.perfiles"),
+                            QString::fromUtf8(QJsonDocument(array).toJson(QJsonDocument::Compact)));
+}
+
+void MainWindow::chooseBankFile() {
+    const QString path = QFileDialog::getOpenFileName(this, QStringLiteral("Extracto del banco"), QString(),
+                                                      QStringLiteral("Extractos (*.csv *.txt);;Todos (*)"));
+    if (!path.isEmpty()) {
+        importBankFile(path);
+    }
+}
+
+void MainWindow::importBankFile(const QString& path) {
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly)) {
+        QMessageBox::warning(this, QStringLiteral("Importar"), QStringLiteral("No se pudo abrir el archivo."));
+        return;
+    }
+    const QByteArray bytes = file.readAll();
+    // La mayoria de los bancos exporta en UTF-8; algunos, en Latin-1. Un UTF-8
+    // invalido se nota por el caracter de reemplazo.
+    QString text = QString::fromUtf8(bytes);
+    if (text.contains(QChar::ReplacementCharacter)) {
+        text = QString::fromLatin1(bytes);
+    }
+
+    BankImportDialog dialog(snapshot_, QFileInfo(path).fileName(), text, loadBankProfiles(), this);
+    if (dialog.exec() != QDialog::Accepted) {
+        return;
+    }
+    saveBankProfile(dialog.profile());
+
+    int imported = 0;
+    int linked = 0;
+    const bool ownTx = db_->handle().transaction();
+    try {
+        for (const core::BankMatch& match : dialog.matches()) {
+            if (match.status == core::BankStatus::YaImportado) continue;
+            if (match.status == core::BankStatus::YaAnotado) {
+                // Enlazado: el anotado a mano se queda como esta y guarda la
+                // huella, para que el proximo extracto tampoco lo duplique.
+                core::MovementMeta meta;
+                if (const core::MovementMeta* existing = snapshot_.meta(match.matchedMovementId)) meta = *existing;
+                meta.movementId = match.matchedMovementId;
+                meta.externalRef = match.row.fingerprint;
+                repository_->saveMovementMeta(meta);
+                ++linked;
+                continue;
+            }
+            core::Movement draft;
+            draft.date = match.row.date;
+            draft.name = match.row.description.empty() ? "Movimiento del banco" : match.row.description;
+            draft.kind = match.row.kind;
+            draft.amountMinor = match.row.amountMinor;
+            draft.pocketId = dialog.pocketId();
+            draft.category = match.suggestedCategory;
+            const core::Account account = snapshot_.categoryAccount(draft.category, draft.pocketId);
+            std::vector<core::Movement> parts =
+                core::splitCrossExpense(draft, snapshot_.pockets, account, snapshot_.personalPocket());
+            for (core::Movement& part : parts) {
+                part.id = stamp(part.hlc, part.deviceId);
+                repository_->save(part);
+            }
+            // Lo importado con categoria sugerida pasa una vez por la
+            // revision; sin categoria, aparece ahi igual como sin categoria.
+            repository_->saveMovementMeta({parts.back().id, "Importado",
+                                           draft.category.empty() ? "" : "sugerido", {}, {},
+                                           match.row.fingerprint});
+            ++imported;
+        }
+        if (ownTx && !db_->handle().commit()) {
+            throw storage::StorageError(QStringLiteral("No se pudo confirmar la transaccion."));
+        }
+    } catch (const std::exception& error) {
+        if (ownTx) db_->handle().rollback();
+        QMessageBox::critical(this, QStringLiteral("No se pudo importar"), QString::fromUtf8(error.what()));
+        return;
+    }
+    afterLocalChange();
+    updateCloudUi(QStringLiteral("Extracto: %1 nuevos, %2 enlazados").arg(imported).arg(linked));
 }
 
 // ------------------------------------------------------ DakeLabs Cotizaciones

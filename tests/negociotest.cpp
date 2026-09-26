@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "dake/core/accounts.hpp"
+#include "dake/core/bankcsv.hpp"
 #include "dake/core/capture.hpp"
 #include "dake/core/fixed.hpp"
 #include "dake/core/quotes.hpp"
@@ -1340,6 +1341,117 @@ void flujoDeCaja() {
     check(months[2].month == (Date{2026, 8, 1}) && months[2].in.isZero(), "agosto sin movimiento");
 }
 
+
+// ------------------------------------------------------------------- Bancos
+
+void csvDelBanco() {
+    std::printf("\n[bancos: leer el CSV]\n");
+    check(detectSeparator("Fecha;Descripcion;Monto\n01/09/2026;\"CAFE; LECHE\";-2,50") == ';',
+          "punto y coma, aunque haya uno entre comillas");
+    check(detectSeparator("date,description,amount\n2026-09-01,x,1") == ',', "coma");
+    check(detectSeparator("a\tb\tc") == '\t', "tabulador");
+
+    const auto rows = parseCsv("Fecha;Descripcion;Monto\r\n01/09/2026;\"CAFE; \"\"LA ESQUINA\"\"\";-2,50\r\n\r\n"
+                               "02/09/2026;PAGO CLIENTE;120,00\r\n",
+                               ';');
+    check(rows.size() == 3, "tres filas: la vacia no cuenta");
+    if (rows.size() == 3) {
+        check(rows[1].size() == 3 && rows[1][1] == "CAFE; \"LA ESQUINA\"",
+              "las comillas como las escribe Excel");
+        check(rows[2][2] == "120,00", "y el ultimo campo sin el fin de linea");
+    }
+
+    BankProfile perfil;
+    perfil.name = "Banco General";
+    const auto read = readBankRows(rows, perfil, kUsd);
+    check(read.rows.size() == 2 && read.errors.empty(), "dos movimientos, sin la cabecera");
+    if (read.rows.size() == 2) {
+        check(read.rows[0].date == (Date{2026, 9, 1}) && read.rows[0].kind == MovementKind::Gasto &&
+                  read.rows[0].amountMinor == 2'50,
+              "negativo es gasto, en positivo");
+        check(read.rows[1].kind == MovementKind::Ingreso && read.rows[1].amountMinor == 120'00,
+              "positivo es ingreso");
+        check(!read.rows[0].fingerprint.empty() && read.rows[0].fingerprint != read.rows[1].fingerprint,
+              "cada uno con su huella");
+    }
+
+    // Otro banco: cargos y abonos en columnas separadas, fecha al reves.
+    const auto otro = parseCsv("fecha,detalle,cargo,abono\n2026-09-03,UBER *TRIP,8.40,\n"
+                               "2026-09-03,UBER *TRIP,8.40,\n2026-09-04,DEPOSITO,,\"1,250.00\"\n2026-02-30,MAL,1,\n",
+                               ',');
+    BankProfile dos;
+    dos.dateFormat = DateFormat::AnioMesDia;
+    dos.amountColumn = -1;
+    dos.debitColumn = 2;
+    dos.creditColumn = 3;
+    const auto read2 = readBankRows(otro, dos, kUsd);
+    check(read2.rows.size() == 3, "las tres filas buenas se leen");
+    check(read2.errors.size() == 1, "la fecha imposible queda como error, sin frenar las demas");
+    if (read2.rows.size() == 3) {
+        check(read2.rows[2].kind == MovementKind::Ingreso && read2.rows[2].amountMinor == 1250'00,
+              "el abono es ingreso, con separador de miles entre comillas");
+        check(read2.rows[0].kind == MovementKind::Gasto && read2.rows[0].amountMinor == 8'40,
+              "el cargo es gasto");
+        check(read2.rows[0].fingerprint != read2.rows[1].fingerprint,
+              "dos viajes iguales el mismo dia son dos viajes: huellas distintas");
+    }
+}
+
+void cruzarConLoAnotado() {
+    std::printf("\n[bancos: nunca dos veces]\n");
+    BankRow cafe{Date{2026, 9, 1}, "CAFE LA ESQUINA", 2'50, MovementKind::Gasto, "h-cafe"};
+    BankRow cobro{Date{2026, 9, 2}, "TRANSFERENCIA JUAN PEREZ", 120'00, MovementKind::Ingreso, "h-cobro"};
+    BankRow uber{Date{2026, 9, 3}, "UBER *TRIP", 8'40, MovementKind::Gasto, "h-uber"};
+    BankRow viejo{Date{2026, 8, 3}, "NETFLIX", 9'99, MovementKind::Gasto, "h-netflix"};
+
+    Movement aMano;  // el cobro, anotado a mano un dia despues
+    aMano.id = "m-cobro";
+    aMano.date = Date{2026, 9, 3};
+    aMano.name = "cobro gpu";
+    aMano.kind = MovementKind::Ingreso;
+    aMano.amountMinor = 120'00;
+    aMano.pocketId = "banco";
+    Movement uberAnterior;  // un uber importado antes, ya con categoria
+    uberAnterior.id = "m-uber-viejo";
+    uberAnterior.date = Date{2026, 8, 20};
+    uberAnterior.name = "UBER *TRIP";
+    uberAnterior.kind = MovementKind::Gasto;
+    uberAnterior.amountMinor = 6'00;
+    uberAnterior.category = "Transporte";
+    uberAnterior.pocketId = "banco";
+    Movement netflix;
+    netflix.id = "m-netflix";
+    netflix.date = Date{2026, 8, 3};
+    netflix.name = "NETFLIX";
+    netflix.kind = MovementKind::Gasto;
+    netflix.amountMinor = 9'99;
+    netflix.pocketId = "banco";
+    const std::vector<MovementMeta> metas{{"m-netflix", "Importado", "", "", "", "h-netflix"}};
+
+    const auto matches = matchBankRows({cafe, cobro, uber, viejo}, {aMano, uberAnterior, netflix}, metas);
+    check(matches.size() == 4, "una respuesta por fila");
+    if (matches.size() != 4) return;
+    check(matches[0].status == BankStatus::Nuevo && matches[0].suggestedCategory.empty(),
+          "el cafe es nuevo y sin historia no tiene categoria");
+    check(matches[1].status == BankStatus::YaAnotado && matches[1].matchedMovementId == "m-cobro",
+          "el cobro ya estaba anotado a mano un dia despues: se enlaza");
+    check(matches[2].status == BankStatus::Nuevo && matches[2].suggestedCategory == "Transporte",
+          "el uber es nuevo y se sugiere Transporte por lo aprendido");
+    check(matches[3].status == BankStatus::YaImportado, "netflix ya se importo: su huella esta");
+
+    // El mismo anotado a mano no se enlaza a dos filas.
+    BankRow cobro2 = cobro;
+    cobro2.fingerprint = "h-cobro-2";
+    const auto twice = matchBankRows({cobro, cobro2}, {aMano}, {});
+    check(twice.size() == 2 && twice[0].status == BankStatus::YaAnotado && twice[1].status == BankStatus::Nuevo,
+          "un anotado a mano se enlaza con una sola fila");
+
+    BankRow lejos = cobro;
+    lejos.date = Date{2026, 9, 10};
+    const auto far = matchBankRows({lejos}, {aMano}, {});
+    check(far.size() == 1 && far[0].status == BankStatus::Nuevo, "a mas de dos dias no se confunde");
+}
+
 } // namespace
 
 int main() {
@@ -1383,6 +1495,8 @@ int main() {
     utilidadNetaDelMes();
     sueldoRecomendado();
     flujoDeCaja();
+    csvDelBanco();
+    cruzarConLoAnotado();
 
     std::printf("\n%s\n", gFailures == 0 ? "Todo pasa." : "HAY FALLAS.");
     return gFailures == 0 ? 0 : 1;
