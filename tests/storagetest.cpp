@@ -397,6 +397,24 @@ int main(int argc, char** argv) {
               "borrar tampoco distingue mayusculas");
     }
 
+    // --- Cronometro de capturas --------------------------------------------
+    {
+        storage::Database db(path + QStringLiteral(".tiempos"));
+        storage::Repository repository(db);
+        check(repository.timingMedian(QStringLiteral("captura")) == -1,
+              "sin mediciones la mediana es -1");
+        for (const qint64 ms : {9000, 3000, 4000, 30000, 5000}) {
+            repository.addTiming(QStringLiteral("captura"), ms);
+        }
+        repository.addTiming(QStringLiteral("reparacion"), 99000);
+        checkMinor(repository.timingMedian(QStringLiteral("captura")), 5000,
+                   "la mediana de cinco capturas; la de 30 s no la arrastra");
+        checkMinor(repository.timingMedian(QStringLiteral("captura"), 2), 17500,
+                   "solo las ultimas dos: (30000 + 5000) / 2");
+        checkMinor(repository.timingMedian(QStringLiteral("reparacion")), 99000,
+                   "cada cosa se mide por separado");
+    }
+
     std::printf("\n%s\n", gFailures == 0 ? "Todo pasa." : "HAY FALLAS.");
     return gFailures == 0 ? 0 : 1;
 }

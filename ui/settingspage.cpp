@@ -3,7 +3,11 @@
 // Nada de esto hace falta para empezar: cada valor tiene su default, y la
 // pantalla existe para corregir el que no sirva.
 
+#include <QCheckBox>
 #include <QComboBox>
+#include <QHBoxLayout>
+#include <QKeySequenceEdit>
+#include <QSignalBlocker>
 #include <QLabel>
 #include <QScrollArea>
 #include <QVBoxLayout>
@@ -57,6 +61,45 @@ void SettingsPage::buildUi() {
     theme::setLabelColor(heading, theme::kText);
     layout->addWidget(heading);
 
+    auto* captureCard = new Card(QStringLiteral("CAPTURA"), page);
+    captureCard->setSubtitle(
+        QStringLiteral("El atajo abre la ventana de anotar desde cualquier programa. Para que "
+                       "funcione, la aplicación tiene que estar abierta: por eso arranca con "
+                       "Windows y al cerrarla queda en la bandeja del sistema."));
+    auto* hotkeyRow = new QWidget(captureCard);
+    auto* hotkeyLayout = new QHBoxLayout(hotkeyRow);
+    hotkeyLayout->setContentsMargins(0, 0, 0, 0);
+    hotkeyLayout->setSpacing(10);
+    auto* hotkeyLabel = new QLabel(QStringLiteral("Atajo"), hotkeyRow);
+    hotkeyLabel->setFont(theme::bodyFont(10));
+    theme::setLabelColor(hotkeyLabel, theme::kTextMuted);
+    hotkey_ = new QKeySequenceEdit(hotkeyRow);
+    hotkey_->setMaximumSequenceLength(1);
+    hotkey_->setFixedWidth(200);
+    connect(hotkey_, &QKeySequenceEdit::editingFinished, this, [this] {
+        if (!hotkey_->keySequence().isEmpty()) {
+            emit hotkeyChanged(hotkey_->keySequence());
+        }
+    });
+    hotkeyStatus_ = new QLabel(hotkeyRow);
+    hotkeyStatus_->setFont(theme::bodyFont(9));
+    hotkeyLayout->addWidget(hotkeyLabel);
+    hotkeyLayout->addWidget(hotkey_);
+    hotkeyLayout->addWidget(hotkeyStatus_, 1);
+    captureCard->addContent(hotkeyRow);
+
+    autostart_ = new QCheckBox(QStringLiteral("Arrancar con Windows, en la bandeja del sistema"),
+                               captureCard);
+    autostart_->setFont(theme::bodyFont(10));
+    connect(autostart_, &QCheckBox::toggled, this, &SettingsPage::autostartChanged);
+    captureCard->addContent(autostart_);
+
+    captureTiming_ = new QLabel(captureCard);
+    captureTiming_->setFont(theme::bodyFont(10));
+    captureTiming_->setWordWrap(true);
+    captureCard->addContent(captureTiming_);
+    layout->addWidget(captureCard);
+
     auto* categoriesCard = new Card(QStringLiteral("CATEGORÍAS"), page);
     categoriesCard->setSubtitle(
         QStringLiteral("Se crean solas al escribirlas. La cuenta dice si un gasto es del negocio "
@@ -76,6 +119,33 @@ void SettingsPage::buildUi() {
 
 void SettingsPage::setSnapshot(const Snapshot& snapshot) {
     snapshot_ = snapshot;
+
+    {
+        const QSignalBlocker blockHotkey(hotkey_);
+        hotkey_->setKeySequence(QKeySequence(snapshot.hotkey));
+        const QSignalBlocker blockAutostart(autostart_);
+        autostart_->setChecked(snapshot.autostart);
+    }
+    if (snapshot.hotkeyRegistered) {
+        hotkeyStatus_->setText(QStringLiteral("activo"));
+        theme::setLabelColor(hotkeyStatus_, theme::kPositive);
+    } else {
+        hotkeyStatus_->setText(QStringLiteral("no se pudo registrar: otro programa lo usa o la "
+                                              "tecla no se admite; elige otra."));
+        theme::setLabelColor(hotkeyStatus_, theme::kNegative);
+    }
+    // El criterio de aceptacion, medido con el uso de verdad.
+    if (snapshot.captureMedianMs < 0) {
+        captureTiming_->setText(QStringLiteral("Todavía no hay capturas medidas."));
+        theme::setLabelColor(captureTiming_, theme::kTextMuted);
+    } else {
+        const double seconds = static_cast<double>(snapshot.captureMedianMs) / 1000.0;
+        const bool ok = snapshot.captureMedianMs < 10000;
+        captureTiming_->setText(
+            QStringLiteral("Anotar te toma %1 s (mediana de las últimas 30). La meta es menos de 10.")
+                .arg(QString::number(seconds, 'f', 1).replace(QLatin1Char('.'), QLatin1Char(','))));
+        theme::setLabelColor(captureTiming_, ok ? theme::kPositive : theme::kNegative);
+    }
 
     categories_->setRowCount(static_cast<int>(snapshot.categories.size()));
     for (int row = 0; row < static_cast<int>(snapshot.categories.size()); ++row) {

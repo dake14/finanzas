@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "dake/core/accounts.hpp"
+#include "dake/core/capture.hpp"
 #include "dake/core/currency.hpp"
 #include "dake/core/model.hpp"
 
@@ -23,6 +24,13 @@ struct Snapshot {
     std::vector<core::Movement> movements;
     std::vector<core::Category> categories;
     core::Currency currency = core::Currency::usd();
+
+    // --- Preferencias de esta computadora -------------------------------
+    QString hotkey = QStringLiteral("Ctrl+Alt+Space");
+    bool hotkeyRegistered = false;
+    bool autostart = true;
+    /// Mediana de lo que tardan las capturas, en ms. -1 si no hay datos.
+    qint64 captureMedianMs = -1;
     core::Date today{2026, 9, 2};
 
     [[nodiscard]] QString pocketName(const core::Id& id) const {
@@ -64,6 +72,18 @@ struct Snapshot {
             }
         }
         return {};
+    }
+
+    /// Las reparaciones abiertas, como las necesita el interprete de la
+    /// captura para reconocerlas dentro de una frase.
+    [[nodiscard]] std::vector<core::RepairRef> openRepairRefs() const {
+        std::vector<core::RepairRef> out;
+        for (const core::Job& job : jobs) {
+            if (!job.deleted && !job.closed) {
+                out.push_back({job.id, std::string(), job.name, job.client});
+            }
+        }
+        return out;
     }
 
     /// Primer y ultimo dia del mes de `today`. Todo el tablero mira ese rango.

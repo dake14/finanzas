@@ -8,6 +8,8 @@
 #include <QSqlQuery>
 #include <QVariant>
 
+#include <algorithm>
+
 #include "dake/core/demo.hpp"
 #include "dake/core/uuid.hpp"
 #include "dake/storage/wire.hpp"
@@ -552,6 +554,37 @@ void Repository::removeCategory(const std::string& name) {
     query.prepare(QStringLiteral("DELETE FROM categories WHERE name = ?"));
     query.addBindValue(qs(name));
     run(query);
+}
+
+void Repository::addTiming(const QString& what, qint64 millis) {
+    QSqlQuery query(db_.handle());
+    query.prepare(QStringLiteral("INSERT INTO timings (what, millis, at) VALUES (?, ?, ?)"));
+    query.addBindValue(what);
+    query.addBindValue(millis);
+    query.addBindValue(QDateTime::currentDateTime().toString(Qt::ISODate));
+    run(query);
+}
+
+qint64 Repository::timingMedian(const QString& what, int last) {
+    QSqlQuery query(db_.handle());
+    query.prepare(QStringLiteral(
+        "SELECT millis FROM timings WHERE what = ? ORDER BY id DESC LIMIT ?"));
+    query.addBindValue(what);
+    query.addBindValue(last);
+    run(query);
+
+    std::vector<qint64> values;
+    while (query.next()) {
+        values.push_back(query.value(0).toLongLong());
+    }
+    if (values.empty()) {
+        return -1;
+    }
+    // Mediana y no promedio: una captura que quedo abierta mientras se atendia
+    // a un cliente dura media hora y no dice nada de lo que tarda anotar.
+    std::sort(values.begin(), values.end());
+    const std::size_t mid = values.size() / 2;
+    return values.size() % 2 == 1 ? values[mid] : (values[mid - 1] + values[mid]) / 2;
 }
 
 // -------------------------------------------------------------------- Siembra

@@ -1,6 +1,14 @@
 #include "mainwindow.hpp"
 
 #include <QAction>
+#include <QCloseEvent>
+#include <QCoreApplication>
+#include <QDir>
+#include <QMenu>
+#include <QPainter>
+#include <QPixmap>
+#include <QSettings>
+#include <QSystemTrayIcon>
 #include <QButtonGroup>
 #include <QDate>
 #include <QDateTime>
@@ -23,7 +31,9 @@
 #include "dake/sync/config.hpp"
 #include "dialogs.hpp"
 #include "pages.hpp"
-#include "quickentry.hpp"
+#include "capturewidget.hpp"
+#include "capturewindow.hpp"
+#include "globalhotkey.hpp"
 #include "theme.hpp"
 
 namespace dake::ui {
@@ -122,6 +132,31 @@ MainWindow::MainWindow(const QString& dbPath, QWidget* parent) : QMainWindow(par
     periodicSyncTimer_->start();
 
     buildUi();
+    buildTray();
+
+    // El atajo elegido en Ajustes, y si otro programa ya lo tiene, el primero
+    // libre de una lista corta. Ctrl+Alt+Espacio es el preferido pero hay
+    // programas que lo toman; Ctrl+Alt+N es el Ctrl+N de adentro de la
+    // aplicacion, que ya significa "anotar". Lo elegido no se pisa: si
+    // mañana el otro programa lo suelta, vuelve a usarse.
+    QStringList candidates;
+    if (const auto stored = repository_->setting(QStringLiteral("config.atajo"))) {
+        candidates << *stored;
+    }
+    candidates << QStringLiteral("Ctrl+Alt+Space") << QStringLiteral("Ctrl+Alt+N")
+               << QStringLiteral("Ctrl+Shift+Space");
+    candidates.removeDuplicates();
+    for (const QString& candidate : candidates) {
+        if (applyHotkey(QKeySequence(candidate, QKeySequence::PortableText))) {
+            break;
+        }
+    }
+    // Por defecto arranca con Windows: el atajo no sirve si la aplicacion no
+    // esta abierta. Se reescribe en cada arranque para que siga la ruta del
+    // ejecutable si se movio de carpeta.
+    applyAutostart(repository_->setting(QStringLiteral("config.arranque")).value_or(QStringLiteral("1")) ==
+                   QStringLiteral("1"));
+
     reload();
 
     const auto token = repository_->setting(QStringLiteral("sync.refresh_token"));
@@ -130,7 +165,134 @@ MainWindow::MainWindow(const QString& dbPath, QWidget* parent) : QMainWindow(par
     }
 }
 
-MainWindow::~MainWindow() = default;
+MainWindow::~MainWindow() {
+    // La ventana mini no tiene padre (es de nivel superior) y hay que
+    // borrarla a mano.
+    delete captureWindow_;
+}
+
+// ----------------------------------------------------------- Bandeja y atajo
+
+namespace {
+
+/// El icono de la bandeja: una "F" sobre el cian del logo. Pintado y no
+/// cargado de un archivo, para no depender de recursos.
+[[nodiscard]] QIcon trayIcon() {
+    QPixmap pixmap(64, 64);
+    pixmap.fill(Qt::transparent);
+    QPainter painter(&pixmap);
+    painter.setRenderHint(QPainter::Antialiasing);
+    painter.setBrush(theme::kAccent);
+    painter.setPen(Qt::NoPen);
+    painter.drawRoundedRect(QRectF(2, 2, 60, 60), 14, 14);
+    painter.setPen(theme::kBackground);
+    painter.setFont(theme::displayFont(30, QFont::Bold));
+    painter.drawText(pixmap.rect(), Qt::AlignCenter, QStringLiteral("F"));
+    return QIcon(pixmap);
+}
+
+} // namespace
+
+void MainWindow::buildTray() {
+    setWindowIcon(trayIcon());
+    if (!QSystemTrayIcon::isSystemTrayAvailable()) {
+        return;
+    }
+    tray_ = new QSystemTrayIcon(trayIcon(), this);
+    tray_->setToolTip(QStringLiteral("Finanzas DakeLabs"));
+
+    auto* menu = new QMenu(this);
+    menu->addAction(QStringLiteral("Anotar"), this, &MainWindow::showCapture);
+    menu->addAction(QStringLiteral("Abrir Finanzas"), this, &MainWindow::showMainWindow);
+    menu->addSeparator();
+    menu->addAction(QStringLiteral("Salir"), this, [this] {
+        quitting_ = true;
+        QCoreApplication::quit();
+    });
+    tray_->setContextMenu(menu);
+
+    connect(tray_, &QSystemTrayIcon::activated, this,
+            [this](QSystemTrayIcon::ActivationReason reason) {
+                if (reason == QSystemTrayIcon::Trigger ||
+                    reason == QSystemTrayIcon::DoubleClick) {
+                    showMainWindow();
+                }
+            });
+    tray_->show();
+}
+
+bool MainWindow::applyHotkey(const QKeySequence& sequence) {
+    const bool ok = hotkey_->setShortcut(sequence);
+    if (tray_ != nullptr) {
+        tray_->setToolTip(ok ? QStringLiteral("Finanzas DakeLabs · %1 para anotar")
+                                   .arg(sequence.toString(QKeySequence::NativeText))
+                             : QStringLiteral("Finanzas DakeLabs"));
+    }
+    return ok;
+}
+
+void MainWindow::applyAutostart(bool enabled) {
+#ifdef Q_OS_WIN
+    // Una corrida sobre una base de prueba no toca el arranque de Windows: la
+    // entrada apuntaria a un ejecutable de prueba.
+    if (!qEnvironmentVariableIsEmpty("DAKE_TEST_DB_PATH")) {
+        return;
+    }
+    QSettings run(QStringLiteral("HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Run"),
+                  QSettings::NativeFormat);
+    const QString name = QCoreApplication::applicationName();
+    if (enabled) {
+        run.setValue(name, QStringLiteral("\"%1\" --bandeja")
+                               .arg(QDir::toNativeSeparators(QCoreApplication::applicationFilePath())));
+    } else {
+        run.remove(name);
+    }
+#else
+    Q_UNUSED(enabled);
+#endif
+}
+
+void MainWindow::showCapture() {
+    captureWindow_->popup();
+}
+
+void MainWindow::showMainWindow() {
+    if (isMinimized()) {
+        showNormal();
+    } else {
+        show();
+    }
+    raise();
+    activateWindow();
+}
+
+void MainWindow::handleInstanceMessage(const QString& message) {
+    if (message == QStringLiteral("anotar")) {
+        showCapture();
+    } else {
+        showMainWindow();
+    }
+}
+
+void MainWindow::closeEvent(QCloseEvent* event) {
+    if (quitting_ || tray_ == nullptr) {
+        QMainWindow::closeEvent(event);
+        QCoreApplication::quit();
+        return;
+    }
+    hide();
+    event->ignore();
+    // Se avisa una sola vez. La primera vez que la ventana desaparece hay que
+    // decir donde quedo; la decima, es ruido.
+    if (!repository_->setting(QStringLiteral("config.aviso_bandeja"))) {
+        repository_->setSetting(QStringLiteral("config.aviso_bandeja"), QStringLiteral("1"));
+        tray_->showMessage(QStringLiteral("Finanzas sigue abierta"),
+                           QStringLiteral("Quedó en la bandeja del sistema. %1 para anotar desde "
+                                          "cualquier programa; clic derecho en el ícono para salir.")
+                               .arg(hotkey_->shortcut().toString(QKeySequence::NativeText)),
+                           QSystemTrayIcon::Information, 6000);
+    }
+}
 
 void MainWindow::restamp(std::string& hlc, std::string& deviceId) {
     hlc = clock(deviceId_.toStdString()).now(QDateTime::currentMSecsSinceEpoch()).encode();
@@ -187,7 +349,54 @@ void MainWindow::buildUi() {
     root->addWidget(stack_, 1);
     setCentralWidget(central);
 
-    connect(today_->quickEntry(), &QuickEntry::submitted, this, &MainWindow::addMovement);
+    // Las dos capturas —la de Hoy y la ventana mini— guardan igual. Lo unico
+    // distinto es que la mini se esconde al guardar, salvo con Shift+Enter.
+    const auto onCapture = [this](const core::Movement& movement,
+                                  const core::Category& newCategory, qint64 elapsedMs) {
+        addMovement(movement, newCategory);
+        if (elapsedMs > 0) {
+            repository_->addTiming(QStringLiteral("captura"), elapsedMs);
+        }
+    };
+    connect(today_->capture(), &CaptureWidget::submitted, this,
+            [onCapture](const core::Movement& m, const core::Category& c, qint64 ms, bool) {
+                onCapture(m, c, ms);
+            });
+
+    captureWindow_ = new CaptureWindow();
+    connect(captureWindow_->capture(), &CaptureWidget::submitted, this,
+            [this, onCapture](const core::Movement& m, const core::Category& c, qint64 ms,
+                              bool keepOpen) {
+                if (!keepOpen) {
+                    captureWindow_->hide();
+                }
+                onCapture(m, c, ms);
+                if (tray_ != nullptr && !keepOpen && !isVisible()) {
+                    tray_->showMessage(QStringLiteral("Anotado"),
+                                       QString::fromStdString(m.name) + QStringLiteral(" · ") +
+                                           theme::formatMoney(core::Money::fromMinor(
+                                               m.amountMinor, snapshot_.currency)),
+                                       QSystemTrayIcon::Information, 2500);
+                }
+            });
+    connect(captureWindow_->capture(), &CaptureWidget::cancelled, captureWindow_,
+            &QWidget::hide);
+
+    hotkey_ = new GlobalHotkey(this);
+    connect(hotkey_, &GlobalHotkey::activated, this, &MainWindow::showCapture);
+    connect(settings_, &SettingsPage::hotkeyChanged, this, [this](const QKeySequence& sequence) {
+        if (applyHotkey(sequence)) {
+            repository_->setSetting(QStringLiteral("config.atajo"),
+                                    sequence.toString(QKeySequence::PortableText));
+        }
+        reload();
+    }, Qt::QueuedConnection);
+    connect(settings_, &SettingsPage::autostartChanged, this, [this](bool enabled) {
+        repository_->setSetting(QStringLiteral("config.arranque"),
+                                enabled ? QStringLiteral("1") : QStringLiteral("0"));
+        applyAutostart(enabled);
+        reload();
+    }, Qt::QueuedConnection);
     connect(jobs_, &JobsPage::newJobRequested, this, &MainWindow::newJob);
     connect(jobs_, &JobsPage::jobActivated, this, &MainWindow::toggleJob);
     connect(movements_, &MovementsPage::movementActivated, this, &MainWindow::editMovement);
@@ -212,7 +421,7 @@ void MainWindow::buildUi() {
     auto* newShortcut = new QShortcut(QKeySequence::New, this);
     connect(newShortcut, &QShortcut::activated, this, [this] {
         showPage(0);
-        today_->quickEntry()->focusName();
+        today_->capture()->focusInput();
     });
     auto* findShortcut = new QShortcut(QKeySequence::Find, this);
     connect(findShortcut, &QShortcut::activated, this, [this] {
@@ -326,16 +535,28 @@ void MainWindow::reload() {
     movements_->setSnapshot(snapshot_);
     pockets_->setSnapshot(snapshot_);
     closing_->setSnapshot(snapshot_);
+    snapshot_.hotkey = hotkey_ != nullptr ? hotkey_->shortcut().toString(QKeySequence::PortableText)
+                                          : QString();
+    snapshot_.hotkeyRegistered = hotkey_ != nullptr && hotkey_->isRegistered();
+    snapshot_.autostart = repository_->setting(QStringLiteral("config.arranque"))
+                              .value_or(QStringLiteral("1")) == QStringLiteral("1");
+    snapshot_.captureMedianMs = repository_->timingMedian(QStringLiteral("captura"));
+
     reports_->setSnapshot(snapshot_);
     settings_->setSnapshot(snapshot_);
+    if (captureWindow_ != nullptr) {
+        captureWindow_->capture()->setSnapshot(snapshot_);
+    }
 
     footer_->setText(db_->path());
 }
 
 // ---------------------------------------------------------------- Acciones
 
-void MainWindow::addMovement(const core::Movement& draft) {
-    const core::Account account = snapshot_.categoryAccount(draft.category, draft.pocketId);
+void MainWindow::addMovement(const core::Movement& draft, const core::Category& newCategory) {
+    const core::Account account = !newCategory.name.empty()
+                                      ? newCategory.account
+                                      : snapshot_.categoryAccount(draft.category, draft.pocketId);
 
     // Un gasto personal pagado con plata del negocio se guarda como lo que es:
     // un sueldo y un gasto personal. El negocio no registra un almuerzo.
@@ -347,8 +568,10 @@ void MainWindow::addMovement(const core::Movement& draft) {
 
     const bool ownTx = db_->handle().transaction();
     try {
-        if (!draft.category.empty() &&
-            core::findCategory(snapshot_.categories, draft.category) == nullptr) {
+        if (!newCategory.name.empty()) {
+            repository_->saveCategory(newCategory);
+        } else if (!draft.category.empty() &&
+                   core::findCategory(snapshot_.categories, draft.category) == nullptr) {
             repository_->saveCategory({draft.category, account, core::CategoryClass::General,
                                        draft.kind});
         }

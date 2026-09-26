@@ -23,6 +23,8 @@
 
 #include "dake/core/accounts.hpp"
 #include "dake/core/demo.hpp"
+#include "capturewidget.hpp"
+#include "capturewindow.hpp"
 #include "pages.hpp"
 #include "theme.hpp"
 
@@ -65,6 +67,15 @@ namespace {
         auto page = std::make_unique<dake::ui::PocketsPage>();
         page->setSnapshot(snapshot);
         return page;
+    }
+    if (screen.startsWith(QLatin1String("captura"))) {
+        // "captura:25 almuerzo ayer" muestra la ventana mini con esa linea.
+        auto window = std::make_unique<dake::ui::CaptureWindow>();
+        window->capture()->setSnapshot(snapshot);
+        const QString line = screen.section(QLatin1Char(':'), 1);
+        window->capture()->setInput(line.isEmpty() ? QStringLiteral("25 almuerzo ayer") : line);
+        window->setAttribute(Qt::WA_TranslucentBackground, false);
+        return window;
     }
     if (screen == QLatin1String("reportes")) {
         auto page = std::make_unique<dake::ui::ReportsPage>();

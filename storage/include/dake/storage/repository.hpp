@@ -65,6 +65,13 @@ public:
 
     void removeCategory(const std::string& name);
 
+    /// Anota cuanto tardo una captura ("captura", "reparacion", "revision").
+    void addTiming(const QString& what, qint64 millis);
+
+    /// La mediana de las ultimas `last` mediciones de `what`, en milisegundos.
+    /// -1 si no hay ninguna.
+    [[nodiscard]] qint64 timingMedian(const QString& what, int last = 30);
+
     [[nodiscard]] bool isEmpty();
 
     /// Carga el caso de agosto si la base esta vacia. Devuelve true si sembro.

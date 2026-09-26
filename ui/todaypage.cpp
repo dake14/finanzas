@@ -7,6 +7,7 @@
 
 #include <QGridLayout>
 #include <QHBoxLayout>
+#include <QKeySequence>
 #include <QLabel>
 #include <QPainter>
 #include <QScrollArea>
@@ -15,7 +16,7 @@
 #include "cards.hpp"
 #include "dake/core/report.hpp"
 #include "pages.hpp"
-#include "quickentry.hpp"
+#include "capturewidget.hpp"
 #include "theme.hpp"
 
 namespace dake::ui {
@@ -130,13 +131,10 @@ void TodayPage::buildUi() {
     // --- Carga rapida, arriba de todo -------------------------------------
     // Va primero y no al final: es lo que se viene a hacer. Un formulario al
     // que hay que bajar con la rueda es un formulario que se usa menos.
-    auto* entryCard = new Card(QStringLiteral("ANOTAR UN MOVIMIENTO"), page);
-    entryCard->setSubtitle(
-        QStringLiteral("Con el nombre, el monto y Enter alcanza. Lo demas queda como lo "
-                       "dejaste la vez anterior."));
-    quickEntry_ = new QuickEntry(entryCard);
-    entryCard->addContent(quickEntry_);
-    layout->addWidget(entryCard);
+    entryCard_ = new Card(QStringLiteral("ANOTAR"), page);
+    capture_ = new CaptureWidget(entryCard_);
+    entryCard_->addContent(capture_);
+    layout->addWidget(entryCard_);
 
     // --- Cuatro cifras ----------------------------------------------------
     auto* kpiRow = new QHBoxLayout();
@@ -503,7 +501,17 @@ void TodayPage::setSnapshot(const Snapshot& snapshot) {
         alertsLayout_->addWidget(block);
     }
 
-    quickEntry_->setSnapshot(snapshot);
+    capture_->setSnapshot(snapshot);
+    const QString anywhere =
+        snapshot.hotkeyRegistered
+            ? QStringLiteral(" Desde cualquier programa: %1.")
+                  .arg(QKeySequence(snapshot.hotkey, QKeySequence::PortableText)
+                           .toString(QKeySequence::NativeText))
+            : QString();
+    entryCard_->setSubtitle(
+        QStringLiteral("Monto y descripción, y Enter. La categoría, el bolsillo y la reparación "
+                       "se deducen; lo que no, queda para la revisión del domingo.") +
+        anywhere);
 }
 
 } // namespace dake::ui

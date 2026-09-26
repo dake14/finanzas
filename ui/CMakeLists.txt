@@ -3,7 +3,7 @@
 # Las graficas se pintan a mano con QPainter en vez de traer Qt Charts: son dos
 # rectangulos y una leyenda, y una dependencia mas seria mas codigo, no menos.
 
-find_package(Qt6 REQUIRED COMPONENTS Widgets Sql)
+find_package(Qt6 REQUIRED COMPONENTS Widgets Sql Network)
 
 qt_standard_project_setup()
 
@@ -18,8 +18,12 @@ set(DAKE_UI_SOURCES
     pocketspage.cpp
     reportspage.cpp
     settingspage.cpp
-    quickentry.cpp
-    quickentry.hpp
+    capturewidget.cpp
+    capturewidget.hpp
+    capturewindow.cpp
+    capturewindow.hpp
+    globalhotkey.cpp
+    globalhotkey.hpp
     dialogs.cpp
     dialogs.hpp
     cards.cpp
@@ -40,7 +44,8 @@ qt_add_executable(dake_pruebas WIN32
 )
 
 target_include_directories(dake_pruebas PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(dake_pruebas PRIVATE dake::core dake::storage dake_sync Qt6::Widgets)
+target_link_libraries(dake_pruebas PRIVATE dake::core dake::storage dake_sync Qt6::Widgets
+                                           Qt6::Network)
 target_compile_definitions(dake_pruebas PRIVATE DAKE_APP_NAME="${DAKE_APP_NAME}")
 
 # --- Banco de pruebas visual ---
@@ -53,7 +58,8 @@ qt_add_executable(dake_uipreview
     ${DAKE_UI_SOURCES}
 )
 target_include_directories(dake_uipreview PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(dake_uipreview PRIVATE dake::core dake::storage dake_sync Qt6::Widgets)
+target_link_libraries(dake_uipreview PRIVATE dake::core dake::storage dake_sync Qt6::Widgets
+                                             Qt6::Network)
 target_compile_definitions(dake_uipreview PRIVATE DAKE_APP_NAME="${DAKE_APP_NAME}")
 
 if(WIN32)

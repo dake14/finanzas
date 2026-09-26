@@ -13,7 +13,9 @@
 #include "dake/core/report.hpp"
 #include "snapshot.hpp"
 
+class QCheckBox;
 class QComboBox;
+class QKeySequenceEdit;
 class QLabel;
 class QLineEdit;
 class QTabWidget;
@@ -26,7 +28,7 @@ namespace dake::ui {
 
 class Card;
 class KpiCard;
-class QuickEntry;
+class CaptureWidget;
 
 /// Barra apilada de una sola linea: con que se pago el mes. Se pinta a mano
 /// porque son dos rectangulos y una leyenda, y traer una libreria de graficos
@@ -56,12 +58,13 @@ public:
     explicit TodayPage(QWidget* parent = nullptr);
 
     void setSnapshot(const Snapshot& snapshot);
-    [[nodiscard]] QuickEntry* quickEntry() const noexcept { return quickEntry_; }
+    [[nodiscard]] CaptureWidget* capture() const noexcept { return capture_; }
 
 private:
     void buildUi();
 
-    QuickEntry* quickEntry_ = nullptr;
+    CaptureWidget* capture_ = nullptr;
+    Card* entryCard_ = nullptr;
     QLabel* heading_ = nullptr;
     QLabel* subheading_ = nullptr;
 
@@ -216,12 +219,18 @@ public:
 
 signals:
     void categoryChanged(const dake::core::Category& category);
+    void hotkeyChanged(const QKeySequence& sequence);
+    void autostartChanged(bool enabled);
 
 private:
     void buildUi();
 
     Snapshot snapshot_;
     QTableWidget* categories_ = nullptr;
+    QKeySequenceEdit* hotkey_ = nullptr;
+    QLabel* hotkeyStatus_ = nullptr;
+    QCheckBox* autostart_ = nullptr;
+    QLabel* captureTiming_ = nullptr;
 };
 
 class PocketsPage : public QWidget {

@@ -20,6 +20,7 @@
 
 class QLabel;
 class QPushButton;
+class QSystemTrayIcon;
 class QStackedWidget;
 class QTimer;
 
@@ -30,6 +31,8 @@ class JobsPage;
 class MovementsPage;
 class PocketsPage;
 class ClosingPage;
+class CaptureWindow;
+class GlobalHotkey;
 class ReportsPage;
 class SettingsPage;
 
@@ -40,8 +43,26 @@ public:
     explicit MainWindow(const QString& dbPath, QWidget* parent = nullptr);
     ~MainWindow() override;
 
+    /// Abre la ventana mini de anotar, encima de lo que se este haciendo.
+    void showCapture();
+
+    /// Trae la ventana principal al frente, este escondida o minimizada.
+    void showMainWindow();
+
+    /// Lo que manda una segunda instancia al arrancar: "anotar" o "mostrar".
+    /// Abrir la aplicacion dos veces no abre dos aplicaciones: le avisa a la
+    /// que ya esta andando.
+    void handleInstanceMessage(const QString& message);
+
+protected:
+    /// Cerrar la ventana la esconde en la bandeja: el atajo global solo
+    /// funciona mientras la aplicacion este abierta.
+    void closeEvent(QCloseEvent* event) override;
+
 private slots:
-    void addMovement(const dake::core::Movement& draft);
+    /// Guarda lo que llega de una captura. `newCategory` trae nombre solo si
+    /// la categoria no existia, con la cuenta elegida en la vista previa.
+    void addMovement(const dake::core::Movement& draft, const dake::core::Category& newCategory);
     void newPocket();
     void newJob();
     void reconcile(const dake::core::Id& pocketId);
@@ -79,6 +100,13 @@ private slots:
 private:
     void buildUi();
     void buildSidebar(QWidget* parent);
+    void buildTray();
+
+    /// Registra el atajo guardado en los ajustes. false si Windows no lo acepto.
+    bool applyHotkey(const QKeySequence& sequence);
+
+    /// Escribe o borra la entrada de arranque con Windows.
+    void applyAutostart(bool enabled);
     void reload();
 
     /// Lo que sigue a TODO cambio hecho en esta maquina: recarga la pantalla y
@@ -157,6 +185,14 @@ private:
     ReportsPage* reports_ = nullptr;
     SettingsPage* settings_ = nullptr;
     QLabel* footer_ = nullptr;
+
+    CaptureWindow* captureWindow_ = nullptr;
+    GlobalHotkey* hotkey_ = nullptr;
+    QSystemTrayIcon* tray_ = nullptr;
+
+    /// true solo cuando se eligio Salir en la bandeja. Cerrar la ventana con
+    /// la X no sale.
+    bool quitting_ = false;
 };
 
 } // namespace dake::ui
