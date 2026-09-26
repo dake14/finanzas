@@ -511,6 +511,10 @@ Id suggestedPocket(const CaptureContext& context, std::optional<Account> account
 
 // ----------------------------------------------------------------- Aprender
 
+std::string foldText(std::string_view text) {
+    return fold(text);
+}
+
 std::string normalizeDescription(std::string_view text) {
     std::string out;
     bool space = false;

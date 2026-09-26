@@ -167,6 +167,45 @@ void SettingsPage::buildUi() {
     templatesCard->addContent(addTemplate);
     layout->addWidget(templatesCard);
 
+    // --- DakeLabs Cotizaciones ------------------------------------------------
+    auto* quotesCard = new Card(QStringLiteral("DAKELABS COTIZACIONES"), page);
+    quotesCard->setSubtitle(
+        QStringLiteral("Finanzas lee esta carpeta y nunca escribe en ella. Un informe entregado crea "
+                       "el ingreso por cobrar; al marcarlo pagado, queda cobrado con esa fecha. Una "
+                       "cotización aceptada abre la reparación."));
+    auto* folderRow = new QWidget(quotesCard);
+    auto* folderLayout = new QHBoxLayout(folderRow);
+    folderLayout->setContentsMargins(0, 0, 0, 0);
+    folderLayout->setSpacing(8);
+    quoteFolder_ = new QLineEdit(folderRow);
+    quoteFolder_->setFont(theme::bodyFont(10));
+    connect(quoteFolder_, &QLineEdit::editingFinished, this, [this] {
+        const QString folder = quoteFolder_->text().trimmed();
+        if (!folder.isEmpty() && folder != snapshot_.quoteFolder) {
+            emit quoteFolderChanged(folder);
+        }
+    });
+    auto* readNow = new QPushButton(QStringLiteral("Leer ahora"), folderRow);
+    readNow->setObjectName(QStringLiteral("GhostButton"));
+    quoteReview_ = new QPushButton(QStringLiteral("Revisar"), folderRow);
+    quoteReview_->setObjectName(QStringLiteral("PrimaryButton"));
+    for (QPushButton* b : {readNow, quoteReview_}) {
+        b->setCursor(Qt::PointingHandCursor);
+        b->setFont(theme::bodyFont(9, QFont::DemiBold));
+        b->setFixedHeight(32);
+    }
+    connect(readNow, &QPushButton::clicked, this, &SettingsPage::quoteReadRequested);
+    connect(quoteReview_, &QPushButton::clicked, this, &SettingsPage::quoteReviewRequested);
+    folderLayout->addWidget(quoteFolder_, 1);
+    folderLayout->addWidget(readNow);
+    folderLayout->addWidget(quoteReview_);
+    quotesCard->addContent(folderRow);
+    quoteStatus_ = new QLabel(quotesCard);
+    quoteStatus_->setWordWrap(true);
+    quoteStatus_->setFont(theme::bodyFont(10));
+    quotesCard->addContent(quoteStatus_);
+    layout->addWidget(quotesCard);
+
     auto* categoriesCard = new Card(QStringLiteral("CATEGORÍAS"), page);
     categoriesCard->setSubtitle(
         QStringLiteral("Se crean solas al escribirlas. La cuenta dice si un gasto es del negocio "
@@ -207,6 +246,34 @@ void SettingsPage::setSnapshot(const Snapshot& snapshot) {
         theme::setLabelColor(costsNote_, theme::kTextMuted);
     }
     refillTemplates();
+
+    if (!quoteFolder_->hasFocus()) {
+        quoteFolder_->setText(snapshot.quoteFolder);
+    }
+    const int holds = snapshot.quoteHolds();
+    quoteReview_->setText(holds > 0 ? QStringLiteral("Revisar (%1)").arg(holds) : QStringLiteral("Revisar"));
+    quoteReview_->setEnabled(holds > 0);
+    if (!snapshot.quoteFolderFound) {
+        quoteStatus_->setText(QStringLiteral("No se encuentra la carpeta (tiene que tener adentro la "
+                                             "carpeta «documentos»)."));
+        theme::setLabelColor(quoteStatus_, theme::kInversion);
+    } else {
+        int imported = 0;
+        for (const core::QuotePlan& plan : snapshot.quotePlans) {
+            if (plan.decision == core::QuoteDecision::Importar) ++imported;
+        }
+        QString text = QStringLiteral("%1 documentos leídos · %2 al día en Finanzas")
+                           .arg(snapshot.quoteDocs.size())
+                           .arg(imported);
+        if (holds > 0) {
+            text += QStringLiteral(" · %1 esperan que decidas").arg(holds);
+        }
+        if (!snapshot.quoteErrors.isEmpty()) {
+            text += QStringLiteral("\nNo se pudieron leer: ") + snapshot.quoteErrors.join(QStringLiteral("; "));
+        }
+        quoteStatus_->setText(text);
+        theme::setLabelColor(quoteStatus_, holds > 0 ? theme::kInversion : theme::kTextMuted);
+    }
 
     {
         const QSignalBlocker blockHotkey(hotkey_);

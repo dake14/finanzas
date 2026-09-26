@@ -14,6 +14,7 @@
 
 #include "dake/core/accounts.hpp"
 #include "dake/core/capture.hpp"
+#include "dake/core/quotes.hpp"
 #include "dake/core/repairs.hpp"
 #include "dake/core/model.hpp"
 #include "dake/core/money.hpp"
@@ -662,6 +663,362 @@ void entregarYCobrar() {
           "el ingreso de una reparacion se encuentra por su trabajo");
 }
 
+
+// ------------------------------------------------------------- Cotizaciones
+
+[[nodiscard]] QuoteDoc documento(const char* id, const char* number, QuoteKind kind,
+                                 const char* status, const char* client, const char* device,
+                                 std::int64_t base, const char* delivered = "2026-09-19") {
+    QuoteDoc d;
+    d.id = id;
+    d.number = number;
+    d.kind = kind;
+    d.status = status;
+    d.client = client;
+    d.device = device;
+    d.baseMinor = base;
+    d.issued = Date::fromIso(delivered);
+    d.received = Date{2026, 7, 17};
+    if (kind == QuoteKind::Informe) d.delivered = Date::fromIso(delivered);
+    return d;
+}
+
+[[nodiscard]] QuoteContext contextoCot() {
+    QuoteContext c;
+    c.pocketId = "caja";
+    c.category = "Reparaciones";
+    return c;
+}
+
+[[nodiscard]] const QuotePlan* planDe(const std::vector<QuotePlan>& plans, const char* docId) {
+    for (const QuotePlan& p : plans) {
+        if (p.docId == docId) return &p;
+    }
+    return nullptr;
+}
+
+void totalesDeCotizaciones() {
+    std::printf("\n[cotizaciones: los totales con las mismas reglas]\n");
+    checkMinor(quoteLineTotal(1, 30'00), 30'00, "una linea: cantidad x valor");
+    checkMinor(quoteLineTotal(0.5, 3'33), 1'67, "166,5 centavos redondea lejos del cero");
+    checkMinor(quoteLineTotal(2, 12'50), 25'00, "dos unidades");
+    checkMinor(quoteBase(35'00, DiscountKind::Porcentaje, 7144), 10'00,
+               "35 con 71,44% de descuento: 10 (el caso real del INF-2026-004)");
+    checkMinor(quoteBase(35'00, DiscountKind::Monto, 2'00), 33'00, "descuento por monto");
+    checkMinor(quoteBase(35'00, DiscountKind::Ninguno, 0), 35'00, "sin descuento");
+}
+
+void cotizacionAceptada() {
+    std::printf("\n[cotizaciones: la cotizacion aceptada abre la reparacion]\n");
+    const auto cot = documento("c1", "COT-2026-001", QuoteKind::Cotizacion, "aceptada",
+                               "Josue Rodríguez", "asus x556U", 10'00);
+    const auto plans = planQuotes({cot}, contextoCot());
+    const QuotePlan* p = planDe(plans, "c1");
+    check(p != nullptr && p->decision == QuoteDecision::Importar, "se importa");
+    if (p == nullptr || !p->repair) return;
+    check(p->newJob && p->repair->jobId == "cot-c1", "con un trabajo nuevo de id derivado");
+    check(p->repair->status == RepairStatus::EnProceso, "en proceso");
+    check(p->repair->received == (Date{2026, 7, 17}), "recibida cuando entro el equipo");
+    check(p->repair->device == "asus x556U" && p->client == "Josue Rodríguez", "equipo y cliente");
+    check(p->repair->sourceRef == "cot:c1", "marcada como venida de Cotizaciones");
+    check(p->incomes.empty(), "y sin ingreso: todavia no hay nada que cobrar");
+
+    // Cuando ya existe su informe, la cotizacion no escribe nada: la
+    // reparacion es una sola y la maneja el informe. Si las dos la
+    // escribieran, cada lectura de la carpeta la cambiaria de ida y vuelta.
+    auto hijo = documento("i9", "INF-2026-009", QuoteKind::Informe, "entregado",
+                          "Josue Rodríguez", "asus x556U", 10'00);
+    hijo.originId = "c1";
+    const auto conInforme = planQuotes({cot, hijo}, contextoCot());
+    check(planDe(conInforme, "c1") && planDe(conInforme, "c1")->decision == QuoteDecision::Nada,
+          "con su informe ya hecho, la cotizacion no hace nada");
+    check(planDe(conInforme, "i9") && planDe(conInforme, "i9")->decision == QuoteDecision::Importar,
+          "y el informe se importa");
+    hijo.status = "borrador";
+    const auto conBorrador = planQuotes({cot, hijo}, contextoCot());
+    check(planDe(conBorrador, "c1") && planDe(conBorrador, "c1")->decision == QuoteDecision::Importar,
+          "un informe en borrador todavia no la reemplaza");
+
+    for (const char* status : {"borrador", "enviada", "rechazada"}) {
+        auto d = cot;
+        d.status = status;
+        const auto ps = planQuotes({d}, contextoCot());
+        check(ps.size() == 1 && ps[0].decision == QuoteDecision::Nada,
+              std::string("una cotizacion ") + status + " no hace nada");
+    }
+}
+
+void informeEntregadoYPagado() {
+    std::printf("\n[cotizaciones: informe entregado, despues pagado]\n");
+    QuoteContext c = contextoCot();
+    Repair abierta;
+    abierta.jobId = "cot-c1";
+    abierta.orderNo = "COT-2026-001";
+    abierta.device = "asus x556U";
+    abierta.sourceRef = "cot:c1";
+    abierta.type = RepairType::Laptop;
+    abierta.estMinutes = 90;
+    c.repairs = {abierta};
+
+    auto inf = documento("i4", "INF-2026-004", QuoteKind::Informe, "entregado",
+                         "Josue Rodríguez", "asus x556U", 10'00);
+    inf.originId = "c1";
+    inf.lines = {{"Mano de obra", "Diagnostico y Reparación", 30'00},
+                 {"Repuestos y materiales", "Insumos", 5'00}};
+
+    auto plans = planQuotes({inf}, c);
+    const QuotePlan* p = planDe(plans, "i4");
+    check(p != nullptr && p->decision == QuoteDecision::Importar, "el informe entregado se importa");
+    if (p == nullptr || !p->repair) return;
+    check(!p->newJob && p->repair->jobId == "cot-c1",
+          "sobre la reparacion que abrio su cotizacion, no una nueva");
+    check(p->repair->status == RepairStatus::Entregada, "entregada");
+    check(p->repair->delivered == (Date{2026, 9, 19}), "con la fecha de entrega del informe");
+    check(p->repair->priceMinor == 10'00 && p->repair->orderNo == "INF-2026-004",
+          "con el precio y el numero del informe");
+    check(p->repair->type == RepairType::Laptop && p->repair->estMinutes == 90,
+          "sin tocar lo que manda Finanzas: tipo y horas");
+    check(p->newParts.size() == 1 && p->newParts[0] == "Insumos",
+          "los repuestos del informe se precargan, sin costo");
+    check(p->incomes.size() == 1, "un ingreso");
+    if (p->incomes.size() == 1) {
+        const Movement& m = p->incomes[0];
+        check(m.id == "cot-i4-saldo", "con id derivado del informe");
+        check(m.amountMinor == 10'00 && !m.settled, "por cobrar, por el total");
+        check(m.jobId == "cot-c1" && m.pocketId == "caja" && m.category == "Reparaciones",
+              "enlazado, en el bolsillo de cobros y en Reparaciones");
+        check(m.date == (Date{2026, 9, 19}) && m.kind == MovementKind::Ingreso && m.isWellFormed(),
+              "fechado el dia de la entrega");
+    }
+
+    inf.status = "pagado";
+    inf.paid = Date{2026, 9, 22};
+    inf.depositMinor = 4'00;
+    plans = planQuotes({inf}, c);
+    p = planDe(plans, "i4");
+    check(p != nullptr && p->repair && p->repair->status == RepairStatus::Cobrada, "pagado: cobrada");
+    check(p != nullptr && p->incomes.size() == 2, "saldo y abono por separado");
+    if (p != nullptr && p->incomes.size() == 2) {
+        const Movement& saldo = p->incomes[0].id == "cot-i4-saldo" ? p->incomes[0] : p->incomes[1];
+        const Movement& abono = p->incomes[0].id == "cot-i4-abono" ? p->incomes[0] : p->incomes[1];
+        check(saldo.amountMinor == 6'00 && saldo.settled && saldo.settledDate == (Date{2026, 9, 22}),
+              "el saldo, cobrado el dia del evento Pagado");
+        check(abono.id == "cot-i4-abono" && abono.amountMinor == 4'00 && abono.settled &&
+                  !abono.settledDate,
+              "el abono cobrado, sin fecha de cobro: Cotizaciones no la guarda");
+    }
+
+    // Volvio a borrador para corregirlo, ya importado: no se toca.
+    Movement importado;
+    importado.id = "cot-i4-saldo";
+    importado.kind = MovementKind::Ingreso;
+    importado.amountMinor = 10'00;
+    importado.jobId = "cot-c1";
+    c.movements = {importado};
+    inf.status = "borrador";
+    plans = planQuotes({inf}, c);
+    p = planDe(plans, "i4");
+    check(p != nullptr && p->decision == QuoteDecision::Esperar && p->hold == QuoteHold::EnCorreccion,
+          "en correccion despues de importado: espera, no se borra nada");
+    c.movements.clear();
+    plans = planQuotes({inf}, c);
+    check(planDe(plans, "i4") != nullptr && planDe(plans, "i4")->decision == QuoteDecision::Nada,
+          "un borrador nunca importado no hace nada");
+}
+
+void duplicadosYAnotados() {
+    std::printf("\n[cotizaciones: nunca dos veces]\n");
+    const auto i1 = documento("i1", "INF-2026-001", QuoteKind::Informe, "pagado", "Sr. Galván",
+                              "Macbook M1", 69'83, "2026-08-16");
+    const auto i2 = documento("i2", "INF-2026-002", QuoteKind::Informe, "pagado", "Sr. Galván",
+                              "Macbook M1", 69'82, "2026-08-16");
+
+    auto plans = planQuotes({i1, i2}, contextoCot());
+    check(planDe(plans, "i1") && planDe(plans, "i1")->decision == QuoteDecision::Importar,
+          "el primero se importa");
+    const QuotePlan* dup = planDe(plans, "i2");
+    check(dup && dup->decision == QuoteDecision::Esperar && dup->hold == QuoteHold::Duplicado &&
+              dup->relatedNumber == "INF-2026-001",
+          "el segundo, mismo cliente, equipo y un centavo de diferencia: espera como duplicado");
+    check(dup && dup->incomes.empty(), "y no trae ingresos");
+
+    QuoteContext c = contextoCot();
+    c.decisions = {{"i2", "ignorar"}};
+    plans = planQuotes({i1, i2}, c);
+    check(planDe(plans, "i2") && planDe(plans, "i2")->decision == QuoteDecision::Nada,
+          "marcado para ignorar, se ignora");
+    c.decisions = {{"i2", "nuevo"}};
+    plans = planQuotes({i1, i2}, c);
+    check(planDe(plans, "i2") && planDe(plans, "i2")->decision == QuoteDecision::Importar,
+          "marcado como nuevo, se importa igual");
+
+    // El Macbook de agosto ya estaba anotado a mano.
+    Movement aMano;
+    aMano.id = "m-mac";
+    aMano.date = Date{2026, 8, 17};
+    aMano.name = "Reparacion Macbook";
+    aMano.kind = MovementKind::Ingreso;
+    aMano.amountMinor = 69'83;
+    aMano.pocketId = "caja";
+    aMano.category = "Reparacion";
+    c = contextoCot();
+    c.movements = {aMano};
+    plans = planQuotes({i1}, c);
+    const QuotePlan* cand = planDe(plans, "i1");
+    check(cand && cand->decision == QuoteDecision::Esperar && cand->hold == QuoteHold::YaAnotado &&
+              cand->candidateMovementId == "m-mac",
+          "un ingreso a mano del mismo monto y fecha cercana: espera, y lo propone");
+
+    c.decisions = {{"i1", "enlace:m-mac"}};
+    plans = planQuotes({i1}, c);
+    const QuotePlan* linked = planDe(plans, "i1");
+    check(linked && linked->decision == QuoteDecision::Importar, "enlazado, se importa");
+    check(linked && linked->incomes.size() == 1 && linked->incomes[0].id == "m-mac",
+          "usando el ingreso que ya estaba, no uno nuevo");
+    check(linked && linked->incomes.size() == 1 && linked->incomes[0].jobId == "cot-i1" &&
+              linked->incomes[0].settled && linked->incomes[0].category == "Reparacion",
+          "ahora enlazado a la reparacion, cobrado, y con su categoria de siempre");
+
+    aMano.amountMinor = 50'00;
+    c = contextoCot();
+    c.movements = {aMano};
+    plans = planQuotes({i1}, c);
+    check(planDe(plans, "i1") && planDe(plans, "i1")->decision == QuoteDecision::Importar,
+          "un ingreso a mano de otro monto no se confunde");
+}
+
+void reparacionAMano() {
+    std::printf("\n[cotizaciones: una reparacion abierta a mano del mismo cliente]\n");
+    QuoteContext c = contextoCot();
+    Job job;
+    job.id = "job-m";
+    job.name = "R-0001 · Control";
+    job.client = "Christian Villalobos";
+    Repair aMano;
+    aMano.jobId = "job-m";
+    aMano.orderNo = "R-0001";
+    aMano.device = "Control";
+    aMano.type = RepairType::Otro;
+    c.jobs = {job};
+    c.repairs = {aMano};
+    Movement cobro;
+    cobro.id = "m-cobro";
+    cobro.date = Date{2026, 9, 18};
+    cobro.name = "cobro control";
+    cobro.kind = MovementKind::Ingreso;
+    cobro.amountMinor = 30'00;
+    cobro.pocketId = "banco";
+    cobro.jobId = "job-m";
+    cobro.settled = false;
+    c.movements = {cobro};
+
+    const auto inf = documento("i3", "INF-2026-003", QuoteKind::Informe, "entregado",
+                               "christian villalobos", "Control PS5 2 unidades", 30'00);
+    auto plans = planQuotes({inf}, c);
+    const QuotePlan* p = planDe(plans, "i3");
+    check(p && p->decision == QuoteDecision::Importar && p->repair && !p->newJob &&
+              p->repair->jobId == "job-m",
+          "se enlaza a la unica reparacion abierta de ese cliente");
+    check(p && p->repair && p->repair->sourceRef == "cot:i3", "y queda marcada");
+    check(p && p->incomes.size() == 1 && p->incomes[0].id == "m-cobro" &&
+              p->incomes[0].pocketId == "banco",
+          "su ingreso ya anotado se usa, con su bolsillo: nunca dos");
+
+    Repair otra = aMano;
+    otra.jobId = "job-n";
+    Job job2 = job;
+    job2.id = "job-n";
+    c.jobs.push_back(job2);
+    c.repairs.push_back(otra);
+    c.movements.clear();
+    plans = planQuotes({inf}, c);
+    p = planDe(plans, "i3");
+    check(p && p->newJob && p->repair && p->repair->jobId == "cot-i3",
+          "con dos abiertas del mismo cliente no adivina: crea una nueva");
+
+    auto cero = inf;
+    cero.baseMinor = 0;
+    plans = planQuotes({cero}, contextoCot());
+    check(planDe(plans, "i3") && planDe(plans, "i3")->hold == QuoteHold::SinMonto,
+          "un informe en cero espera en vez de crear un ingreso de cero");
+}
+
+void anotadoConTrabajo() {
+    std::printf("\n[cotizaciones: el Macbook de agosto, anotado a mano con su trabajo]\n");
+    // El caso real: "Trabajo Macbook Herman Galvan" por 120,00, cobrado y
+    // enlazado a un trabajo cerrado. El informe dice "Sr. Galván", Macbook M1,
+    // 119,83 (69,83 de saldo y 50 de abono).
+    Job viejo;
+    viejo.id = "job-mac";
+    viejo.name = "Reparacion Macbook";
+    viejo.client = "Herman Galvan";
+    viejo.closed = true;
+    Repair fichaVieja;
+    fichaVieja.jobId = "job-mac";
+    fichaVieja.device = "Reparacion Macbook";
+    fichaVieja.status = RepairStatus::Cobrada;
+    Movement aMano;
+    aMano.id = "m-mac";
+    aMano.date = Date{2026, 8, 17};
+    aMano.name = "Trabajo Macbook Herman Galvan";
+    aMano.kind = MovementKind::Ingreso;
+    aMano.amountMinor = 120'00;
+    aMano.pocketId = "caja";
+    aMano.jobId = "job-mac";
+    aMano.settled = true;
+
+    QuoteContext c = contextoCot();
+    c.jobs = {viejo};
+    c.repairs = {fichaVieja};
+    c.movements = {aMano};
+    auto inf = documento("i1", "INF-2026-001", QuoteKind::Informe, "pagado", "Sr. Galván",
+                         "Macbook M1", 119'83, "2026-08-16");
+    inf.depositMinor = 50'00;
+    inf.paid = Date{2026, 8, 16};
+
+    auto plans = planQuotes({inf}, c);
+    const QuotePlan* p = planDe(plans, "i1");
+    check(p && p->decision == QuoteDecision::Esperar && p->hold == QuoteHold::YaAnotado &&
+              p->candidateMovementId == "m-mac",
+          "17 centavos de diferencia y con trabajo propio: igual se reconoce como ya anotado");
+
+    c.decisions = {{"i1", "enlace:m-mac"}};
+    plans = planQuotes({inf}, c);
+    p = planDe(plans, "i1");
+    check(p && p->decision == QuoteDecision::Importar && p->repair && !p->newJob &&
+              p->repair->jobId == "job-mac",
+          "enlazado: se usa su trabajo, no se crea otra reparacion del mismo Macbook");
+    check(p && p->incomes.size() == 1 && p->incomes[0].id == "m-mac" &&
+              p->incomes[0].amountMinor == 119'83,
+          "un solo ingreso, el de siempre, corregido al total del informe");
+    check(p && p->repair && p->repair->sourceRef == "cot:i1", "y la reparacion queda marcada");
+
+    Movement otro = aMano;
+    otro.id = "m-otro";
+    otro.name = "Venta de filamento";
+    otro.amountMinor = 110'00;
+    otro.jobId.clear();
+    c = contextoCot();
+    c.movements = {otro};
+    plans = planQuotes({inf}, c);
+    check(planDe(plans, "i1") && planDe(plans, "i1")->decision == QuoteDecision::Importar,
+          "8% de diferencia sin nombrar equipo ni cliente: no es el mismo");
+}
+
+void tipoPorElEquipo() {
+    std::printf("\n[cotizaciones: el tipo sale del equipo]\n");
+    auto d = documento("x", "INF-9", QuoteKind::Informe, "entregado", "a", "RTX 3080", 1);
+    check(guessRepairType(d) == RepairType::GPU, "RTX 3080 es GPU");
+    d.device = "2 placas madres asus rog B450-f";
+    check(guessRepairType(d) == RepairType::PlacaMadre, "B450 es placa madre");
+    d.device = "Macbook M1";
+    check(guessRepairType(d) == RepairType::Laptop, "Macbook es laptop");
+    d.device = "Control PS5";
+    check(guessRepairType(d) == RepairType::Otro, "un control no se adivina");
+    d.lines = {{"Mano de obra", "Reballing de GPU", 1}};
+    check(guessRepairType(d) == RepairType::GPU, "los conceptos tambien cuentan");
+}
+
 } // namespace
 
 int main() {
@@ -691,6 +1048,13 @@ int main() {
     rentabilidadPorTipo();
     altaDesdePlantilla();
     entregarYCobrar();
+    totalesDeCotizaciones();
+    cotizacionAceptada();
+    informeEntregadoYPagado();
+    duplicadosYAnotados();
+    reparacionAMano();
+    anotadoConTrabajo();
+    tipoPorElEquipo();
 
     std::printf("\n%s\n", gFailures == 0 ? "Todo pasa." : "HAY FALLAS.");
     return gFailures == 0 ? 0 : 1;

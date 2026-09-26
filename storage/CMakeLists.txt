@@ -7,6 +7,7 @@ add_library(dake_storage STATIC
     src/exchange.cpp
     src/wire.cpp
     src/repository.cpp
+    src/quotefolder.cpp
 )
 
 target_include_directories(dake_storage PUBLIC

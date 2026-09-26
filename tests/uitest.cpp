@@ -9,11 +9,13 @@
 // prueba que simula teclas globales escribe en la ventana que tenga el foco,
 // que puede ser cualquier otra, y eso ya paso una vez.
 //
-// Un vigilante corta la prueba a los 60 segundos: un dialogo modal que nadie
+// Un vigilante corta la prueba a los 120 segundos: un dialogo modal que nadie
 // contesta la dejaria colgada para siempre.
 
 #include <QApplication>
 #include <QComboBox>
+#include <QDir>
+#include <QFile>
 #include <QLabel>
 #include <QLineEdit>
 #include <QMessageBox>
@@ -118,6 +120,42 @@ void reactivate(QWidget* window) {
     return nullptr;
 }
 
+
+[[nodiscard]] const core::Movement* findMovement(const std::vector<core::Movement>& movements,
+                                                 const std::string& id) {
+    for (const core::Movement& m : movements) {
+        if (m.id == id) return &m;
+    }
+    return nullptr;
+}
+
+void writeDoc(const QString& folder, const QString& name, const QByteArray& json) {
+    QDir().mkpath(folder + QStringLiteral("/documentos"));
+    // Como Cotizaciones: a un temporal y despues renombrado encima.
+    const QString target = folder + QStringLiteral("/documentos/") + name;
+    QFile tmp(target + QStringLiteral(".tmp"));
+    tmp.open(QIODevice::WriteOnly);
+    tmp.write(json);
+    tmp.close();
+    QFile::remove(target);
+    QFile::rename(target + QStringLiteral(".tmp"), target);
+}
+
+[[nodiscard]] QByteArray informe(const char* id, const char* number, const char* status,
+                                 const char* client, const char* device, int unit,
+                                 const char* origin, bool paid) {
+    QByteArray json = R"({"id":"ID","numero":"NUM","tipo":"informe","forma":"servicio","estado":"EST",
+      "fechaEmision":"2026-09-19","fechaEntrega":"2026-09-19",
+      "clienteCongelado":{"nombre":"CLI"},"equipo":{"descripcion":"DEV","fechaIngreso":"2026-09-10"},
+      "categorias":[{"nombre":"Mano de obra","lineas":[{"concepto":"Reparacion","cantidad":1,"valorUnitario":UNIT}]}],
+      "descuento":null,"abono":0,"origenId":ORIG,"historial":[HIST]})";
+    json.replace("ID", id).replace("NUM", number).replace("EST", status).replace("CLI", client)
+        .replace("DEV", device).replace("UNIT", QByteArray::number(unit))
+        .replace("ORIG", origin == nullptr ? QByteArray("null") : QByteArray("\"") + origin + "\"")
+        .replace("HIST", paid ? QByteArray(R"({"fecha":"2026-09-22","tipo":"estado","detalle":"Pagado"})")
+                              : QByteArray());
+    return json;
+}
 } // namespace
 
 int main(int argc, char** argv) {
@@ -137,8 +175,8 @@ int main(int argc, char** argv) {
     QApplication app(argc, argv);
     QApplication::setApplicationName(QStringLiteral("dake-uitest"));
 
-    QTimer::singleShot(60000, [] {
-        std::printf("FALLA  la prueba no termino en 60 s: algo quedo esperando\n");
+    QTimer::singleShot(120000, [] {
+        std::printf("FALLA  la prueba no termino en 120 s: algo quedo esperando\n");
         if (QWidget* modal = QApplication::activeModalWidget()) {
             std::printf("       quedo abierto: '%s'\n", modal->windowTitle().toStdString().c_str());
             if (auto* box = qobject_cast<QMessageBox*>(modal)) {
@@ -162,6 +200,14 @@ int main(int argc, char** argv) {
     });
 
     std::printf("Banco de pruebas — la interfaz, sin mouse\n(%s)\n", path.toStdString().c_str());
+
+    // Hermetica: una carpeta de Cotizaciones vacia y propia. Sin esto la
+    // ventana leeria la carpeta real de Documentos.
+    {
+        storage::Database setup(path);
+        storage::Repository repo(setup);
+        repo.setSetting(QStringLiteral("cot.carpeta"), temp.path() + QStringLiteral("/sin-cotizaciones"));
+    }
 
     ui::MainWindow window(path);
     window.show();
@@ -268,6 +314,114 @@ int main(int argc, char** argv) {
         check(asus != nullptr, "la segunda reparacion existe");
         check(asus != nullptr && asus->status == core::RepairStatus::Cobrada,
               "'60 cobro asus' la deja cobrada sin tocar la ficha");
+    }
+
+
+    // --- DakeLabs Cotizaciones -----------------------------------------------
+    //
+    // Otra base y otra ventana, con una carpeta sintetica: una cotizacion
+    // aceptada, su informe entregado, y el Macbook dos veces.
+    std::printf("\n[DakeLabs Cotizaciones]\n");
+    {
+        const QString quotesPath = temp.path() + QStringLiteral("/cotizaciones.db");
+        const QString folder = temp.path() + QStringLiteral("/DakeLabs Cotizaciones");
+        writeDoc(folder, QStringLiteral("COT-2026-001.json"), R"({"id":"c1","numero":"COT-2026-001",
+          "tipo":"cotizacion","estado":"aceptada","fechaEmision":"2026-09-01",
+          "clienteCongelado":{"nombre":"Josue Rodríguez"},"equipo":{"descripcion":"asus x556U","fechaIngreso":"2026-09-01"},
+          "categorias":[],"descuento":null,"abono":0,"origenId":null,"historial":[]})");
+        writeDoc(folder, QStringLiteral("INF-2026-004.json"),
+                 informe("i4", "INF-2026-004", "entregado", "Josue Rodríguez", "asus x556U", 1000, "c1", false));
+        writeDoc(folder, QStringLiteral("INF-2026-001.json"),
+                 informe("i1", "INF-2026-001", "pagado", "Sr. Galván", "Macbook M1", 6983, nullptr, true));
+        writeDoc(folder, QStringLiteral("INF-2026-002.json"),
+                 informe("i2", "INF-2026-002", "pagado", "Sr. Galván", "Macbook M1", 6982, nullptr, true));
+        {
+            storage::Database setup(quotesPath);
+            storage::Repository repo(setup);
+            repo.setSetting(QStringLiteral("cot.carpeta"), folder);
+        }
+        qputenv("DAKE_TEST_DB_PATH", quotesPath.toLocal8Bit());
+
+        ui::MainWindow quotesWindow(quotesPath);
+        quotesWindow.show();
+        (void)QTest::qWaitForWindowExposed(&quotesWindow);
+        quotesWindow.activateWindow();
+        settle();
+
+        storage::Database qdb(quotesPath);
+        storage::Repository qrepo(qdb);
+        auto movements = qrepo.loadMovements();
+        const core::Movement* saldo = findMovement(movements, "cot-i4-saldo");
+        check(saldo != nullptr && saldo->amountMinor == 10'00 && !saldo->settled,
+              "al arrancar: el informe entregado es un ingreso por cobrar de 10,00");
+        check(saldo != nullptr && saldo->jobId == "cot-c1",
+              "sobre la reparacion que abrio la cotizacion");
+        const auto quoteRepairs = qrepo.loadRepairs();
+        const core::Repair* asus = findRepair(quoteRepairs, "asus x556U");
+        if (asus != nullptr) {
+            std::printf("      (asus: %s, %s)\n", std::string(core::toString(asus->status)).c_str(),
+                        asus->orderNo.c_str());
+        }
+        check(asus != nullptr && asus->status == core::RepairStatus::Entregada &&
+                  asus->orderNo == "INF-2026-004",
+              "la reparacion queda entregada, con el numero del informe");
+        const core::Movement* mac = findMovement(movements, "cot-i1-saldo");
+        check(mac != nullptr && mac->settled && mac->settledDate == (core::Date{2026, 9, 22}),
+              "el informe pagado entra cobrado, con la fecha del evento Pagado");
+        check(findMovement(movements, "cot-i2-saldo") == nullptr,
+              "el repetido no entra: espera que decidas");
+
+        // Releer no duplica nada.
+        const std::size_t before = qrepo.loadMovements().size();
+        emit quotesWindow.findChild<ui::SettingsPage*>()->quoteReadRequested();
+        settle();
+        check(qrepo.loadMovements().size() == before, "leer la carpeta otra vez no agrega nada");
+
+        // Cotizaciones marca el informe pagado: el archivo cambia y Finanzas se entera sola.
+        writeDoc(folder, QStringLiteral("INF-2026-004.json"),
+                 informe("i4", "INF-2026-004", "pagado", "Josue Rodríguez", "asus x556U", 1000, "c1", true));
+        bool settledNow = false;
+        for (int i = 0; i < 60 && !settledNow; ++i) {
+            QTest::qWait(100);
+            const auto now = qrepo.loadMovements();
+            const core::Movement* m = findMovement(now, "cot-i4-saldo");
+            settledNow = m != nullptr && m->settled && m->settledDate == (core::Date{2026, 9, 22});
+        }
+        check(settledNow, "al marcarlo pagado en Cotizaciones, el ingreso queda cobrado sin tocar nada");
+        check(findRepair(qrepo.loadRepairs(), "asus x556U") != nullptr &&
+                  findRepair(qrepo.loadRepairs(), "asus x556U")->status == core::RepairStatus::Cobrada,
+              "y la reparacion, cobrada");
+
+        // Anotar el cobro a mano seria cobrarlo dos veces: la captura no deja.
+        const std::size_t count = qrepo.loadMovements().size();
+        auto* input = quotesWindow.findChild<QLineEdit*>(QStringLiteral("CaptureInput"));
+        if (input != nullptr) {
+            // La reparacion ya esta cobrada y no se ofrece; se prueba con una
+            // abierta: se reabre el informe como entregado.
+            writeDoc(folder, QStringLiteral("INF-2026-005.json"),
+                     informe("i5", "INF-2026-005", "entregado", "Luis", "RTX 3070", 5000, nullptr, false));
+            emit quotesWindow.findChild<ui::SettingsPage*>()->quoteReadRequested();
+            settle();
+            const std::size_t withFive = qrepo.loadMovements().size();
+            input->setFocus();
+            QTest::keyClicks(input, QStringLiteral("50 cobro 3070"));
+            QTest::keyClick(input, Qt::Key_Return);
+            settle();
+            check(withFive == count + 1, "el informe nuevo entro por cobrar");
+            check(qrepo.loadMovements().size() == withFive,
+                  "'50 cobro 3070' no crea un segundo ingreso: se cobra en Cotizaciones");
+        }
+
+        // La revision: Enter aplica lo sugerido (ignorar el repetido).
+        onNextDialog([](QWidget* dialog) {
+            QTest::keyClick(dialog, Qt::Key_Return);
+        });
+        emit quotesWindow.findChild<ui::SettingsPage*>()->quoteReviewRequested();
+        reactivate(&quotesWindow);
+        const QString decisions = qrepo.setting(QStringLiteral("cot.decisiones")).value_or(QString());
+        check(decisions.contains(QStringLiteral("\"i2\":\"ignorar\"")),
+              "revisar y Enter: el repetido queda ignorado");
+        check(findMovement(qrepo.loadMovements(), "cot-i2-saldo") == nullptr, "y no entra");
     }
 
     std::printf("\n%s\n", gFailures == 0 ? "Todo pasa." : "HAY FALLAS.");

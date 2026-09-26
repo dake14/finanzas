@@ -275,6 +275,9 @@ signals:
     void templateChanged(const dake::core::RepairTemplate& tpl);
     void templateAdded();
     void templateRemoved(const dake::core::Id& templateId);
+    void quoteFolderChanged(const QString& folder);
+    void quoteReadRequested();
+    void quoteReviewRequested();
 
 private:
     void buildUi();
@@ -292,6 +295,9 @@ private:
     QLineEdit* targetMargin_ = nullptr;
     QLabel* costsNote_ = nullptr;
     QTableWidget* templates_ = nullptr;
+    QLineEdit* quoteFolder_ = nullptr;
+    QLabel* quoteStatus_ = nullptr;
+    QPushButton* quoteReview_ = nullptr;
     bool filling_ = false;
 };
 

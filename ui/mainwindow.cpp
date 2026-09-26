@@ -4,6 +4,9 @@
 #include <QCloseEvent>
 #include <QCoreApplication>
 #include <QDir>
+#include <QFileSystemWatcher>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QMenu>
 #include <QPainter>
 #include <QPixmap>
@@ -28,8 +31,10 @@
 
 #include "dake/core/accounts.hpp"
 #include "dake/core/hlc.hpp"
+#include "dake/storage/quotefolder.hpp"
 #include "dake/sync/config.hpp"
 #include "dialogs.hpp"
+#include "quotedialog.hpp"
 #include "repairdialogs.hpp"
 #include "pages.hpp"
 #include "capturewidget.hpp"
@@ -164,7 +169,16 @@ MainWindow::MainWindow(const QString& dbPath, QWidget* parent) : QMainWindow(par
     applyAutostart(repository_->setting(QStringLiteral("config.arranque")).value_or(QStringLiteral("1")) ==
                    QStringLiteral("1"));
 
+    quoteWatcher_ = new QFileSystemWatcher(this);
+    quoteDebounce_ = new QTimer(this);
+    quoteDebounce_->setSingleShot(true);
+    quoteDebounce_->setInterval(1500);
+    connect(quoteWatcher_, &QFileSystemWatcher::directoryChanged, quoteDebounce_,
+            qOverload<>(&QTimer::start));
+    connect(quoteDebounce_, &QTimer::timeout, this, [this] { importQuotes(true); });
+
     reload();
+    importQuotes(false);
 
     const auto token = repository_->setting(QStringLiteral("sync.refresh_token"));
     if (token) {
@@ -447,6 +461,16 @@ void MainWindow::buildUi() {
                 reload();
             },
             Qt::QueuedConnection);
+    connect(settings_, &SettingsPage::quoteFolderChanged, this,
+            [this](const QString& folder) {
+                repository_->setSetting(QStringLiteral("cot.carpeta"), folder);
+                importQuotes(false);
+            },
+            Qt::QueuedConnection);
+    connect(settings_, &SettingsPage::quoteReadRequested, this, [this] { importQuotes(true); },
+            Qt::QueuedConnection);
+    connect(settings_, &SettingsPage::quoteReviewRequested, this, &MainWindow::reviewQuotes,
+            Qt::QueuedConnection);
     connect(settings_, &SettingsPage::templateRemoved, this,
             [this](const core::Id& id) {
                 repository_->removeTemplate(id);
@@ -697,6 +721,206 @@ void MainWindow::newPocket() {
     saved.id = stamp(saved.hlc, saved.deviceId);
     repository_->save(saved);
     afterLocalChange();
+}
+
+// ------------------------------------------------------ DakeLabs Cotizaciones
+
+namespace {
+
+[[nodiscard]] bool sameRepair(const core::Repair& a, const core::Repair& b) {
+    return a.jobId == b.jobId && a.orderNo == b.orderNo && a.device == b.device &&
+           a.type == b.type && a.templateId == b.templateId && a.received == b.received &&
+           a.delivered == b.delivered && a.status == b.status && a.priceMinor == b.priceMinor &&
+           a.shippingMinor == b.shippingMinor && a.consumablesMinor == b.consumablesMinor &&
+           a.estMinutes == b.estMinutes && a.realMinutes == b.realMinutes &&
+           a.sourceRef == b.sourceRef;
+}
+
+[[nodiscard]] bool sameIncome(const core::Movement& a, const core::Movement& b) {
+    return a.amountMinor == b.amountMinor && a.date == b.date && a.settled == b.settled &&
+           a.settledDate == b.settledDate && a.jobId == b.jobId && a.kind == b.kind;
+}
+
+} // namespace
+
+QString MainWindow::quoteFolder() {
+    return repository_->setting(QStringLiteral("cot.carpeta")).value_or(storage::defaultQuoteFolder());
+}
+
+core::QuoteDecisions MainWindow::loadQuoteDecisions() {
+    core::QuoteDecisions out;
+    const QString raw = repository_->setting(QStringLiteral("cot.decisiones")).value_or(QString());
+    const QJsonObject object = QJsonDocument::fromJson(raw.toUtf8()).object();
+    for (auto it = object.begin(); it != object.end(); ++it) {
+        out[it.key().toStdString()] = it.value().toString().toStdString();
+    }
+    return out;
+}
+
+void MainWindow::saveQuoteDecisions(const core::QuoteDecisions& decisions) {
+    QJsonObject object;
+    for (const auto& [id, decision] : decisions) {
+        object.insert(QString::fromStdString(id), QString::fromStdString(decision));
+    }
+    repository_->setSetting(QStringLiteral("cot.decisiones"),
+                            QString::fromUtf8(QJsonDocument(object).toJson(QJsonDocument::Compact)));
+}
+
+void MainWindow::watchQuoteFolder(const QString& folder) {
+    // Se vigila la carpeta y no los archivos: el renombrado reemplaza el
+    // archivo, y el aviso de un archivo reemplazado se pierde.
+    if (!quoteWatcher_->directories().isEmpty()) {
+        quoteWatcher_->removePaths(quoteWatcher_->directories());
+    }
+    for (const QString& path : {folder, folder + QStringLiteral("/documentos")}) {
+        if (QDir(path).exists()) {
+            quoteWatcher_->addPath(path);
+        }
+    }
+}
+
+bool MainWindow::applyQuotePlan(const core::QuotePlan& plan,
+                                const std::set<std::string>& tombstones) {
+    if (plan.decision != core::QuoteDecision::Importar || !plan.repair) {
+        return false;
+    }
+    bool changed = false;
+    const core::Repair& repair = *plan.repair;
+    const bool closed = repair.status == core::RepairStatus::Cobrada;
+    const std::string name = repair.orderNo + " · " + repair.device;
+
+    // El trabajo, que es lo que sincroniza.
+    const core::Job* job = snapshot_.job(repair.jobId);
+    if (job == nullptr) {
+        core::Job fresh;
+        fresh.id = repair.jobId;
+        restamp(fresh.hlc, fresh.deviceId);
+        fresh.name = name;
+        fresh.client = plan.client;
+        fresh.opened = repair.received.value_or(snapshot_.today);
+        fresh.closed = closed;
+        repository_->save(fresh);
+        snapshot_.jobs.push_back(fresh);
+        changed = true;
+    } else if (job->client != plan.client || job->name != name || job->closed != closed) {
+        core::Job updated = *job;
+        updated.client = plan.client;
+        updated.name = name;
+        updated.closed = closed;
+        restamp(updated.hlc, updated.deviceId);
+        repository_->save(updated);
+        changed = true;
+    }
+
+    const core::Repair* current = snapshot_.repair(repair.jobId);
+    if (current == nullptr || !sameRepair(*current, repair)) {
+        repository_->saveRepair(repair);
+        changed = true;
+    }
+
+    for (const std::string& partName : plan.newParts) {
+        core::RepairPart part;
+        part.id = storage::newId();
+        part.jobId = repair.jobId;
+        part.name = partName;
+        part.costKnown = false;
+        repository_->saveRepairPart(part);
+        changed = true;
+    }
+
+    for (const core::Movement& income : plan.incomes) {
+        // Un ingreso importado que se borro a mano no vuelve: alguien decidio
+        // que sobraba, y pelearle esa decision cada vez que se lee la carpeta
+        // es peor que el problema.
+        if (tombstones.contains(income.id)) {
+            continue;
+        }
+        const auto it = std::find_if(snapshot_.movements.begin(), snapshot_.movements.end(),
+                                     [&income](const core::Movement& m) { return m.id == income.id; });
+        if (it == snapshot_.movements.end() || !sameIncome(*it, income)) {
+            persistGenerated(income);
+            changed = true;
+        }
+    }
+    return changed;
+}
+
+void MainWindow::importQuotes(bool notify) {
+    const QString folder = quoteFolder();
+    const storage::QuoteFolderRead read = storage::readQuoteFolder(folder);
+    watchQuoteFolder(folder);
+
+    snapshot_.quoteFolder = folder;
+    snapshot_.quoteFolderFound = read.folderFound;
+    snapshot_.quoteErrors = read.errors;
+    snapshot_.quoteDocs = read.docs;
+
+    core::QuoteContext context;
+    context.repairs = snapshot_.repairs;
+    context.jobs = snapshot_.jobs;
+    context.movements = snapshot_.movements;
+    context.parts = snapshot_.parts;
+    context.decisions = loadQuoteDecisions();
+    context.pocketId = businessPocket();
+    context.category = kRepairIncomeCategory;
+    snapshot_.quotePlans = core::planQuotes(read.docs, context);
+
+    std::set<std::string> tombstones;
+    for (const core::Movement& m : repository_->loadMovements(true)) {
+        if (m.deleted) tombstones.insert(m.id);
+    }
+
+    QStringList arrived;
+    const bool ownTx = db_->handle().transaction();
+    try {
+        for (const core::QuotePlan& plan : snapshot_.quotePlans) {
+            if (applyQuotePlan(plan, tombstones)) {
+                const core::QuoteDoc* doc = snapshot_.quoteDoc(plan.docId);
+                arrived << QString::fromStdString(plan.number) +
+                               (doc != nullptr && doc->status == "pagado" ? QStringLiteral(" cobrado")
+                                                                          : QString());
+            }
+        }
+        if (ownTx && !db_->handle().commit()) {
+            throw storage::StorageError(QStringLiteral("No se pudo confirmar la transaccion."));
+        }
+    } catch (const std::exception& error) {
+        if (ownTx) db_->handle().rollback();
+        updateCloudUi(QStringLiteral("Cotizaciones: ") + QString::fromUtf8(error.what()));
+        return;
+    }
+
+    if (!arrived.isEmpty()) {
+        if (notify && tray_ != nullptr) {
+            tray_->showMessage(QStringLiteral("Desde Cotizaciones"), arrived.join(QStringLiteral(", ")),
+                               QSystemTrayIcon::Information, 4000);
+        }
+        afterLocalChange();
+    } else {
+        // Nada cambio en la base, pero los documentos y lo que espera si:
+        // Ajustes lo muestra.
+        settings_->setSnapshot(snapshot_);
+    }
+    const int holds = snapshot_.quoteHolds();
+    if (notify && holds > 0 && tray_ != nullptr && arrived.isEmpty()) {
+        tray_->showMessage(QStringLiteral("Cotizaciones"),
+                           QStringLiteral("%1 documento(s) esperan que decidas qué hacer con ellos: "
+                                          "Ajustes → Revisar.").arg(holds),
+                           QSystemTrayIcon::Information, 4000);
+    }
+}
+
+void MainWindow::reviewQuotes() {
+    QuoteReviewDialog dialog(snapshot_, this);
+    if (dialog.exec() != QDialog::Accepted) {
+        return;
+    }
+    core::QuoteDecisions decisions = loadQuoteDecisions();
+    for (const auto& [id, decision] : dialog.decisions()) {
+        decisions[id] = decision;
+    }
+    saveQuoteDecisions(decisions);
+    importQuotes(false);
 }
 
 // ----------------------------------------------------------- Reparaciones

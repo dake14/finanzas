@@ -14,6 +14,8 @@ set(DAKE_UI_SOURCES
     todaypage.cpp
     repairspage.cpp
     repairdialogs.cpp
+    quotedialog.cpp
+    quotedialog.hpp
     repairdialogs.hpp
     fields.hpp
     movementspage.cpp

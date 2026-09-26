@@ -83,6 +83,10 @@ struct CaptureDraft {
 /// usa el interprete, expuesto para cuando alguien cambia la categoria a mano.
 [[nodiscard]] Id suggestedPocket(const CaptureContext& context, std::optional<Account> account);
 
+/// Minusculas y sin tildes, sobre UTF-8. "Rodríguez" -> "rodriguez". Es lo
+/// que se usa para comparar nombres escritos por personas.
+[[nodiscard]] std::string foldText(std::string_view text);
+
 /// La descripcion reducida a lo que se compara para aprender: minusculas, sin
 /// tildes, sin numeros ni signos, espacios simples. "Almuerzo 2x" y
 /// "almuerzo" son la misma descripcion.

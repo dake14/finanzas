@@ -9,6 +9,7 @@
 #include <QMainWindow>
 #include <memory>
 #include <optional>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -20,6 +21,7 @@
 
 class QLabel;
 class QPushButton;
+class QFileSystemWatcher;
 class QSystemTrayIcon;
 class QStackedWidget;
 class QTimer;
@@ -73,6 +75,18 @@ private slots:
                  bool costKnown, bool bought);
     void changePart(const dake::core::RepairPart& part);
     void removePart(const dake::core::RepairPart& part);
+
+    // --- DakeLabs Cotizaciones ----------------------------------------------
+    //
+    // Solo lectura: Finanzas lee la carpeta y nunca escribe en ella. Se lee al
+    // arrancar, cada vez que cambia un archivo y con "Leer ahora".
+
+    /// Lee la carpeta y aplica el plan. `notify`: avisar en la bandeja lo que
+    /// entro (no al arrancar: seria un aviso por cada documento viejo).
+    void importQuotes(bool notify);
+
+    /// Abre la revision de los documentos que esperan una decision.
+    void reviewQuotes();
     void reconcile(const dake::core::Id& pocketId);
     void editMovement(const dake::core::Id& movementId);
     void togglePocketAccount(const dake::core::Id& pocketId);
@@ -149,6 +163,15 @@ private:
     /// El bolsillo del negocio donde entran los cobros: el ultimo usado de la
     /// cuenta negocio.
     [[nodiscard]] core::Id businessPocket() const;
+
+    /// Aplica el plan de un documento: crea o actualiza el trabajo, la ficha,
+    /// los repuestos y los ingresos, solo si algo cambio. Devuelve si cambio.
+    bool applyQuotePlan(const core::QuotePlan& plan, const std::set<std::string>& tombstones);
+
+    [[nodiscard]] core::QuoteDecisions loadQuoteDecisions();
+    void saveQuoteDecisions(const core::QuoteDecisions& decisions);
+    [[nodiscard]] QString quoteFolder();
+    void watchQuoteFolder(const QString& folder);
     [[nodiscard]] core::Id stamp(std::string& hlc, std::string& deviceId);
 
     /// Refleja el estado de la sesion en el boton y en el pie.
@@ -210,6 +233,11 @@ private:
     CaptureWindow* captureWindow_ = nullptr;
     GlobalHotkey* hotkey_ = nullptr;
     QSystemTrayIcon* tray_ = nullptr;
+
+    QFileSystemWatcher* quoteWatcher_ = nullptr;
+    /// Cotizaciones escribe un archivo temporal y lo renombra: una rafaga de
+    /// avisos por cada guardado. Se espera un momento y se lee una vez.
+    QTimer* quoteDebounce_ = nullptr;
 
     /// true solo cuando se eligio Salir en la bandeja. Cerrar la ventana con
     /// la X no sale.

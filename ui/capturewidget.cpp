@@ -395,6 +395,19 @@ void CaptureWidget::submit(bool keepOpen) {
         }
     }
 
+    // Una reparacion que vino de Cotizaciones se cobra alla: anotar el cobro
+    // aca crearia un segundo ingreso por lo mismo.
+    if (movement.kind == core::MovementKind::Ingreso && !movement.jobId.empty()) {
+        const core::Repair* repair = snapshot_.repair(movement.jobId);
+        if (repair != nullptr && !repair->sourceRef.empty()) {
+            showHint(QStringLiteral("%1 se cobra en DakeLabs Cotizaciones: márcalo pagado allá y "
+                                    "aparece acá solo.")
+                         .arg(QString::fromStdString(repair->orderNo)),
+                     true);
+            return;
+        }
+    }
+
     if (!movement.isWellFormed()) {
         showHint(movement.kind == core::MovementKind::Traspaso
                      ? QStringLiteral("Para anotar sueldo hace falta un bolsillo personal distinto "

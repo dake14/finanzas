@@ -268,7 +268,8 @@ QWidget* RepairsPage::buildPanel() {
     connect(deliverKey, &QShortcut::activated, this, [this] {
         if (!isVisible()) return;
         const core::Repair* repair = snapshot_.repair(current_);
-        if (repair != nullptr && repair->status == core::RepairStatus::EnProceso) {
+        if (repair != nullptr && repair->sourceRef.empty() &&
+            repair->status == core::RepairStatus::EnProceso) {
             emit deliverRequested(current_);
         }
     });
@@ -277,7 +278,8 @@ QWidget* RepairsPage::buildPanel() {
     connect(chargeKey, &QShortcut::activated, this, [this] {
         if (!isVisible()) return;
         const core::Repair* repair = snapshot_.repair(current_);
-        if (repair != nullptr && repair->status != core::RepairStatus::Cobrada) {
+        if (repair != nullptr && repair->sourceRef.empty() &&
+            repair->status != core::RepairStatus::Cobrada) {
             emit chargeRequested(current_);
         }
     });
@@ -451,7 +453,7 @@ void RepairsPage::showRepair(const core::Id& jobId) {
     const bool fromQuotes = !repair->sourceRef.empty();
     locked_->setVisible(fromQuotes);
     locked_->setText(QStringLiteral("Viene de DakeLabs Cotizaciones: cliente, equipo y precio se "
-                                    "corrigen allá."));
+                                    "corrigen allá, y la entrega y el cobro se marcan allá."));
     for (QLineEdit* edit : {client_, device_, price_}) {
         edit->setReadOnly(fromQuotes);
     }
@@ -465,8 +467,8 @@ void RepairsPage::showRepair(const core::Id& jobId) {
     estHours_->setText(repair->estMinutes > 0 ? hoursText(repair->estMinutes) : QString());
     realHours_->setText(repair->realMinutes ? hoursText(*repair->realMinutes) : QString());
 
-    deliver_->setVisible(repair->status == core::RepairStatus::EnProceso);
-    charge_->setVisible(repair->status != core::RepairStatus::Cobrada);
+    deliver_->setVisible(!fromQuotes && repair->status == core::RepairStatus::EnProceso);
+    charge_->setVisible(!fromQuotes && repair->status != core::RepairStatus::Cobrada);
     charge_->setText(repair->status == core::RepairStatus::EnProceso
                          ? QStringLiteral("Entregar y cobrar  Ctrl+B")
                          : QStringLiteral("Cobrar  Ctrl+B"));

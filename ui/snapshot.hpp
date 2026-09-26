@@ -7,6 +7,7 @@
 // una pantalla se puede armar en una prueba sin abrir un archivo.
 //
 #include <QString>
+#include <QStringList>
 #include <algorithm>
 #include <string>
 #include <vector>
@@ -15,6 +16,7 @@
 #include "dake/core/capture.hpp"
 #include "dake/core/currency.hpp"
 #include "dake/core/model.hpp"
+#include "dake/core/quotes.hpp"
 #include "dake/core/repairs.hpp"
 
 namespace dake::ui {
@@ -28,6 +30,29 @@ struct Snapshot {
     std::vector<core::RepairPart> parts;
     std::vector<core::RepairTemplate> templates;
     core::CostSettings costs;
+
+    // --- DakeLabs Cotizaciones ------------------------------------------
+    QString quoteFolder;
+    bool quoteFolderFound = false;
+    QStringList quoteErrors;
+    std::vector<core::QuoteDoc> quoteDocs;
+    std::vector<core::QuotePlan> quotePlans;
+
+    /// Los documentos que esperan una decision.
+    [[nodiscard]] int quoteHolds() const {
+        int n = 0;
+        for (const core::QuotePlan& plan : quotePlans) {
+            if (plan.decision == core::QuoteDecision::Esperar) ++n;
+        }
+        return n;
+    }
+
+    [[nodiscard]] const core::QuoteDoc* quoteDoc(const std::string& id) const {
+        for (const core::QuoteDoc& doc : quoteDocs) {
+            if (doc.id == id) return &doc;
+        }
+        return nullptr;
+    }
     core::Currency currency = core::Currency::usd();
 
     // --- Preferencias de esta computadora -------------------------------

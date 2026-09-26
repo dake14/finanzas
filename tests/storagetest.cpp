@@ -25,6 +25,7 @@
 #include "dake/core/demo.hpp"
 #include "dake/core/report.hpp"
 #include "dake/storage/exchange.hpp"
+#include "dake/storage/quotefolder.hpp"
 #include "dake/storage/repository.hpp"
 
 namespace {
@@ -509,6 +510,88 @@ int main(int argc, char** argv) {
         s = repository.loadCostSettings();
         check(s.hourlyRateMinor == 15'00 && s.targetMarginBps == 3500, "tarifa y margen vuelven");
         check(s.fixedPerHourMinor == 0, "la tasa de fijos no se guarda: se calcula");
+    }
+
+    // --- La carpeta de DakeLabs Cotizaciones -------------------------------
+    //
+    // Documentos sinteticos con la misma forma que los de verdad, escritos en
+    // una carpeta temporal. La carpeta real de David no se lee aca.
+    {
+        const QString folder = temp.path() + QStringLiteral("/cotizaciones");
+        QDir().mkpath(folder + QStringLiteral("/documentos"));
+        auto write = [&folder](const char* name, const char* json) {
+            QFile file(folder + QStringLiteral("/documentos/") + QString::fromLatin1(name));
+            file.open(QIODevice::WriteOnly);
+            file.write(json);
+        };
+        write("INF-2026-004.json", R"({
+          "id": "i4", "numero": "INF-2026-004", "tipo": "informe", "forma": "servicio",
+          "estado": "pagado", "fechaEmision": "2026-09-19", "fechaEntrega": "2026-09-19",
+          "clienteCongelado": {"nombre": "Josue Rodríguez"},
+          "equipo": {"descripcion": "asus x556U", "fechaIngreso": "2026-07-17"},
+          "categorias": [
+            {"nombre": "Mano de obra", "lineas": [{"concepto": "Diagnostico y Reparación", "cantidad": 1, "valorUnitario": 3000}]},
+            {"nombre": "Repuestos y materiales", "lineas": [{"concepto": "Insumos", "cantidad": 1, "valorUnitario": 500}]}
+          ],
+          "descuento": {"tipo": "porcentaje", "valor": 7144},
+          "abono": 400,
+          "origenId": "c1",
+          "historial": [
+            {"fecha": "2026-09-19", "tipo": "estado", "detalle": "Entregado · N° INF-2026-004"},
+            {"fecha": "2026-09-22", "tipo": "estado", "detalle": "Pagado"}
+          ]
+        })");
+        write("COT-2026-001.json", R"({
+          "id": "c1", "numero": "COT-2026-001", "tipo": "cotizacion", "forma": "servicio",
+          "estado": "aceptada", "fechaEmision": "2026-09-19", "fechaEntrega": null,
+          "clienteCongelado": {"nombre": "Josue Rodríguez"},
+          "equipo": {"descripcion": "asus x556U", "fechaIngreso": "2026-07-17"},
+          "categorias": [{"nombre": "Mano de obra", "lineas": [{"concepto": "Reparacion", "cantidad": 2, "valorUnitario": 500}]}],
+          "descuento": null, "abono": 0, "origenId": null, "historial": []
+        })");
+        write("roto.json", "{ esto no es json");
+
+        const storage::QuoteFolderRead read = storage::readQuoteFolder(folder);
+        check(read.folderFound, "la carpeta se encuentra");
+        checkMinor(static_cast<int>(read.docs.size()), 2, "se leen los dos documentos buenos");
+        check(read.errors.size() == 1 && read.errors.front().startsWith(QStringLiteral("roto.json")),
+              "y el roto queda anotado como error, sin frenar a los demas");
+
+        const core::QuoteDoc* inf = nullptr;
+        const core::QuoteDoc* cot = nullptr;
+        for (const auto& d : read.docs) {
+            if (d.id == "i4") inf = &d;
+            if (d.id == "c1") cot = &d;
+        }
+        check(inf != nullptr && cot != nullptr, "cada uno con su id");
+        if (inf != nullptr) {
+            check(inf->kind == core::QuoteKind::Informe && inf->status == "pagado" &&
+                      inf->number == "INF-2026-004",
+                  "tipo, estado y numero");
+            check(inf->client == "Josue Rodríguez" && inf->device == "asus x556U",
+                  "cliente y equipo, con tildes");
+            checkMinor(inf->baseMinor, 10'00, "35 con 71,44% de descuento: 10");
+            checkMinor(inf->depositMinor, 4'00, "el abono");
+            checkMinor(inf->balanceMinor(), 6'00, "el saldo");
+            check(inf->received == (core::Date{2026, 7, 17}), "ingreso del equipo");
+            check(inf->delivered == (core::Date{2026, 9, 19}), "fecha de entrega");
+            check(inf->paid == (core::Date{2026, 9, 22}), "la fecha de pago sale del historial");
+            check(inf->originId == "c1", "su cotizacion de origen");
+            check(inf->lines.size() == 2 && inf->lines[1].section == "Repuestos y materiales" &&
+                      inf->lines[1].item == "Insumos" && inf->lines[1].totalMinor == 5'00,
+                  "las lineas, con su seccion");
+        }
+        if (cot != nullptr) {
+            check(cot->kind == core::QuoteKind::Cotizacion && cot->status == "aceptada",
+                  "la cotizacion aceptada");
+            checkMinor(cot->baseMinor, 10'00, "2 x 5, sin descuento");
+            check(cot->originId.empty() && !cot->delivered && !cot->paid, "sin origen ni fechas de mas");
+        }
+
+        const storage::QuoteFolderRead nothing = storage::readQuoteFolder(temp.path() + QStringLiteral("/no-existe"));
+        check(!nothing.folderFound && nothing.docs.empty(), "sin carpeta: nada, y lo dice");
+        check(storage::defaultQuoteFolder().endsWith(QStringLiteral("/DakeLabs Cotizaciones")),
+              "la carpeta por defecto es la de Cotizaciones en Documentos");
     }
 
     // --- Cronometro de capturas --------------------------------------------

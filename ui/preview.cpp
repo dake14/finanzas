@@ -24,6 +24,9 @@
 
 #include "dake/core/accounts.hpp"
 #include "dake/core/demo.hpp"
+#include "dake/storage/database.hpp"
+#include "dake/storage/quotefolder.hpp"
+#include "dake/storage/repository.hpp"
 #include "dake/core/repairs.hpp"
 #include "capturewidget.hpp"
 #include "capturewindow.hpp"
@@ -203,11 +206,84 @@ int main(int argc, char** argv) {
     app.setStyleSheet(dake::ui::theme::styleSheet());
 
     const QStringList arguments = QCoreApplication::arguments();
-    if (arguments.size() < 3) {
+    if (arguments.size() < 2 || (arguments.size() < 3 && arguments.at(1) != QLatin1String("cotizaciones"))) {
         std::cout << "Uso: dake_uipreview <pantalla|todas> <salida.png|carpeta> "
                      "[ancho] [alto]\n"
                   << "Pantallas: hoy | reparaciones | movimientos | bolsillos | cierre | reportes | ajustes | todas\n";
         return 2;
+    }
+
+    // "cotizaciones [carpeta]": lista lo que Finanzas entiende de cada
+    // documento de DakeLabs Cotizaciones. Solo lee; sirve para comparar contra
+    // lo que muestra Cotizaciones.
+    if (arguments.at(1) == QLatin1String("cotizaciones")) {
+        const QString folder =
+            arguments.size() > 2 ? arguments.at(2) : dake::storage::defaultQuoteFolder();
+        const auto read = dake::storage::readQuoteFolder(folder);
+        std::cout << "carpeta " << folder.toStdString() << (read.folderFound ? "" : " (no existe)")
+                  << "\n";
+        for (const auto& d : read.docs) {
+            std::cout << d.number << "\t" << d.status << "\tbase=" << d.baseMinor
+                      << "\tabono=" << d.depositMinor << "\tsaldo=" << d.balanceMinor()
+                      << "\tpagado=" << (d.paid ? d.paid->toIso() : std::string("-"))
+                      << "\torigen=" << (d.originId.empty() ? std::string("-") : d.originId.substr(0, 8))
+                      << "\t" << d.device << "\n";
+        }
+        for (const QString& error : read.errors) {
+            std::cout << "ERROR " << error.toStdString() << "\n";
+        }
+        return 0;
+    }
+
+    // "plan <base> [carpeta]": lo que haria la importacion de Cotizaciones
+    // sobre esa base, sin aplicar nada. Pensado para correrlo sobre una COPIA
+    // de la base real: abrirla la migra.
+    if (arguments.at(1) == QLatin1String("plan") && arguments.size() > 2) {
+        dake::storage::Database db(arguments.at(2));
+        dake::storage::Repository repository(db);
+        const QString folder =
+            arguments.size() > 3 ? arguments.at(3) : dake::storage::defaultQuoteFolder();
+        const auto read = dake::storage::readQuoteFolder(folder);
+        dake::core::QuoteContext context;
+        context.repairs = repository.loadRepairs();
+        context.jobs = repository.loadJobs();
+        context.movements = repository.loadMovements();
+        context.parts = repository.loadRepairParts();
+        context.pocketId = "(bolsillo de cobros)";
+        context.category = "Reparaciones";
+        std::cout << "movimientos en la base: " << context.movements.size()
+                  << ", trabajos: " << context.jobs.size() << "\n";
+        for (const auto& m : context.movements) {
+            if (m.kind == dake::core::MovementKind::Ingreso) {
+                std::cout << "  ingreso " << m.date.toIso() << "\t" << m.amountMinor << "\t"
+                          << (m.settled ? "cobrado" : "por cobrar") << "\t" << m.name
+                          << (m.jobId.empty() ? "" : "  [con trabajo]") << "\n";
+            }
+        }
+        for (const auto& plan : dake::core::planQuotes(read.docs, context)) {
+            const char* decision = plan.decision == dake::core::QuoteDecision::Importar ? "IMPORTAR"
+                                   : plan.decision == dake::core::QuoteDecision::Esperar ? "ESPERA"
+                                                                                          : "nada";
+            std::cout << plan.number << "\t" << decision;
+            switch (plan.hold) {
+                case dake::core::QuoteHold::Duplicado: std::cout << "\tduplicado de " << plan.relatedNumber; break;
+                case dake::core::QuoteHold::YaAnotado: std::cout << "\tya anotado: " << plan.candidateMovementId; break;
+                case dake::core::QuoteHold::EnCorreccion: std::cout << "\ten correccion"; break;
+                case dake::core::QuoteHold::SinMonto: std::cout << "\tsin monto"; break;
+                case dake::core::QuoteHold::Ninguno: break;
+            }
+            if (plan.repair) {
+                std::cout << "\treparacion " << plan.repair->jobId << (plan.newJob ? " (nueva)" : "")
+                          << " " << dake::core::toString(plan.repair->status) << " tipo "
+                          << dake::core::toString(plan.repair->type);
+            }
+            for (const auto& m : plan.incomes) {
+                std::cout << "\n\t  ingreso " << m.id << " " << m.amountMinor
+                          << (m.settled ? " cobrado" : " por cobrar");
+            }
+            std::cout << "\n";
+        }
+        return 0;
     }
 
     const QString screen = arguments.at(1);
