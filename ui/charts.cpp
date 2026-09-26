@@ -263,11 +263,13 @@ RankChart::RankChart(QWidget* parent) : QWidget(parent) {}
 
 void RankChart::setData(std::vector<ChartPoint> points) {
     points_ = std::move(points);
+    updateGeometry();
     update();
 }
 
 void RankChart::setLimit(int rows) {
     limit_ = rows;
+    updateGeometry();
     update();
 }
 

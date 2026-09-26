@@ -302,6 +302,7 @@ MovementEditor::MovementEditor(const core::Movement& original, const Snapshot& s
     updateSettledDateEnabled(settled_->isChecked());
 
     auto* form = new QFormLayout();
+    form_ = form;
     form->addRow(QStringLiteral("Que fue"), name_);
     form->addRow(QStringLiteral("Monto"), amount_);
     form->addRow(QStringLiteral("Fecha"), date_);
@@ -358,7 +359,8 @@ void MovementEditor::applyKind() {
     targetLabel_->setVisible(transfer);
     target_->setVisible(transfer);
     category_->setVisible(!transfer);
-    job_->setVisible(!transfer);
+    // Solo un cobro es de un trabajo: un gasto no es de ninguno.
+    form_->setRowVisible(job_, base_.kind == core::MovementKind::Ingreso);
     spread_->setVisible(expense);
     settled_->setVisible(!transfer);
     settledDateLabel_->setVisible(!transfer);
@@ -406,7 +408,10 @@ void MovementEditor::save() {
         const QString category = category_->category().trimmed();
         edited_.category =
             category.isEmpty() ? std::string(core::kUncategorized) : category.toStdString();
-        edited_.jobId = job_->currentData().toString().toStdString();
+        // Un gasto conserva el suyo: el de un repuesto lo puso su ficha.
+        if (base_.kind == core::MovementKind::Ingreso) {
+            edited_.jobId = job_->currentData().toString().toStdString();
+        }
         edited_.settled = settled_->isChecked();
         if (edited_.settled) {
             edited_.settledDate = fromQDate(settledDate_->date());

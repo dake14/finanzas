@@ -486,10 +486,14 @@ CaptureDraft parseCapture(std::string_view text, const CaptureContext& context) 
         draft.kind = MovementKind::Ingreso;
     }
 
+    // Solo un cobro es de una reparacion. Los repuestos se cargan en su ficha,
+    // que anota el gasto sola y enlazado.
+    if (draft.kind != MovementKind::Ingreso) {
+        draft.jobId.clear();
+    }
+
     if (draft.category.empty() && !draft.jobId.empty()) {
-        draft.category = draft.kind == MovementKind::Ingreso
-                             ? repairCategory(context, MovementKind::Ingreso, "Reparaciones")
-                             : repairCategory(context, MovementKind::Gasto, "Repuestos");
+        draft.category = repairCategory(context, MovementKind::Ingreso, "Reparaciones");
         draft.categorySource = CategorySource::Reparacion;
         known = findCategory(context.categories, draft.category);
     }

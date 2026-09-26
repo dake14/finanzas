@@ -389,13 +389,15 @@ void capturaDeLaReparacion() {
     checkText(cobro.pocketId, "banco", "a un bolsillo del negocio");
     checkText(cobro.description, "cobro GPU 3080", "la descripcion conserva lo escrito");
 
-    checkText(parseCapture("12 pasta 3070", c).jobId, "job-3070", "un gasto para la 3070");
-    checkText(parseCapture("12 pasta 3070", c).category, "Repuestos",
-              "un gasto de reparacion sin historial va a Repuestos");
+    // Un gasto no es de ninguna reparacion: los repuestos se cargan en la
+    // ficha, que anota el gasto sola y enlazado.
+    const auto pasta = parseCapture("12 pasta 3070", c);
+    checkText(pasta.jobId, "", "un gasto que nombra la 3070 no se le pega");
+    check(pasta.categorySource != CategorySource::Reparacion, "ni saca la categoria de ella");
     checkText(parseCapture("200 cobro INF-2026-004", c).jobId, "job-asus", "por numero de orden");
-    checkText(parseCapture("10 cable #43", c).jobId, "job-3070", "'#43' es la R-0043");
+    checkText(parseCapture("10 cobro #43", c).jobId, "job-3070", "'#43' es la R-0043");
     checkText(parseCapture("30 cobro josue", c).jobId, "job-asus", "por el nombre del cliente");
-    checkText(parseCapture("10 rtx", c).jobId, "", "'rtx' coincide con dos: no adivina");
+    checkText(parseCapture("10 cobro rtx", c).jobId, "", "'rtx' coincide con dos: no adivina");
     checkText(parseCapture("25 almuerzo", c).jobId, "", "un almuerzo no es de ninguna");
 }
 

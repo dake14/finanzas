@@ -18,6 +18,7 @@
 
 class QComboBox;
 class QDateEdit;
+class QGridLayout;
 class QLabel;
 class QLineEdit;
 class QPushButton;
@@ -65,6 +66,8 @@ private:
     /// Las categorias del tipo elegido, de la mas usada a la menos.
     void refreshSuggestions();
     void updateAccountButton();
+    /// La reparacion solo se pregunta en un cobro: un gasto no es de ninguna.
+    void updateJobField();
     void submit(bool keepOpen);
     void showHint(const QString& text, bool error);
 
@@ -84,6 +87,8 @@ private:
     QComboBox* pocket_ = nullptr;
     QDateEdit* date_ = nullptr;
     QComboBox* job_ = nullptr;
+    QLabel* jobLabel_ = nullptr;
+    QGridLayout* grid_ = nullptr;
     QLabel* hint_ = nullptr;
 
     // Lo que se corrigio a mano. El interprete deja de tocar ese campo hasta

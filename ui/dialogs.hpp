@@ -14,6 +14,7 @@
 
 class QCheckBox;
 class QComboBox;
+class QFormLayout;
 class QDateEdit;
 class QLabel;
 class QLineEdit;
@@ -96,6 +97,7 @@ private:
     QLabel* targetLabel_ = nullptr;
     CategoryBox* category_ = nullptr;
     QComboBox* job_ = nullptr;
+    QFormLayout* form_ = nullptr;
     QComboBox* spread_ = nullptr;
     QCheckBox* settled_ = nullptr;
     /// Cuando se cobro o se pago. Solo se habilita con `settled_` marcado, y

@@ -14,6 +14,7 @@
 
 #include "cards.hpp"
 #include "charts.hpp"
+#include "dake/core/report.hpp"
 #include "fields.hpp"
 #include "pages.hpp"
 #include "tables.hpp"
@@ -111,13 +112,53 @@ void ReportsPage::buildUi() {
     tabs_ = new QTabWidget(this);
     tabs_->setDocumentMode(true);
     tabs_->setFont(theme::bodyFont(10, QFont::DemiBold));
-    // En el orden del diseño: caja, reparaciones, tipos, gastos, sueldo.
+    // Primero el panorama, que antes estaba en Hoy; despues, en el orden del
+    // diseño: caja, reparaciones, tipos, gastos, sueldo.
+    tabs_->addTab(buildChartsTab(), QStringLiteral("Gráficas"));
     tabs_->addTab(buildCashTab(), QStringLiteral("Flujo de caja"));
     tabs_->addTab(buildRepairsTab(), QStringLiteral("Por reparación"));
     tabs_->addTab(buildTypesTab(), QStringLiteral("Por tipo"));
     tabs_->addTab(buildSpendingTab(), QStringLiteral("Gastos por categoría"));
     tabs_->addTab(buildSalaryTab(), QStringLiteral("Sueldo"));
     layout->addWidget(tabs_, 1);
+}
+
+// ------------------------------------------------------------- Graficas
+
+QWidget* ReportsPage::buildChartsTab() {
+    auto* tab = new QWidget(this);
+    QVBoxLayout* layout = scrollingTab(tab);
+    QWidget* body = layout->parentWidget();
+
+    auto* resultCard = new Card(QStringLiteral("RESULTADO POR MES"), body);
+    chartResult_ = new BarChart(resultCard);
+    chartResult_->setSigned(true);
+    resultCard->addContent(chartResult_);
+    layout->addWidget(resultCard);
+
+    auto* incomeCostCard = new Card(QStringLiteral("INGRESOS CONTRA COSTOS"), body);
+    chartIncomeCost_ = new BarChart(incomeCostCard);
+    chartIncomeCost_->setSeries(QStringLiteral("Ingresos"), QStringLiteral("Costos"));
+    incomeCostCard->addContent(chartIncomeCost_);
+    layout->addWidget(incomeCostCard);
+
+    auto* cashCard = new Card(QStringLiteral("CAJA ACUMULADA"), body);
+    chartCash_ = new LineChart(cashCard);
+    cashCard->addContent(chartCash_);
+    layout->addWidget(cashCard);
+
+    auto* categoriesCard = new Card(QStringLiteral("GASTOS POR CATEGORIA, ESTE MES"), body);
+    chartCategories_ = new RankChart(categoriesCard);
+    categoriesCard->addContent(chartCategories_);
+    layout->addWidget(categoriesCard);
+
+    auto* jobsCard = new Card(QStringLiteral("MARGEN POR TRABAJO"), body);
+    chartJobs_ = new RankChart(jobsCard);
+    jobsCard->addContent(chartJobs_);
+    layout->addWidget(jobsCard);
+
+    layout->addStretch(1);
+    return tab;
 }
 
 QWidget* ReportsPage::buildSpendingTab() {
@@ -188,11 +229,70 @@ void ReportsPage::setSnapshot(const Snapshot& snapshot) {
         const int keep = spendingMonth_->findText(previous);
         spendingMonth_->setCurrentIndex(keep >= 0 ? keep : 0);
     }
+    refillCharts();
     refillSpending();
     refillRepairs();
     refillTypes();
     refillCash();
     refillSalary();
+}
+
+void ReportsPage::refillCharts() {
+    const core::Currency currency = snapshot_.currency;
+    const core::Date from = snapshot_.monthStart();
+    const core::Date to = snapshot_.monthEnd();
+    const std::vector<core::MonthSummary> months = core::summarizeByMonth(snapshot_.pockets, snapshot_.movements, currency);
+    std::vector<ChartPoint> resultPoints;
+    std::vector<ChartPoint> incomeCostPoints;
+    std::vector<ChartPoint> cashPoints;
+    core::Money accumulatedCash = core::Money::zero(currency);
+
+    for (const core::MonthSummary& ms : months) {
+        ChartPoint ptResult;
+        ptResult.label = QString::fromStdString(ms.label());
+        ptResult.primary = ms.result.minor() / 100.0;
+        ptResult.primaryText = theme::formatMoney(ms.result);
+        resultPoints.push_back(ptResult);
+
+        ChartPoint ptIC;
+        ptIC.label = QString::fromStdString(ms.label());
+        ptIC.primary = ms.incomeAccrued.minor() / 100.0;
+        ptIC.secondary = ms.cost.minor() / 100.0;
+        ptIC.primaryText = theme::formatMoney(ms.incomeAccrued);
+        incomeCostPoints.push_back(ptIC);
+
+        accumulatedCash += (ms.incomeAccrued - ms.cost);
+        ChartPoint ptCash;
+        ptCash.label = QString::fromStdString(ms.label());
+        ptCash.primary = accumulatedCash.minor() / 100.0;
+        ptCash.primaryText = theme::formatMoney(accumulatedCash);
+        cashPoints.push_back(ptCash);
+    }
+    chartResult_->setData(resultPoints);
+    chartIncomeCost_->setData(incomeCostPoints);
+    chartCash_->setData(cashPoints);
+
+    const std::vector<core::CategoryTotal> cats = core::costByCategory(snapshot_.movements, currency, from, to);
+    std::vector<ChartPoint> catPoints;
+    for (const core::CategoryTotal& ct : cats) {
+        ChartPoint pt;
+        pt.label = QString::fromStdString(ct.category);
+        pt.primary = ct.total.minor() / 100.0;
+        pt.primaryText = theme::formatMoney(ct.total);
+        catPoints.push_back(pt);
+    }
+    chartCategories_->setData(catPoints);
+
+    const std::vector<core::JobResult> jrs = core::jobResults(snapshot_.jobs, snapshot_.movements, currency);
+    std::vector<ChartPoint> jobPoints;
+    for (const core::JobResult& jr : jrs) {
+        ChartPoint pt;
+        pt.label = QString::fromStdString(jr.name);
+        pt.primary = jr.margin.minor() / 100.0;
+        pt.primaryText = QStringLiteral("%1 (%2)").arg(theme::formatMoney(jr.margin), theme::formatBps(jr.marginBps));
+        jobPoints.push_back(pt);
+    }
+    chartJobs_->setData(jobPoints);
 }
 
 void ReportsPage::refillSpending() {

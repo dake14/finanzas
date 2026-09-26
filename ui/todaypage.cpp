@@ -222,33 +222,6 @@ void TodayPage::buildUi() {
     twoCard->addContent(twoNumbersDetail_);
     layout->addWidget(twoCard);
 
-    // --- Graficas ---------------------------------------------------------
-    auto* chartsCard = new Card(QStringLiteral("GRAFICAS"), page);
-    
-    chartsCard->addContent(muted(QStringLiteral("RESULTADO POR MES"), chartsCard, 10));
-    chartResult_ = new BarChart(chartsCard);
-    chartResult_->setSigned(true);
-    chartsCard->addContent(chartResult_);
-
-    chartsCard->addContent(muted(QStringLiteral("INGRESOS CONTRA COSTOS"), chartsCard, 10));
-    chartIncomeCost_ = new BarChart(chartsCard);
-    chartIncomeCost_->setSeries(QStringLiteral("Ingresos"), QStringLiteral("Costos"));
-    chartsCard->addContent(chartIncomeCost_);
-
-    chartsCard->addContent(muted(QStringLiteral("CAJA ACUMULADA"), chartsCard, 10));
-    chartCash_ = new LineChart(chartsCard);
-    chartsCard->addContent(chartCash_);
-
-    chartsCard->addContent(muted(QStringLiteral("GASTOS POR CATEGORIA"), chartsCard, 10));
-    chartCategories_ = new RankChart(chartsCard);
-    chartsCard->addContent(chartCategories_);
-
-    chartsCard->addContent(muted(QStringLiteral("MARGEN POR TRABAJO"), chartsCard, 10));
-    chartJobs_ = new RankChart(chartsCard);
-    chartsCard->addContent(chartJobs_);
-
-    layout->addWidget(chartsCard);
-
     // --- Costo de estructura ----------------------------------------------
     auto* overheadCard = new Card(QStringLiteral("COSTO DE ESTRUCTURA"), page);
     
@@ -410,60 +383,6 @@ void TodayPage::setSnapshot(const Snapshot& snapshot) {
                            "inversion.")
                 .arg(theme::formatMoney(difference)));
     }
-
-    // --- Graficas ---------------------------------------------------------
-    const std::vector<core::MonthSummary> months = core::summarizeByMonth(snapshot.pockets, snapshot.movements, currency);
-    std::vector<ChartPoint> resultPoints;
-    std::vector<ChartPoint> incomeCostPoints;
-    std::vector<ChartPoint> cashPoints;
-    core::Money accumulatedCash = core::Money::zero(currency);
-
-    for (const core::MonthSummary& ms : months) {
-        ChartPoint ptResult;
-        ptResult.label = QString::fromStdString(ms.label());
-        ptResult.primary = ms.result.minor() / 100.0;
-        ptResult.primaryText = theme::formatMoney(ms.result);
-        resultPoints.push_back(ptResult);
-
-        ChartPoint ptIC;
-        ptIC.label = QString::fromStdString(ms.label());
-        ptIC.primary = ms.incomeAccrued.minor() / 100.0;
-        ptIC.secondary = ms.cost.minor() / 100.0;
-        ptIC.primaryText = theme::formatMoney(ms.incomeAccrued);
-        incomeCostPoints.push_back(ptIC);
-
-        accumulatedCash += (ms.incomeAccrued - ms.cost);
-        ChartPoint ptCash;
-        ptCash.label = QString::fromStdString(ms.label());
-        ptCash.primary = accumulatedCash.minor() / 100.0;
-        ptCash.primaryText = theme::formatMoney(accumulatedCash);
-        cashPoints.push_back(ptCash);
-    }
-    chartResult_->setData(resultPoints);
-    chartIncomeCost_->setData(incomeCostPoints);
-    chartCash_->setData(cashPoints);
-
-    const std::vector<core::CategoryTotal> cats = core::costByCategory(snapshot.movements, currency, from, to);
-    std::vector<ChartPoint> catPoints;
-    for (const core::CategoryTotal& ct : cats) {
-        ChartPoint pt;
-        pt.label = QString::fromStdString(ct.category);
-        pt.primary = ct.total.minor() / 100.0;
-        pt.primaryText = theme::formatMoney(ct.total);
-        catPoints.push_back(pt);
-    }
-    chartCategories_->setData(catPoints);
-
-    const std::vector<core::JobResult> jrs = core::jobResults(snapshot.jobs, snapshot.movements, currency);
-    std::vector<ChartPoint> jobPoints;
-    for (const core::JobResult& jr : jrs) {
-        ChartPoint pt;
-        pt.label = QString::fromStdString(jr.name);
-        pt.primary = jr.margin.minor() / 100.0;
-        pt.primaryText = QStringLiteral("%1 (%2)").arg(theme::formatMoney(jr.margin), theme::formatBps(jr.marginBps));
-        jobPoints.push_back(pt);
-    }
-    chartJobs_->setData(jobPoints);
 
     // --- Costo de estructura ----------------------------------------------
     const core::Money ov = core::overhead(snapshot.movements, currency, from, to);

@@ -305,7 +305,13 @@ int main(int argc, char** argv) {
         if (input != nullptr) {
             QTest::keyClick(&window, Qt::Key_1, Qt::ControlModifier);
             input->setFocus();
+            auto* job = input->parentWidget()->findChild<QComboBox*>(QStringLiteral("CaptureJob"));
+            QTest::keyClicks(input, QStringLiteral("12 pasta asus"));
+            check(job != nullptr && !job->isVisibleTo(input->parentWidget()),
+                  "un gasto no pregunta la reparacion, aunque la nombre");
+            input->clear();
             QTest::keyClicks(input, QStringLiteral("60 cobro asus"));
+            check(job != nullptr && job->isVisibleTo(input->parentWidget()), "un cobro si");
             QTest::keyClick(input, Qt::Key_Return);
             settle();
         }

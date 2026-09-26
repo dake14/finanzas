@@ -78,6 +78,7 @@ void CaptureWidget::buildUi() {
 
     // La vista previa. Cada campo es editable y Tab los recorre en orden.
     auto* grid = new QGridLayout();
+    grid_ = grid;
     grid->setHorizontalSpacing(10);
     grid->setVerticalSpacing(2);
 
@@ -103,6 +104,7 @@ void CaptureWidget::buildUi() {
     date_->setCalendarPopup(true);
 
     job_ = new QComboBox(this);
+    job_->setObjectName(QStringLiteral("CaptureJob"));
     job_->setMinimumWidth(170);
 
     for (QWidget* field : {static_cast<QWidget*>(kind_), static_cast<QWidget*>(category_),
@@ -121,7 +123,8 @@ void CaptureWidget::buildUi() {
     grid->addWidget(source_, 0, 2);
     grid->addWidget(fieldLabel(QStringLiteral("BOLSILLO"), this), 0, 3);
     grid->addWidget(fieldLabel(QStringLiteral("FECHA"), this), 0, 4);
-    grid->addWidget(fieldLabel(QStringLiteral("REPARACIÓN"), this), 0, 5);
+    jobLabel_ = fieldLabel(QStringLiteral("REPARACIÓN"), this);
+    grid->addWidget(jobLabel_, 0, 5);
     grid->addWidget(kind_, 1, 0);
     grid->addWidget(category_, 1, 1);
     grid->addWidget(account_, 1, 2);
@@ -129,8 +132,8 @@ void CaptureWidget::buildUi() {
     grid->addWidget(date_, 1, 4);
     grid->addWidget(job_, 1, 5);
     grid->setColumnStretch(1, 2);
-    grid->setColumnStretch(5, 2);
     layout->addLayout(grid);
+    updateJobField();
 
     hint_ = new QLabel(this);
     hint_->setFont(theme::bodyFont(8));
@@ -163,6 +166,7 @@ void CaptureWidget::buildUi() {
         if (!filling_) manualKind_ = true;
         refreshSuggestions();
         updateAccountButton();
+        updateJobField();
     });
     connect(category_, &QComboBox::currentTextChanged, this, [this] {
         if (filling_) {
@@ -353,6 +357,13 @@ void CaptureWidget::updateAccountButton() {
                           : QStringLiteral("nueva · negocio"));
 }
 
+void CaptureWidget::updateJobField() {
+    const bool income = kind_->currentIndex() == kIngreso;
+    jobLabel_->setVisible(income);
+    job_->setVisible(income);
+    grid_->setColumnStretch(5, income ? 2 : 0);
+}
+
 void CaptureWidget::showHint(const QString& text, bool error) {
     if (text.isEmpty()) {
         hint_->setText(QStringLiteral("Enter guardar  ·  Shift+Enter guardar y otro  ·  "
@@ -387,6 +398,7 @@ void CaptureWidget::submit(bool keepOpen) {
         movement.kind = kind_->currentIndex() == kIngreso ? core::MovementKind::Ingreso
                                                           : core::MovementKind::Gasto;
         movement.targetPocketId.clear();
+        if (movement.kind != core::MovementKind::Ingreso) movement.jobId.clear();
         movement.category = category_->category().toStdString();
         if (isNewCategory()) {
             newCategory.name = movement.category;

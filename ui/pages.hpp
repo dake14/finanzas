@@ -102,13 +102,6 @@ private:
     KpiCard* kpiTicket_ = nullptr;     ///< cuanto deja un trabajo, en promedio
     KpiCard* kpiCollection_ = nullptr; ///< dias que tardas en cobrar
 
-    // --- Graficas ---------------------------------------------------------
-    BarChart* chartResult_ = nullptr;    ///< resultado por mes, con signo
-    BarChart* chartIncomeCost_ = nullptr;///< ingresos contra costos
-    LineChart* chartCash_ = nullptr;     ///< caja acumulada
-    RankChart* chartCategories_ = nullptr;///< en que se va la plata
-    RankChart* chartJobs_ = nullptr;     ///< margen por trabajo
-
     QLabel* overheadValue_ = nullptr;    ///< costo de la estructura
     QLabel* overheadDetail_ = nullptr;   ///< y que porcentaje se come
 
@@ -217,11 +210,13 @@ public:
 
 private:
     void buildUi();
+    [[nodiscard]] QWidget* buildChartsTab();
     [[nodiscard]] QWidget* buildSpendingTab();
     [[nodiscard]] QWidget* buildRepairsTab();
     [[nodiscard]] QWidget* buildTypesTab();
     [[nodiscard]] QWidget* buildCashTab();
     [[nodiscard]] QWidget* buildSalaryTab();
+    void refillCharts();
     void refillCash();
     void refillSalary();
     void refillSpending();
@@ -230,6 +225,13 @@ private:
 
     Snapshot snapshot_;
     QTabWidget* tabs_ = nullptr;
+
+    // --- Graficas ----------------------------------------------------------
+    BarChart* chartResult_ = nullptr;    ///< resultado por mes, con signo
+    BarChart* chartIncomeCost_ = nullptr;///< ingresos contra costos
+    LineChart* chartCash_ = nullptr;     ///< caja acumulada
+    RankChart* chartCategories_ = nullptr;///< en que se va la plata
+    RankChart* chartJobs_ = nullptr;     ///< margen por trabajo
 
     // --- Gastos por categoria ----------------------------------------------
     QComboBox* spendingMonth_ = nullptr;
