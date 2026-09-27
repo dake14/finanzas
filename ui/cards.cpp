@@ -20,7 +20,7 @@ Card::Card(const QString& title, QWidget* parent) : QFrame(parent) {
         auto* titleLabel = new QLabel(title, this);
         titleLabel->setObjectName(QStringLiteral("CardTitle"));
         titleLabel->setFont(theme::bodyFont(10, QFont::DemiBold));
-        theme::setLabelColor(titleLabel, theme::kTextMuted);
+        theme::setLabelColor(titleLabel, theme::kAccent);
         layout->addWidget(titleLabel);
     }
 
@@ -37,6 +37,11 @@ Card::Card(const QString& title, QWidget* parent) : QFrame(parent) {
 }
 
 void Card::addContent(QWidget* widget, int stretch) {
+    // Solo el QWidget pelado que agrupa contenido: un campo o una tabla dentro
+    // de la tarjeta conservan su fondo.
+    if (widget->metaObject() == &QWidget::staticMetaObject) {
+        widget->setProperty("cardBody", true);
+    }
     body_->addWidget(widget, stretch);
 }
 
@@ -45,7 +50,7 @@ void Card::setSubtitle(const QString& text) {
     subtitle_->setVisible(!text.isEmpty());
 }
 
-KpiCard::KpiCard(const QString& title, const QColor& accent, QWidget* parent)
+KpiCard::KpiCard(const QString& title, theme::Tono accent, QWidget* parent)
     : QFrame(parent), accent_(accent) {
     setObjectName(QStringLiteral("Card"));
     setMinimumHeight(112);
@@ -58,10 +63,10 @@ KpiCard::KpiCard(const QString& title, const QColor& accent, QWidget* parent)
 
     title_ = new QLabel(title, this);
     title_->setFont(theme::bodyFont(9, QFont::DemiBold));
-    theme::setLabelColor(title_, theme::kTextMuted);
+    theme::setLabelColor(title_, theme::kAccent);
 
     value_ = new QLabel(QStringLiteral("—"), this);
-    value_->setFont(theme::numericFont(21, QFont::Bold));
+    value_->setFont(theme::figureFont(21));
     theme::setLabelColor(value_, theme::kText);
 
     note_ = new QLabel(this);
@@ -78,7 +83,7 @@ void KpiCard::setValue(const QString& value) {
     value_->setText(value);
 }
 
-void KpiCard::setNote(const QString& note, const QColor& color) {
+void KpiCard::setNote(const QString& note, theme::Tono color) {
     note_->setText(note);
     theme::setLabelColor(note_, color);
 }
@@ -93,7 +98,7 @@ void KpiCard::paintEvent(QPaintEvent* event) {
     // redondeadas del mismo radio que la tarjeta.
     QPainterPath path;
     path.addRoundedRect(QRectF(1.0, 14.0, 4.0, static_cast<double>(height()) - 28.0), 2.0, 2.0);
-    painter.fillPath(path, accent_);
+    painter.fillPath(path, theme::color(accent_));
 }
 
 } // namespace dake::ui

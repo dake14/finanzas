@@ -63,7 +63,7 @@ void FundingBar::paintEvent(QPaintEvent*) {
 
     const QRectF track(0, 0, width(), 14);
     painter.setPen(Qt::NoPen);
-    painter.setBrush(theme::kSurfaceRaised);
+    painter.setBrush(theme::color(theme::kSurfaceRaised));
     painter.drawRoundedRect(track, 7, 7);
 
     if (total > 0) {
@@ -71,16 +71,16 @@ void FundingBar::paintEvent(QPaintEvent*) {
             static_cast<double>(width()) * static_cast<double>(earned) /
             static_cast<double>(total);
 
-        painter.setBrush(theme::kPositive);
+        painter.setBrush(theme::color(theme::kPositive));
         painter.drawRoundedRect(QRectF(0, 0, std::max(earnedWidth, 14.0), 14), 7, 7);
 
         if (reserves > 0) {
-            painter.setBrush(theme::kNegative);
+            painter.setBrush(theme::color(theme::kNegative));
             const double x = earnedWidth;
             painter.drawRoundedRect(QRectF(x, 0, std::max(width() - x, 14.0), 14), 7, 7);
             // El redondeo de la derecha del tramo verde queda tapado por el
-            // rojo, que es lo que hace que se lean como una sola barra.
-            painter.setBrush(theme::kPositive);
+            // naranja, que es lo que hace que se lean como una sola barra.
+            painter.setBrush(theme::color(theme::kPositive));
             painter.drawRect(QRectF(std::max(earnedWidth - 8.0, 0.0), 0, 8, 14));
         }
     }
@@ -89,11 +89,11 @@ void FundingBar::paintEvent(QPaintEvent*) {
     painter.setFont(theme::bodyFont(9));
     const int textTop = 22;
 
-    painter.setPen(theme::kPositive);
+    painter.setPen(theme::color(theme::kPositive));
     painter.drawText(QRect(0, textTop, width() / 2, 26), Qt::AlignLeft | Qt::AlignTop,
                      QStringLiteral("%1 lo cobraste").arg(theme::formatMoney(earned_)));
 
-    painter.setPen(theme::kNegative);
+    painter.setPen(theme::color(theme::kNegative));
     painter.drawText(QRect(width() / 2, textTop, width() / 2, 26), Qt::AlignRight | Qt::AlignTop,
                      QStringLiteral("%1 salio de tus reservas")
                          .arg(theme::formatMoney(fromReserves_)));
@@ -141,7 +141,7 @@ void TodayPage::buildUi() {
     // --- Las tres preguntas ----------------------------------------------------
     auto* questions = new QHBoxLayout();
     questions->setSpacing(12);
-    qPrices_ = new KpiCard(QStringLiteral("¿SUBIR PRECIOS?"), theme::kInversion, page);
+    qPrices_ = new KpiCard(QStringLiteral("¿SUBIR PRECIOS?"), theme::kAviso, page);
     qSpend_ = new KpiCard(QStringLiteral("¿CUÁNTO GASTO? · ESTE MES"), theme::kNegative, page);
     qSalary_ = new KpiCard(QStringLiteral("¿CUÁNTO ME PUEDO PAGAR?"), theme::kPositive, page);
     questions->addWidget(qPrices_);
@@ -154,7 +154,7 @@ void TodayPage::buildUi() {
     kpiRow->setSpacing(12);
     kpiCash_ = new KpiCard(QStringLiteral("CAJA DEL NEGOCIO"), theme::kOperacion, page);
     kpiReserves_ = new KpiCard(QStringLiteral("AHORRO E INVERSION"), theme::kAhorro, page);
-    kpiPending_ = new KpiCard(QStringLiteral("HECHO Y SIN COBRAR"), theme::kInversion, page);
+    kpiPending_ = new KpiCard(QStringLiteral("HECHO Y SIN COBRAR"), theme::kAviso, page);
     kpiPrepaid_ = new KpiCard(QStringLiteral("MATERIAL POR DELANTE"), theme::kTextMuted, page);
     for (KpiCard* card : {kpiCash_, kpiReserves_, kpiPending_, kpiPrepaid_}) {
         kpiRow->addWidget(card);
@@ -180,7 +180,7 @@ void TodayPage::buildUi() {
                        "del ahorro se anota como un gasto mas."));
 
     fundingHeadline_ = new QLabel(fundingCard);
-    fundingHeadline_->setFont(theme::displayFont(19, QFont::Bold));
+    fundingHeadline_->setFont(theme::figureFont(19));
     fundingHeadline_->setWordWrap(true);
     fundingCard->addContent(fundingHeadline_);
 
@@ -202,9 +202,9 @@ void TodayPage::buildUi() {
     auto* resultCaption = muted(QStringLiteral("LO QUE DEJO EL MES"), twoBody);
 
     cashValue_ = new QLabel(twoBody);
-    cashValue_->setFont(theme::numericFont(24, QFont::Bold));
+    cashValue_->setFont(theme::figureFont(24));
     resultValue_ = new QLabel(twoBody);
-    resultValue_->setFont(theme::numericFont(24, QFont::Bold));
+    resultValue_->setFont(theme::figureFont(24));
 
     twoGrid->addWidget(cashCaption, 0, 0);
     twoGrid->addWidget(resultCaption, 0, 1);
@@ -230,7 +230,7 @@ void TodayPage::buildUi() {
     overheadLayout->setContentsMargins(0, 6, 0, 0);
 
     overheadValue_ = new QLabel(overheadBody);
-    overheadValue_->setFont(theme::numericFont(24, QFont::Bold));
+    overheadValue_->setFont(theme::figureFont(24));
     overheadLayout->addWidget(overheadValue_);
 
     overheadDetail_ = muted(QString(), overheadBody, 10);
@@ -461,7 +461,7 @@ void TodayPage::setSnapshot(const Snapshot& snapshot) {
                                   .arg(theme::formatBps(*worst->marginBps),
                                        theme::formatBps(snapshot.costs.targetMarginBps),
                                        theme::formatMoney(worst->averagePrice)),
-                              worst->verdict == core::Verdict::Bajo ? theme::kNegative : theme::kInversion);
+                              worst->verdict == core::Verdict::Bajo ? theme::kNegative : theme::kAviso);
         }
     }
     // ¿Cuanto gasto? Negocio y personal, nunca sumados.

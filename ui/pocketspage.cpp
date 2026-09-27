@@ -140,7 +140,7 @@ void PocketsPage::setSnapshot(const Snapshot& snapshot) {
         setNumber(table_, row, 3,
                   balance.pendingIn.isZero() ? QStringLiteral("—")
                                              : theme::formatMoney(balance.pendingIn),
-                  theme::kInversion);
+                  theme::kAviso);
         setNumber(table_, row, 4, theme::formatMoney(balance.balance),
                   balance.balance.isNegative() ? theme::kNegative : theme::kText);
 

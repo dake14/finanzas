@@ -47,7 +47,6 @@ QuoteReviewDialog::QuoteReviewDialog(const Snapshot& snapshot, QWidget* parent) 
     setWindowTitle(QStringLiteral("Documentos de Cotizaciones por revisar"));
     setMinimumWidth(900);
     setModal(true);
-    setStyleSheet(theme::styleSheet());
 
     auto* layout = new QVBoxLayout(this);
     layout->setSpacing(10);
@@ -81,7 +80,7 @@ QuoteReviewDialog::QuoteReviewDialog(const Snapshot& snapshot, QWidget* parent) 
                   doc != nullptr
                       ? theme::formatMoney(core::Money::fromMinor(doc->baseMinor, snapshot.currency))
                       : QString());
-        setText(table, row, 3, reasonText(plan, snapshot), theme::kInversion);
+        setText(table, row, 3, reasonText(plan, snapshot), theme::kAviso);
 
         auto* choice = cellCombo(table);
         switch (plan.hold) {

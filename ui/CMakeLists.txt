@@ -52,6 +52,20 @@ target_include_directories(dake_ui PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(dake_ui PUBLIC dake::core dake::storage dake_sync Qt6::Widgets Qt6::Network)
 target_compile_definitions(dake_ui PUBLIC DAKE_APP_NAME="${DAKE_APP_NAME}")
 
+# Inter, Anton y el logo van dentro del ejecutable: la app tiene que verse igual
+# en cualquier computadora, tenga o no esas fuentes instaladas.
+qt_add_resources(dake_ui "dake_recursos"
+    PREFIX "/dake"
+    BASE recursos
+    FILES
+        recursos/fuentes/Inter-Regular.ttf
+        recursos/fuentes/Inter-SemiBold.ttf
+        recursos/fuentes/Inter-Bold.ttf
+        recursos/fuentes/Inter-ExtraBold.ttf
+        recursos/fuentes/Anton-Regular.ttf
+        recursos/logo/DAke.png
+)
+
 qt_add_executable(dake_pruebas WIN32
     main.cpp
 )

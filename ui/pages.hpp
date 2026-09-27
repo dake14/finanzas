@@ -348,6 +348,8 @@ signals:
     void reminderChanged(int weekday, int hour);
     void splitChanged(const dake::core::ProfitSplit& split);
     void bankImportRequested();
+    /// Se eligio otro tema en la tarjeta Apariencia.
+    void themeChanged(dake::ui::theme::Tema tema);
 
 private:
     void buildUi();
@@ -361,6 +363,7 @@ private:
 
     Snapshot snapshot_;
     QTableWidget* categories_ = nullptr;
+    QComboBox* tema_ = nullptr;  ///< "TemaSelector": 0 claro, 1 oscuro
     QKeySequenceEdit* hotkey_ = nullptr;
     QLabel* hotkeyStatus_ = nullptr;
     QCheckBox* autostart_ = nullptr;

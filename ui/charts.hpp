@@ -23,6 +23,8 @@
 #include <QWidget>
 #include <vector>
 
+#include "theme.hpp"
+
 namespace dake::ui {
 
 /// Un punto de cualquiera de las graficas.
@@ -115,7 +117,7 @@ struct CompareRow {
     double previous = 0;
     QString currentText;
     QString changeText;  ///< "+12,00 ▲ 30%", ya formateado
-    bool rose = false;   ///< subio: se pinta en rojo, porque es gasto
+    bool rose = false;   ///< subio: se pinta como gasto
 };
 
 class CompareChart : public QWidget {
@@ -124,7 +126,7 @@ class CompareChart : public QWidget {
 public:
     explicit CompareChart(QWidget* parent = nullptr);
 
-    void setData(std::vector<CompareRow> rows, const QColor& barColor);
+    void setData(std::vector<CompareRow> rows, theme::Tono barColor);
     [[nodiscard]] QSize sizeHint() const override;
     [[nodiscard]] QSize minimumSizeHint() const override;
 
@@ -133,7 +135,8 @@ protected:
 
 private:
     std::vector<CompareRow> rows_;
-    QColor barColor_;
+    /// El papel y no el color: al cambiar de tema, la barra sigue al tema.
+    theme::Tono barColor_{theme::Papel::Serie};
 };
 
 /// Una fila por tipo de reparacion: la barra es el margen y la raya vertical,
@@ -143,7 +146,7 @@ struct TypeRow {
     QString label;
     double marginPercent = 0;  ///< puede ser negativo
     bool hasMargin = false;
-    QColor color;
+    theme::Tono color{theme::Papel::Texto};
     QString detail;  ///< "38% · deja 24,10/h · horas 1,1×"
     QString action;  ///< "✓ bien", "sube a 95 (hoy 85)"
 };
@@ -198,7 +201,7 @@ struct SplitSegment {
     QString label;   ///< "Sueldo 55%"
     QString amount;  ///< "143,00"
     double value = 0;
-    QColor color;
+    theme::Tono color{theme::Papel::Texto};
 };
 
 class SplitBar : public QWidget {

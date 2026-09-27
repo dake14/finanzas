@@ -16,7 +16,6 @@ namespace dake::ui {
 CaptureWindow::CaptureWindow(QWidget* parent)
     : QWidget(parent, Qt::Tool | Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint) {
     setWindowTitle(QStringLiteral("Anotar"));
-    setStyleSheet(theme::styleSheet());
     setAttribute(Qt::WA_TranslucentBackground);
 
     auto* outer = new QVBoxLayout(this);
@@ -24,9 +23,6 @@ CaptureWindow::CaptureWindow(QWidget* parent)
 
     auto* frame = new QFrame(this);
     frame->setObjectName(QStringLiteral("CaptureFrame"));
-    frame->setStyleSheet(QStringLiteral("#CaptureFrame { background-color: %1; border: 1px solid %2; "
-                                        "border-radius: 14px; }")
-                             .arg(theme::kSurface.name(), theme::kAccent.name()));
     outer->addWidget(frame);
 
     auto* layout = new QVBoxLayout(frame);

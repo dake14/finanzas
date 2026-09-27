@@ -11,7 +11,7 @@
 // Aca no hay foco que robar ni clic que desviar: se arma el widget, se le dan
 // datos y se guarda lo que pinta.
 //
-// Uso:  dake_uipreview <pantalla|todas> <salida.png|carpeta> [ancho] [alto]
+// Uso:  dake_uipreview <pantalla|todas> <salida.png|carpeta> [ancho] [alto] [--oscuro]
 //
 #include <QApplication>
 #include <QDir>
@@ -217,12 +217,14 @@ int main(int argc, char** argv) {
 #endif
 
     QApplication app(argc, argv);
-    app.setStyleSheet(dake::ui::theme::styleSheet());
+    QStringList arguments = QCoreApplication::arguments();
+    // "--oscuro" en cualquier lugar genera las capturas con el tema oscuro.
+    const bool dark = arguments.removeAll(QStringLiteral("--oscuro")) > 0;
+    dake::ui::theme::setTheme(dark ? dake::ui::theme::Tema::Oscuro : dake::ui::theme::Tema::Claro);
 
-    const QStringList arguments = QCoreApplication::arguments();
     if (arguments.size() < 2 || (arguments.size() < 3 && arguments.at(1) != QLatin1String("cotizaciones"))) {
         std::cout << "Uso: dake_uipreview <pantalla|todas> <salida.png|carpeta> "
-                     "[ancho] [alto]\n"
+                     "[ancho] [alto] [--oscuro]\n"
                   << "Pantallas: hoy | reparaciones | movimientos | bolsillos | revision | reportes | ajustes | todas\n";
         return 2;
     }

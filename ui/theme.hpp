@@ -6,12 +6,14 @@
 // literal hexadecimal: si manana cambia el logo, se cambia este archivo y no
 // veinte archivos de pintura.
 //
-// La paleta deriva del icono de DakeLabs: fondo casi negro (#0a0a0a), cuerpo
-// blanco (#fafafa) y la barra cian (#38bdf8) como color de marca.
+// El sistema visual es el de DakeLabs Cotizaciones: barra azul-noche, rojo de
+// marca #EF233C, Inter y Anton, en claro y en oscuro.
 //
 #include <QColor>
 #include <QFont>
 #include <QString>
+
+class QWidget;
 
 #include "dake/core/model.hpp"
 #include "dake/core/report.hpp"
@@ -19,42 +21,78 @@
 
 namespace dake::ui::theme {
 
-// --- Superficies ---------------------------------------------------------
-inline const QColor kBackground{0x0a, 0x0a, 0x0a};   // fondo de la ventana
-inline const QColor kSurface{0x14, 0x14, 0x14};      // tarjetas
-inline const QColor kSurfaceRaised{0x1c, 0x1c, 0x1c};// hover / elementos activos
-inline const QColor kSidebar{0x0d, 0x0d, 0x0d};
-inline const QColor kBorder{0x26, 0x26, 0x26};
+// --- Papeles -------------------------------------------------------------
+//
+// Un color no se escribe: se pide por lo que significa. El tema activo dice
+// que color tiene cada papel, y al cambiar de tema todo lo que se pide despues
+// sale del tema nuevo. Ver docs/superpowers/specs/2026-09-26-aspecto-cotizaciones-design.md.
+enum class Papel {
+    Fondo, Superficie, SuperficieAlzada, Barra, Borde,
+    Texto, Tenue, Apagado,
+    Marca, MarcaSuave,
+    Ingreso, Gasto, Aviso, Serie,
+    Operacion, Ahorro, Inversion, Personal,
+};
+inline constexpr int kPapeles = 18;
 
-// --- Texto ---------------------------------------------------------------
-inline const QColor kText{0xfa, 0xfa, 0xfa};         // cuerpo del logo
-inline const QColor kTextMuted{0x8a, 0x8a, 0x8a};
-inline const QColor kTextFaint{0x5a, 0x5a, 0x5a};
+enum class Tema { Claro, Oscuro };
 
-// --- Marca y semantica ---------------------------------------------------
-inline const QColor kAccent{0x38, 0xbd, 0xf8};       // barra cian del logo
-inline const QColor kAccentSoft{0x0e, 0x2a, 0x38};
-inline const QColor kPositive{0x34, 0xd3, 0x99};     // ingresos
-inline const QColor kNegative{0xfb, 0x71, 0x85};     // gastos
+/// Un papel. Se convierte solo a QColor, resuelto contra el tema activo en el
+/// momento de usarlo; por eso nunca se guarda el QColor, se guarda el Tono.
+struct Tono {
+    Papel papel;
+    operator QColor() const;  // NOLINT(google-explicit-constructor): convertirse es su trabajo
+    [[nodiscard]] QString name() const;
+    /// El nombre del papel en la hoja de estilo: "gasto", "texto", "marca-suave".
+    [[nodiscard]] const char* id() const;
+};
 
-// --- Bolsillos -----------------------------------------------------------
-// La caja de operacion toma el cian de la marca: es la que se mira todos los
-// dias. Las reservas van en colores calidos porque tocarlas tiene que
-// destacar, no pasar desapercibido.
-inline const QColor kOperacion{0x38, 0xbd, 0xf8};
-inline const QColor kAhorro{0xa7, 0x8b, 0xfa};
-inline const QColor kInversion{0xfb, 0xbf, 0x24};
-inline const QColor kPersonal{0x9c, 0xa3, 0xaf};
+// Los nombres de siempre, ahora papeles.
+inline constexpr Tono kBackground{Papel::Fondo};
+inline constexpr Tono kSurface{Papel::Superficie};
+inline constexpr Tono kSurfaceRaised{Papel::SuperficieAlzada};
+inline constexpr Tono kSidebar{Papel::Barra};
+inline constexpr Tono kBorder{Papel::Borde};
+inline constexpr Tono kText{Papel::Texto};
+inline constexpr Tono kTextMuted{Papel::Tenue};
+inline constexpr Tono kTextFaint{Papel::Apagado};
+inline constexpr Tono kAccent{Papel::Marca};          // el rojo de DakeLabs
+inline constexpr Tono kAccentSoft{Papel::MarcaSuave};
+inline constexpr Tono kPositive{Papel::Ingreso};
+inline constexpr Tono kNegative{Papel::Gasto};        // naranja: el rojo es de la marca
+inline constexpr Tono kAviso{Papel::Aviso};           // advertencia que no es error
+inline constexpr Tono kSerie{Papel::Serie};           // grafica sin significado propio
+inline constexpr Tono kOperacion{Papel::Operacion};
+inline constexpr Tono kAhorro{Papel::Ahorro};
+inline constexpr Tono kInversion{Papel::Inversion};   // SOLO el bolsillo de inversion
+inline constexpr Tono kPersonal{Papel::Personal};
 
-[[nodiscard]] QColor pocketColor(core::PocketKind kind);
+[[nodiscard]] QColor color(Tono tono);
+[[nodiscard]] Tema currentTheme();
+/// Cambia la paleta y regenera la hoja de estilo de toda la aplicacion. Lo que
+/// se pinta a mano necesita un update(); las tablas, que se vuelvan a llenar.
+void setTheme(Tema tema);
+/// "oscuro" (sin importar mayusculas ni espacios) -> Oscuro; cualquier otra
+/// cosa, incluso vacio, -> Claro.
+[[nodiscard]] Tema temaFromString(const QString& text);
+/// "claro" / "oscuro", lo que se guarda en settings bajo ui.tema.
+[[nodiscard]] QString toString(Tema tema);
+
+[[nodiscard]] Tono pocketColor(core::PocketKind kind);
 
 /// Color de un aviso segun su gravedad.
-[[nodiscard]] QColor alertColor(core::AlertLevel level);
+[[nodiscard]] Tono alertColor(core::AlertLevel level);
 
 // --- Tipografia ----------------------------------------------------------
 [[nodiscard]] QFont displayFont(int pointSize, QFont::Weight weight = QFont::DemiBold);
 [[nodiscard]] QFont bodyFont(int pointSize, QFont::Weight weight = QFont::Normal);
 [[nodiscard]] QFont numericFont(int pointSize, QFont::Weight weight = QFont::DemiBold);
+/// Anton, para cifras grandes y la marca. Nunca por debajo de 16 pt: en chico
+/// se lee mal.
+[[nodiscard]] QFont figureFont(int pointSize);
+/// Inter y Anton quedaron registradas desde el recurso. Si es falso, la app
+/// sigue con Segoe UI: se ve distinta, pero anda.
+[[nodiscard]] bool fontsLoaded();
 
 // --- Formato de cifras ---------------------------------------------------
 /// Formato colombiano: punto para miles, coma para decimales.
@@ -67,12 +105,6 @@ inline const QColor kPersonal{0x9c, 0xa3, 0xaf};
 /// Puntos basicos a porcentaje legible: 4000 -> "40,0%"
 [[nodiscard]] QString formatBps(int basisPoints);
 
-/// Pinta el texto de una etiqueta del color indicado.
-///
-/// Va por hoja de estilo y no por QPalette a proposito: cuando hay un
-/// stylesheet activo, Qt le da prioridad sobre la paleta, asi que un
-/// setColor(QPalette::WindowText, ...) queda pisado por la regla global y la
-/// etiqueta sale siempre del color por defecto.
 /// "septiembre 2026". Los reportes nombran el mes entero: "sep 2026" se lee
 /// bien en un eje, no en una frase.
 [[nodiscard]] QString monthName(core::Date date);
@@ -81,7 +113,10 @@ inline const QColor kPersonal{0x9c, 0xa3, 0xaf};
 /// malo, y el color lo decide quien lo muestra.
 [[nodiscard]] QString changeText(const core::Money& current, const core::Money& previous);
 
-void setLabelColor(QWidget* label, const QColor& color);
+/// Le pone a la etiqueta el papel `tono` (propiedad dinamica "tono"); el color
+/// lo decide la regla [tono="..."] de la hoja global, asi que cambiar de tema
+/// la repinta sola.
+void setLabelColor(QWidget* label, Tono tono);
 
 /// Hoja de estilo global de la aplicacion.
 [[nodiscard]] QString styleSheet();

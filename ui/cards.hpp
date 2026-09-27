@@ -8,6 +8,8 @@
 #include <QFrame>
 #include <QString>
 
+#include "theme.hpp"
+
 class QLabel;
 class QVBoxLayout;
 
@@ -37,16 +39,17 @@ class KpiCard : public QFrame {
     Q_OBJECT
 
 public:
-    KpiCard(const QString& title, const QColor& accent, QWidget* parent = nullptr);
+    KpiCard(const QString& title, theme::Tono accent, QWidget* parent = nullptr);
 
     void setValue(const QString& value);
-    void setNote(const QString& note, const QColor& color);
+    void setNote(const QString& note, theme::Tono color);
 
 protected:
     void paintEvent(QPaintEvent* event) override;
 
 private:
-    QColor accent_;
+    /// El papel de la franja, no su color: se resuelve en cada paintEvent.
+    theme::Tono accent_;
     QLabel* title_ = nullptr;
     QLabel* value_ = nullptr;
     QLabel* note_ = nullptr;

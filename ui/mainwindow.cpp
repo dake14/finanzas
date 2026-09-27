@@ -1,6 +1,7 @@
 #include "mainwindow.hpp"
 
 #include <QAction>
+#include <QApplication>
 #include <QCloseEvent>
 #include <QCoreApplication>
 #include <QDir>
@@ -89,6 +90,14 @@ constexpr int kPeriodicSyncMs = 10 * 60 * 1000;
 MainWindow::MainWindow(const QString& dbPath, QWidget* parent) : QMainWindow(parent) {
     db_ = std::make_unique<storage::Database>(dbPath);
     repository_ = std::make_unique<storage::Repository>(*db_);
+    if (!theme::fontsLoaded()) {
+        // La app sigue con Segoe UI; se ve distinta pero anda. Que quede escrito.
+        qWarning("Finanzas: no se pudieron registrar Inter/Anton desde el recurso; se usa Segoe UI.");
+    }
+    // El tema va antes que cualquier widget: asi nada se construye con la
+    // hoja de otro tema.
+    theme::setTheme(theme::temaFromString(
+        repository_->setting(QStringLiteral("ui.tema")).value_or(QString())));
     deviceId_ = storage::deviceId(*repository_);
 
     snapshot_.currency = core::Currency::usd();
@@ -216,17 +225,17 @@ MainWindow::~MainWindow() {
 
 namespace {
 
-/// El icono de la bandeja: una "F" sobre el cian del logo. Pintado y no
+/// El icono de la bandeja: una "F" sobre el rojo de la marca. Pintado y no
 /// cargado de un archivo, para no depender de recursos.
 [[nodiscard]] QIcon trayIcon() {
     QPixmap pixmap(64, 64);
     pixmap.fill(Qt::transparent);
     QPainter painter(&pixmap);
     painter.setRenderHint(QPainter::Antialiasing);
-    painter.setBrush(theme::kAccent);
+    painter.setBrush(theme::color(theme::kAccent));
     painter.setPen(Qt::NoPen);
     painter.drawRoundedRect(QRectF(2, 2, 60, 60), 14, 14);
-    painter.setPen(theme::kBackground);
+    painter.setPen(Qt::white);
     painter.setFont(theme::displayFont(30, QFont::Bold));
     painter.drawText(pixmap.rect(), Qt::AlignCenter, QStringLiteral("F"));
     return QIcon(pixmap);
@@ -362,7 +371,6 @@ void MainWindow::rememberUndo(const std::optional<core::Movement>& previo,
 void MainWindow::buildUi() {
     setWindowTitle(QStringLiteral("Finanzas DakeLabs"));
     resize(1240, 860);
-    setStyleSheet(theme::styleSheet());
 
     auto* central = new QWidget(this);
     auto* root = new QHBoxLayout(central);
@@ -429,6 +437,16 @@ void MainWindow::buildUi() {
 
     hotkey_ = new GlobalHotkey(this);
     connect(hotkey_, &GlobalHotkey::activated, this, &MainWindow::showCapture);
+    connect(settings_, &SettingsPage::themeChanged, this, [this](theme::Tema tema) {
+        theme::setTheme(tema);
+        repository_->setSetting(QStringLiteral("ui.tema"), theme::toString(tema));
+        // Las tablas y el texto enriquecido guardan el color con que se
+        // llenaron: se vuelven a llenar. Lo pintado a mano, solo se repinta.
+        reload();
+        for (QWidget* widget : QApplication::allWidgets()) {
+            widget->update();
+        }
+    });
     connect(settings_, &SettingsPage::hotkeyChanged, this, [this](const QKeySequence& sequence) {
         if (applyHotkey(sequence)) {
             repository_->setSetting(QStringLiteral("config.atajo"),
@@ -633,14 +651,26 @@ void MainWindow::buildSidebar(QWidget* parent) {
     layout->setContentsMargins(16, 22, 16, 18);
     layout->setSpacing(6);
 
-    auto* brand = new QLabel(QStringLiteral("Finanzas"), parent);
-    brand->setFont(theme::displayFont(14, QFont::Bold));
-    theme::setLabelColor(brand, theme::kText);
-    layout->addWidget(brand);
+    auto* brandRow = new QHBoxLayout();
+    brandRow->setSpacing(8);
+    auto* logo = new QLabel(parent);
+    logo->setObjectName(QStringLiteral("SidebarLogo"));
+    logo->setPixmap(QPixmap(QStringLiteral(":/dake/logo/DAke.png"))
+                        .scaled(28, 28, Qt::KeepAspectRatio, Qt::SmoothTransformation));
+    brandRow->addWidget(logo);
+    // La barra es azul-noche en los dos temas: DAKE siempre blanco, LABS en la
+    // marca. Por eso el color va escrito aca y no por papel.
+    auto* brand = new QLabel(QStringLiteral("<span style='color:#FFFFFF'>DAKE</span>"
+                                            "<span style='color:#EF233C'>LABS</span>"),
+                             parent);
+    brand->setObjectName(QStringLiteral("SidebarBrand"));
+    brand->setFont(theme::figureFont(18));
+    brandRow->addWidget(brand);
+    brandRow->addStretch(1);
+    layout->addLayout(brandRow);
 
-    auto* subtitle = new QLabel(QStringLiteral("DakeLabs"), parent);
+    auto* subtitle = new QLabel(QStringLiteral("Finanzas"), parent);
     subtitle->setFont(theme::bodyFont(9));
-    theme::setLabelColor(subtitle, theme::kAccent);
     layout->addWidget(subtitle);
     layout->addSpacing(18);
 

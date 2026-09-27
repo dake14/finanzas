@@ -28,7 +28,7 @@ namespace {
     return {};
 }
 
-[[nodiscard]] QColor kindColor(core::MovementKind kind) {
+[[nodiscard]] theme::Tono kindColor(core::MovementKind kind) {
     switch (kind) {
         case core::MovementKind::Ingreso: return theme::kPositive;
         case core::MovementKind::Gasto: return theme::kNegative;

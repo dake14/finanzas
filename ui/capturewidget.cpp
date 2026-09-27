@@ -68,6 +68,7 @@ void CaptureWidget::buildUi() {
     input_->setMinimumWidth(320);
     input_->setClearButtonEnabled(true);
     amount_ = new QLabel(QStringLiteral("—"), this);
+    amount_->setObjectName(QStringLiteral("CaptureAmount"));
     amount_->setFont(theme::numericFont(16, QFont::Bold));
     amount_->setMinimumWidth(120);
     amount_->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
@@ -319,10 +320,10 @@ void CaptureWidget::reparse() {
     }
     filling_ = false;
 
-    const QColor amountColor = !draft_.amountMinor ? theme::kTextFaint
-                               : kind_->currentIndex() == kIngreso ? theme::kPositive
-                               : kind_->currentIndex() == kSueldo  ? theme::kAccent
-                                                                   : theme::kNegative;
+    const theme::Tono amountColor = !draft_.amountMinor ? theme::kTextFaint
+                                    : kind_->currentIndex() == kIngreso ? theme::kPositive
+                                    : kind_->currentIndex() == kSueldo  ? theme::kAccent
+                                                                        : theme::kNegative;
     theme::setLabelColor(amount_, amountColor);
     updateAccountButton();
 
@@ -372,7 +373,7 @@ void CaptureWidget::showHint(const QString& text, bool error) {
         return;
     }
     hint_->setText(text);
-    theme::setLabelColor(hint_, error ? theme::kNegative : theme::kInversion);
+    theme::setLabelColor(hint_, error ? theme::kNegative : theme::kAviso);
 }
 
 void CaptureWidget::submit(bool keepOpen) {

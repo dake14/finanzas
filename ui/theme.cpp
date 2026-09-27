@@ -1,8 +1,11 @@
 #include "theme.hpp"
 
+#include <QApplication>
 #include <QFontDatabase>
 #include <QStringList>
+#include <QStyle>
 #include <QWidget>
+#include <array>
 
 #include <cmath>
 #include <cstdlib>
@@ -10,6 +13,51 @@
 
 namespace dake::ui::theme {
 namespace {
+
+/// Registra las fuentes empaquetadas una sola vez. Tiene que correr antes de
+/// la primera consulta a QFontDatabase::families(), por eso la llaman las
+/// funciones que eligen familia y no main().
+bool registerFonts() {
+    static const bool loaded = [] {
+        bool ok = true;
+        for (const char* file : {"Inter-Regular", "Inter-SemiBold", "Inter-Bold", "Inter-ExtraBold",
+                                 "Anton-Regular"}) {
+            ok = QFontDatabase::addApplicationFont(
+                     QStringLiteral(":/dake/fuentes/%1.ttf").arg(QLatin1String(file))) >= 0 &&
+                 ok;
+        }
+        return ok;
+    }();
+    return loaded;
+}
+
+[[nodiscard]] QColor hex(unsigned rgb) {
+    return QColor::fromRgb(static_cast<QRgb>(rgb));
+}
+
+// Mismo orden que enum Papel. Claro y oscuro salen de Cotizaciones
+// (editor.css) y del logo; los colores de datos, de la maqueta aprobada.
+const std::array<QColor, kPapeles> kClaro{
+    hex(0xF7F8FA), hex(0xFFFFFF), hex(0xF1F3F7), hex(0x2B2D42), hex(0xE4E7EE),
+    hex(0x2B2D42), hex(0x6B7690), hex(0x8D99AE),
+    hex(0xEF233C), hex(0xFDE8EB),
+    hex(0x1F9D6B), hex(0xE8590C), hex(0xB7791F), hex(0x4361EE),
+    hex(0x4361EE), hex(0x7B2CBF), hex(0x0F8FA3), hex(0x8D99AE)};
+const std::array<QColor, kPapeles> kOscuro{
+    hex(0x23253A), hex(0x2B2D42), hex(0x33364F), hex(0x1A1C2B), hex(0x3A3D55),
+    hex(0xEDF2F4), hex(0xA9B1C4), hex(0x737C96),
+    hex(0xEF233C), hex(0x4A2332),
+    hex(0x3ECF8E), hex(0xFF922B), hex(0xF6C453), hex(0x7B93FF),
+    hex(0x7B93FF), hex(0xB57BFF), hex(0x3CC8DC), hex(0xA9B1C4)};
+
+constexpr std::array<const char*, kPapeles> kIds{
+    "fondo", "superficie", "superficie-alzada", "barra", "borde",
+    "texto", "tenue", "apagado",
+    "marca", "marca-suave",
+    "ingreso", "gasto", "aviso", "serie",
+    "operacion", "ahorro", "inversion", "personal"};
+
+Tema gTema = Tema::Claro;
 
 /// Primera fuente disponible de la lista. Segoe UI existe en Windows 10/11 y
 /// las de Apple en macOS; las demas son red de seguridad para que la app no
@@ -29,25 +77,23 @@ namespace {
     return QFont().family();
 }
 
-/// En macOS la familia de la interfaz no se pide por su nombre comercial: "SF
-/// Pro" no figura en el catalogo de fuentes. El nombre que si resuelve al San
-/// Francisco del sistema es ".AppleSystemUIFont", y Helvetica Neue queda
-/// detras por si eso cambia.
 [[nodiscard]] QString uiFamily() {
+    registerFonts();
     static const QString family =
-        pickFamily({QStringLiteral("Segoe UI Variable"), QStringLiteral("Segoe UI"),
-                    QStringLiteral(".AppleSystemUIFont"), QStringLiteral("Helvetica Neue"),
-                    QStringLiteral("Inter"), QStringLiteral("Arial")});
+        pickFamily({QStringLiteral("Inter"), QStringLiteral("Segoe UI Variable"),
+                    QStringLiteral("Segoe UI"), QStringLiteral("Arial")});
     return family;
 }
 
-/// Las cifras se pintan con ancho tabular para que las columnas de numeros
-/// queden alineadas en las tablas y no bailen al actualizarse.
+/// Inter trae cifras tabulares (tnum), asi que las columnas de numeros usan la
+/// misma familia que el texto.
 [[nodiscard]] QString numericFamily() {
-    static const QString family =
-        pickFamily({QStringLiteral("Segoe UI Variable"), QStringLiteral("Segoe UI"),
-                    QStringLiteral(".AppleSystemUIFont"), QStringLiteral("Helvetica Neue"),
-                    QStringLiteral("Consolas"), QStringLiteral("Arial")});
+    return uiFamily();
+}
+
+[[nodiscard]] QString figureFamily() {
+    registerFonts();
+    static const QString family = pickFamily({QStringLiteral("Anton"), uiFamily()});
     return family;
 }
 
@@ -67,7 +113,61 @@ namespace {
 
 } // namespace
 
-QColor pocketColor(core::PocketKind kind) {
+Tono::operator QColor() const {
+    return color(*this);
+}
+
+QString Tono::name() const {
+    return color(*this).name();
+}
+
+const char* Tono::id() const {
+    return kIds[static_cast<std::size_t>(papel)];
+}
+
+QColor color(Tono tono) {
+    const auto& paleta = gTema == Tema::Oscuro ? kOscuro : kClaro;
+    return paleta[static_cast<std::size_t>(tono.papel)];
+}
+
+Tema currentTheme() {
+    return gTema;
+}
+
+void setTheme(Tema tema) {
+    gTema = tema;
+    // Una sola hoja, a nivel de aplicacion: la ventana mini y los dialogos la
+    // heredan, y al reemplazarla Qt vuelve a pulir todos los widgets.
+    if (auto* app = qobject_cast<QApplication*>(QCoreApplication::instance())) {
+        // Inter tambien para lo que no pide letra: con hoja de estilo, Qt no
+        // siempre respeta un setFont (los encabezados de tabla lo pierden) y
+        // cae en la letra por defecto del sistema.
+        app->setFont(bodyFont(10));
+        app->setStyleSheet(styleSheet());
+    }
+}
+
+Tema temaFromString(const QString& text) {
+    return text.trimmed().compare(QStringLiteral("oscuro"), Qt::CaseInsensitive) == 0 ? Tema::Oscuro
+                                                                                        : Tema::Claro;
+}
+
+QString toString(Tema tema) {
+    return tema == Tema::Oscuro ? QStringLiteral("oscuro") : QStringLiteral("claro");
+}
+
+bool fontsLoaded() {
+    return registerFonts();
+}
+
+QFont figureFont(int pointSize) {
+    QFont font(figureFamily());
+    font.setPointSize(pointSize);
+    font.setWeight(QFont::Normal);  // Anton tiene un solo peso
+    return font;
+}
+
+Tono pocketColor(core::PocketKind kind) {
     switch (kind) {
     case core::PocketKind::Operacion: return kOperacion;
     case core::PocketKind::Ahorro:    return kAhorro;
@@ -77,10 +177,10 @@ QColor pocketColor(core::PocketKind kind) {
     return kOperacion;
 }
 
-QColor alertColor(core::AlertLevel level) {
+Tono alertColor(core::AlertLevel level) {
     switch (level) {
     case core::AlertLevel::Danger:  return kNegative;
-    case core::AlertLevel::Warning: return kInversion;
+    case core::AlertLevel::Warning: return kAviso;
     case core::AlertLevel::Info:    return kTextMuted;
     }
     return kTextMuted;
@@ -195,15 +295,15 @@ QString changeText(const core::Money& current, const core::Money& previous) {
         .arg(percent);
 }
 
-void setLabelColor(QWidget* label, const QColor& color) {
+void setLabelColor(QWidget* label, Tono tono) {
     if (label == nullptr) {
         return;
     }
-    // El fondo transparente es tan importante como el color: sin el, la
-    // etiqueta hereda el fondo de la regla global QWidget y dibuja un
-    // rectangulo mas oscuro encima de la tarjeta que la contiene.
-    label->setStyleSheet(
-        QStringLiteral("color: %1; background: transparent;").arg(color.name()));
+    // El color lo pone la regla [tono="..."] de la hoja global. Sin volver a
+    // pulir, un cambio de propiedad no se nota hasta el proximo cambio de hoja.
+    label->setProperty("tono", QString::fromLatin1(tono.id()));
+    label->style()->unpolish(label);
+    label->style()->polish(label);
 }
 
 QString styleSheet() {
@@ -221,7 +321,7 @@ QString styleSheet() {
     const QString base = QStringLiteral(R"css(
 QWidget {
     background-color: %1;
-    color: %6;
+    color: %5;
 }
 
 /* Las etiquetas no pintan fondo propio: dentro de una tarjeta dibujarian un
@@ -235,49 +335,16 @@ QScrollArea, QScrollArea > QWidget > QWidget {
     border: none;
 }
 
-#Sidebar {
-    background-color: %4;
-    border-right: 1px solid %5;
-}
-
-#SidebarBrand {
-    color: %6;
-}
-
-#NavButton {
-    background-color: transparent;
-    border: none;
-    border-radius: 8px;
-    padding: 10px 14px;
-    text-align: left;
-    color: %7;
-}
-
-#NavButton:hover {
-    background-color: %3;
-    color: %6;
-}
-
-#NavButton:checked {
-    background-color: %3;
-    color: %8;
-    font-weight: 600;
-}
-
 #Card {
     background-color: %2;
-    border: 1px solid %5;
+    border: 1px solid %4;
     border-radius: 14px;
-}
-
-#CardTitle {
-    color: %7;
 }
 
 QToolTip {
     background-color: %3;
-    color: %6;
-    border: 1px solid %5;
+    color: %5;
+    border: 1px solid %4;
     padding: 6px 8px;
     border-radius: 6px;
 }
@@ -289,13 +356,13 @@ QScrollBar:vertical {
 }
 
 QScrollBar::handle:vertical {
-    background: %5;
+    background: %4;
     border-radius: 5px;
     min-height: 30px;
 }
 
 QScrollBar::handle:vertical:hover {
-    background: %7;
+    background: %6;
 }
 
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
@@ -306,7 +373,7 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
     background: transparent;
 }
 )css")
-        .arg(background, surface, raised, sidebar, border, text, muted, accent);
+        .arg(background, surface, raised, border, text, muted);
 
     // Los controles de entrada van en su propio bloque: QString::arg admite
     // hasta nueve sustituciones por llamada y el bloque de arriba ya usa ocho.
@@ -368,7 +435,7 @@ QCheckBox::indicator:checked {
 }
 
 /* Selector de tipo: apagado se lee como opcion disponible, encendido toma el
-   color semantico del movimiento (verde entra, rojo sale). */
+   color semantico del movimiento (verde entra, naranja sale). */
 #KindExpense, #KindIncome {
     background-color: %1;
     border: 1px solid %2;
@@ -396,16 +463,16 @@ QCheckBox::indicator:checked {
     background-color: %4;
     border: none;
     border-radius: 8px;
-    color: %5;
+    color: #FFFFFF;
     padding: 0px 16px;
 }
 
 #PrimaryButton:hover {
-    background-color: #7dd3fc;
+    background-color: #D90429;
 }
 
 #PrimaryButton:pressed {
-    background-color: #0ea5e9;
+    background-color: #B8001F;
 }
 
 QProgressBar {
@@ -432,7 +499,7 @@ QTableWidget {
     border: 1px solid %2;
     border-radius: 8px;
     gridline-color: %2;
-    selection-background-color: %5;
+    selection-background-color: %7;
     selection-color: %3;
 }
 
@@ -442,7 +509,7 @@ QTableWidget::item {
 }
 
 QTableWidget::item:selected {
-    background-color: %5;
+    background-color: %7;
     color: %3;
 }
 
@@ -453,6 +520,7 @@ QTableWidget::item:hover {
 QHeaderView::section {
     background-color: %1;
     color: %4;
+    font-weight: 600;
     padding: 8px 10px;
     border: none;
     border-bottom: 1px solid %2;
@@ -493,7 +561,7 @@ QCalendarWidget QAbstractItemView {
     selection-color: %1;
 }
 )css")
-                             .arg(surface, border, text, muted, accent, raised);
+                             .arg(surface, border, text, muted, accent, raised, kAccentSoft.name());
 
     // El tercer boton del selector de tipo. Va aparte porque el bloque
     // principal ya agoto los nueve marcadores que sustituye QString::arg().
@@ -533,7 +601,119 @@ QCalendarWidget QAbstractItemView {
 )css")
                                 .arg(raised, border, muted, text, kAhorro.name(), background);
 
-    return base + inputs + table + transfer;
+    // La barra lateral es azul-noche en los dos temas: por eso sus colores son
+    // fijos, y viven aca y en ningun otro lado.
+    const QString marco = QStringLiteral(R"css(
+QPushButton {
+    background-color: %1;
+    border: 1px solid %2;
+    border-radius: 8px;
+    color: %3;
+    padding: 6px 14px;
+}
+
+QPushButton:hover {
+    border: 1px solid %4;
+}
+
+QPushButton:disabled {
+    color: %5;
+}
+
+#Sidebar {
+    background-color: %6;
+    border-right: none;
+}
+
+#Sidebar QLabel {
+    color: #A9B1C4;
+}
+
+#Sidebar QPushButton {
+    background: transparent;
+    border: none;
+    color: #A9B1C4;
+    text-align: left;
+}
+
+#Sidebar QPushButton:hover {
+    color: #FFFFFF;
+}
+
+#NavButton {
+    border-radius: 0px;
+    padding: 9px 14px;
+}
+
+#NavButton:checked {
+    background-color: rgba(239, 35, 60, 46);
+    border-left: 3px solid #EF233C;
+    padding-left: 11px;
+    color: #FFFFFF;
+    font-weight: 600;
+}
+
+/* El cuerpo de una tarjeta (un QWidget suelto que agrupa etiquetas) no pinta
+   fondo: si no, la regla QWidget le pone el color de la ventana y queda un
+   rectangulo de otro tono dentro de la tarjeta. */
+QWidget[cardBody="true"] {
+    background: transparent;
+}
+
+#PillCell {
+    background: transparent;
+}
+
+#CaptureFrame {
+    background-color: %1;
+    border: 1px solid #EF233C;
+    border-radius: 14px;
+}
+)css")
+                              .arg(kSurface.name(), kBorder.name(), kText.name(), kTextMuted.name(),
+                                   kTextFaint.name(), kSidebar.name());
+
+    // Pastillas de estado, como las de Cotizaciones. Alfa en 0-255: 20 % = 51,
+    // 15 % = 38.
+    const auto alpha = [](Tono tono, int a) {
+        const QColor c = color(tono);
+        return QStringLiteral("rgba(%1, %2, %3, %4)").arg(c.red()).arg(c.green()).arg(c.blue()).arg(a);
+    };
+    const QString pills = QStringLiteral(R"css(
+QLabel[pill] {
+    border-radius: 8px;
+    padding: 1px 8px;
+}
+
+QLabel[pill="proceso"] {
+    background-color: %1;
+    color: %2;
+}
+
+QLabel[pill="cobrar"] {
+    background-color: %3;
+    color: %4;
+}
+
+QLabel[pill="cobrada"] {
+    background-color: %5;
+    color: %6;
+}
+)css")
+                              .arg(kText.name(), kSurface.name(), alpha(kAviso, 51), kAviso.name(),
+                                   alpha(kPositive, 38), kPositive.name());
+
+    // Una regla por papel: setLabelColor solo pone la propiedad y esto decide
+    // el color. Fondo transparente, como hacia la version anterior, para que
+    // la etiqueta no pinte un rectangulo encima de la tarjeta.
+    QString tonos;
+    for (int i = 0; i < kPapeles; ++i) {
+        const Tono tono{static_cast<Papel>(i)};
+        tonos += QStringLiteral("*[tono=\"%1\"] { color: %2; background: transparent; }\n")
+                     .arg(QLatin1String(tono.id()), tono.name());
+    }
+
+    return base + inputs + table + transfer + marco + pills + tonos;
 }
 
 } // namespace dake::ui::theme

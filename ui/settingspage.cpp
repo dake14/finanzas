@@ -64,6 +64,19 @@ void SettingsPage::buildUi() {
     theme::setLabelColor(heading, theme::kText);
     layout->addWidget(heading);
 
+    auto* lookCard = new Card(QStringLiteral("APARIENCIA"), page);
+    lookCard->setSubtitle(QStringLiteral("Claro u oscuro. Cambia al instante, tambien en la ventana de anotar."));
+    tema_ = new QComboBox(lookCard);
+    tema_->setObjectName(QStringLiteral("TemaSelector"));
+    tema_->setFont(theme::bodyFont(10));
+    tema_->addItems({QStringLiteral("Claro"), QStringLiteral("Oscuro")});
+    tema_->setMaximumWidth(220);
+    connect(tema_, &QComboBox::currentIndexChanged, this, [this](int index) {
+        emit themeChanged(index == 1 ? theme::Tema::Oscuro : theme::Tema::Claro);
+    });
+    lookCard->addContent(tema_);
+    layout->addWidget(lookCard);
+
     auto* captureCard = new Card(QStringLiteral("CAPTURA"), page);
     captureCard->setSubtitle(
         QStringLiteral("El atajo abre la ventana de anotar desde cualquier programa. Para que "
@@ -382,7 +395,7 @@ void SettingsPage::setSnapshot(const Snapshot& snapshot) {
     if (snapshot.costs.hourlyRateMinor == 0) {
         costsNote_->setText(QStringLiteral("Sin tarifa, tus horas no cuestan nada y todos los "
                                            "márgenes salen inflados."));
-        theme::setLabelColor(costsNote_, theme::kInversion);
+        theme::setLabelColor(costsNote_, theme::kAviso);
     } else {
         costsNote_->setText(
             QStringLiteral("Cada hora de reparación tiene que dejar %1: la tarifa más %2 de fijos "
@@ -415,7 +428,7 @@ void SettingsPage::setSnapshot(const Snapshot& snapshot) {
     if (!snapshot.quoteFolderFound) {
         quoteStatus_->setText(QStringLiteral("No se encuentra la carpeta (tiene que tener adentro la "
                                              "carpeta «documentos»)."));
-        theme::setLabelColor(quoteStatus_, theme::kInversion);
+        theme::setLabelColor(quoteStatus_, theme::kAviso);
     } else {
         int imported = 0;
         for (const core::QuotePlan& plan : snapshot.quotePlans) {
@@ -431,7 +444,7 @@ void SettingsPage::setSnapshot(const Snapshot& snapshot) {
             text += QStringLiteral("\nNo se pudieron leer: ") + snapshot.quoteErrors.join(QStringLiteral("; "));
         }
         quoteStatus_->setText(text);
-        theme::setLabelColor(quoteStatus_, holds > 0 ? theme::kInversion : theme::kTextMuted);
+        theme::setLabelColor(quoteStatus_, holds > 0 ? theme::kAviso : theme::kTextMuted);
     }
 
     {
@@ -439,6 +452,8 @@ void SettingsPage::setSnapshot(const Snapshot& snapshot) {
         hotkey_->setKeySequence(QKeySequence(snapshot.hotkey));
         const QSignalBlocker blockAutostart(autostart_);
         autostart_->setChecked(snapshot.autostart);
+        const QSignalBlocker blockTema(tema_);
+        tema_->setCurrentIndex(theme::currentTheme() == theme::Tema::Oscuro ? 1 : 0);
     }
     if (snapshot.hotkeyRegistered) {
         hotkeyStatus_->setText(QStringLiteral("activo"));

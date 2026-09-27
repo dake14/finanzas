@@ -412,7 +412,7 @@ void ReportsPage::refillRepairs() {
                   c.profitPerHour ? theme::formatMoney(*c.profitPerHour) : QStringLiteral("—"));
         setNumber(repairsTable_, row, 11,
                   low && c.suggestedPrice ? theme::formatMoney(*c.suggestedPrice) : QString(),
-                  theme::kInversion);
+                  theme::kAviso);
     }
 
     if (delivered.empty()) {
@@ -482,7 +482,7 @@ void ReportsPage::refillTypes() {
                 row.action = QStringLiteral("✓ bien");
                 break;
             case core::Verdict::Cerca:
-                row.color = theme::kInversion;
+                row.color = theme::kAviso;
                 row.action = QStringLiteral("▲ sube a %1 (hoy %2)")
                                  .arg(theme::formatMoney(*s.suggestedPrice),
                                       theme::formatMoney(s.averagePrice));
@@ -634,7 +634,7 @@ QWidget* ReportsPage::buildSalaryTab() {
     QWidget* body = layout->parentWidget();
     auto* card = new Card(QStringLiteral("¿CUÁNTO ME PUEDO PAGAR?"), body);
     salaryHeadline_ = new QLabel(card);
-    salaryHeadline_->setFont(theme::displayFont(16, QFont::Bold));
+    salaryHeadline_->setFont(theme::figureFont(16));
     salaryHeadline_->setWordWrap(true);
     card->addContent(salaryHeadline_);
     salaryScale_ = new SalaryScale(card);
@@ -712,9 +712,9 @@ void ReportsPage::refillSalary() {
         {QStringLiteral("Sueldo %1%").arg(pct(snapshot_.split.salaryBps)), money(a.salary),
          static_cast<double>(a.salary.minor()), theme::kPositive},
         {QStringLiteral("Impuestos %1%").arg(pct(snapshot_.split.taxesBps)), money(a.taxes),
-         static_cast<double>(a.taxes.minor()), theme::kInversion},
+         static_cast<double>(a.taxes.minor()), theme::kAviso},
         {QStringLiteral("Reinversión %1%").arg(pct(snapshot_.split.reinvestBps)), money(a.reinvest),
-         static_cast<double>(a.reinvest.minor()), theme::kAccent},
+         static_cast<double>(a.reinvest.minor()), theme::kSerie},
         {QStringLiteral("Emergencia %1%").arg(pct(snapshot_.split.emergencyBps)), money(a.emergency),
          static_cast<double>(a.emergency.minor()), theme::kAhorro},
     });

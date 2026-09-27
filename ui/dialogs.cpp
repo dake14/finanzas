@@ -45,7 +45,6 @@ void styleDialog(QDialog* dialog, const QString& title, int width) {
     dialog->setWindowTitle(title);
     dialog->setMinimumWidth(width);
     dialog->setModal(true);
-    dialog->setStyleSheet(theme::styleSheet());
 }
 
 [[nodiscard]] QLabel* hintLabel(const QString& text, QWidget* parent) {
@@ -195,7 +194,7 @@ ReconcileDialog::ReconcileDialog(const core::Pocket& pocket, const core::Money& 
                              QString::fromStdString(today_.toIso()),
                              QString::fromUtf8(core::kAdjustment.data(),
                                                static_cast<int>(core::kAdjustment.size()))));
-                theme::setLabelColor(difference_, theme::kInversion);
+                theme::setLabelColor(difference_, theme::kAviso);
             }
         } catch (const std::exception&) {
             difference_->setText(QStringLiteral("Escribi el saldo como 1.250,00"));

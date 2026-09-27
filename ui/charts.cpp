@@ -47,7 +47,7 @@ void BarChart::paintEvent(QPaintEvent* event) {
     }
 
     if (!hasData || points_.empty() || max_val == 0.0) {
-        painter.setPen(theme::kTextFaint);
+        painter.setPen(theme::color(theme::kTextFaint));
         painter.setFont(theme::bodyFont(9));
         painter.drawText(rect(), Qt::AlignCenter, QStringLiteral("sin datos todavia"));
         return;
@@ -84,16 +84,16 @@ void BarChart::paintEvent(QPaintEvent* event) {
         int startX = (width() - totalW) / 2;
         int legendY = 4;
         
-        painter.fillRect(QRectF(startX, legendY + (labelHeight - 8) / 2.0, 8, 8), theme::kPositive);
-        painter.setPen(theme::kTextMuted);
+        painter.fillRect(QRectF(startX, legendY + (labelHeight - 8) / 2.0, 8, 8), theme::color(theme::kPositive));
+        painter.setPen(theme::color(theme::kTextMuted));
         painter.drawText(QRectF(startX + 12, legendY, w1, labelHeight), Qt::AlignLeft | Qt::AlignVCenter, firstName_);
         
         startX += 12 + w1 + spacing;
-        painter.fillRect(QRectF(startX, legendY + (labelHeight - 8) / 2.0, 8, 8), theme::kNegative);
+        painter.fillRect(QRectF(startX, legendY + (labelHeight - 8) / 2.0, 8, 8), theme::color(theme::kNegative));
         painter.drawText(QRectF(startX + 12, legendY, w2, labelHeight), Qt::AlignLeft | Qt::AlignVCenter, secondName_);
     }
 
-    painter.setPen(theme::kBorder);
+    painter.setPen(theme::color(theme::kBorder));
     painter.drawLine(QPointF(0, zeroY), QPointF(width(), zeroY));
 
     int N = static_cast<int>(points_.size());
@@ -110,19 +110,19 @@ void BarChart::paintEvent(QPaintEvent* event) {
             double h1 = std::abs(p.primary) * scale;
             double y1 = p.primary >= 0 ? zeroY - h1 : zeroY;
             if (!signed_) y1 = zeroY - h1;
-            painter.fillRect(QRectF(cx - barW, y1, barW - 1, h1), theme::kPositive);
+            painter.fillRect(QRectF(cx - barW, y1, barW - 1, h1), theme::color(theme::kPositive));
 
             double h2 = std::abs(p.secondary) * scale;
             double y2 = p.secondary >= 0 ? zeroY - h2 : zeroY;
             if (!signed_) y2 = zeroY - h2;
-            painter.fillRect(QRectF(cx, y2, barW - 1, h2), theme::kNegative);
+            painter.fillRect(QRectF(cx, y2, barW - 1, h2), theme::color(theme::kNegative));
         } else {
             double barW = barGroupWidth;
             double h = std::abs(p.primary) * scale;
             double y = p.primary >= 0 ? zeroY - h : zeroY;
             if (!signed_) y = zeroY - h;
             
-            QColor c = theme::kAccent;
+            QColor c = theme::kSerie;
             if (signed_) {
                 c = p.primary >= 0 ? theme::kPositive : theme::kNegative;
             }
@@ -131,7 +131,7 @@ void BarChart::paintEvent(QPaintEvent* event) {
     }
 
     painter.setFont(labelFont);
-    painter.setPen(theme::kTextFaint);
+    painter.setPen(theme::color(theme::kTextFaint));
     
     int skip = 1;
     int maxW = 0;
@@ -177,7 +177,7 @@ void LineChart::paintEvent(QPaintEvent* event) {
     }
 
     if (!hasData || points_.empty() || max_val == 0.0) {
-        painter.setPen(theme::kTextFaint);
+        painter.setPen(theme::color(theme::kTextFaint));
         painter.setFont(theme::bodyFont(9));
         painter.drawText(rect(), Qt::AlignCenter, QStringLiteral("sin datos todavia"));
         return;
@@ -219,25 +219,25 @@ void LineChart::paintEvent(QPaintEvent* event) {
         fillPath.closeSubpath();
     }
 
-    painter.setPen(theme::kBorder);
+    painter.setPen(theme::color(theme::kBorder));
     painter.drawLine(QPointF(0, zeroY), QPointF(width(), zeroY));
 
-    QColor fillColor = theme::kAccent;
+    QColor fillColor = theme::kSerie;
     fillColor.setAlpha(40);
     painter.fillPath(fillPath, fillColor);
 
-    QPen linePen(theme::kAccent, 2);
+    QPen linePen(theme::color(theme::kSerie), 2);
     painter.setPen(linePen);
     painter.drawPath(linePath);
 
     painter.setPen(Qt::NoPen);
-    painter.setBrush(theme::kAccent);
+    painter.setBrush(theme::color(theme::kSerie));
     for (const auto& pt : poly) {
         painter.drawEllipse(pt, 3, 3);
     }
 
     painter.setFont(labelFont);
-    painter.setPen(theme::kTextFaint);
+    painter.setPen(theme::color(theme::kTextFaint));
     
     int skip = 1;
     int maxW = 0;
@@ -291,7 +291,7 @@ void RankChart::paintEvent(QPaintEvent* event) {
     }
 
     if (!hasData || points_.empty()) {
-        painter.setPen(theme::kTextFaint);
+        painter.setPen(theme::color(theme::kTextFaint));
         painter.setFont(theme::bodyFont(9));
         painter.drawText(rect(), Qt::AlignCenter, QStringLiteral("sin datos todavia"));
         return;
@@ -329,7 +329,7 @@ void RankChart::paintEvent(QPaintEvent* event) {
     }
 
     if (max_val == 0.0) {
-        painter.setPen(theme::kTextFaint);
+        painter.setPen(theme::color(theme::kTextFaint));
         painter.setFont(theme::bodyFont(9));
         painter.drawText(rect(), Qt::AlignCenter, QStringLiteral("sin datos todavia"));
         return;
@@ -355,15 +355,15 @@ void RankChart::paintEvent(QPaintEvent* event) {
         double ratio = std::abs(r.primary) / max_val;
         int barW = static_cast<int>(barArea * ratio);
 
-        QColor barColor = theme::kAccent;
+        QColor barColor = theme::kSerie;
         barColor.setAlphaF(0.60F);   // el sufijo F: setAlphaF toma float, y sin el /W4 avisa
         painter.fillRect(QRectF(0, y, barW, 24), barColor);
         
-        painter.setPen(theme::kText);
+        painter.setPen(theme::color(theme::kText));
         painter.drawText(QRectF(6, y, barArea - 12, 24), Qt::AlignLeft | Qt::AlignVCenter, r.label);
         
         if (!r.primaryText.isEmpty()) {
-            painter.setPen(theme::kTextMuted);
+            painter.setPen(theme::color(theme::kTextMuted));
             painter.drawText(QRectF(6, y, width() - 12, 24), Qt::AlignRight | Qt::AlignVCenter, r.primaryText);
         }
         
@@ -380,7 +380,7 @@ constexpr int kCompareLabelWidth = 150;
 
 CompareChart::CompareChart(QWidget* parent) : QWidget(parent) {}
 
-void CompareChart::setData(std::vector<CompareRow> rows, const QColor& barColor) {
+void CompareChart::setData(std::vector<CompareRow> rows, theme::Tono barColor) {
     rows_ = std::move(rows);
     barColor_ = barColor;
     updateGeometry();
@@ -401,7 +401,7 @@ void CompareChart::paintEvent(QPaintEvent* event) {
     painter.setRenderHint(QPainter::Antialiasing);
 
     if (rows_.empty()) {
-        painter.setPen(theme::kTextFaint);
+        painter.setPen(theme::color(theme::kTextFaint));
         painter.setFont(theme::bodyFont(9));
         painter.drawText(rect(), Qt::AlignCenter, QStringLiteral("sin gastos en estos dos meses"));
         return;
@@ -434,7 +434,7 @@ void CompareChart::paintEvent(QPaintEvent* event) {
         const int mid = y + kCompareRowHeight / 2;
 
         painter.setFont(font);
-        painter.setPen(theme::kText);
+        painter.setPen(theme::color(theme::kText));
         const QString label = QFontMetrics(font).elidedText(row.label, Qt::ElideRight,
                                                             kCompareLabelWidth - 10);
         painter.drawText(QRect(0, y, kCompareLabelWidth - 10, kCompareRowHeight),
@@ -442,9 +442,9 @@ void CompareChart::paintEvent(QPaintEvent* event) {
 
         const int barWidth = static_cast<int>(barArea * (row.current / maxValue));
         painter.setPen(Qt::NoPen);
-        painter.setBrush(theme::kSurfaceRaised);
+        painter.setBrush(theme::color(theme::kSurfaceRaised));
         painter.drawRoundedRect(QRectF(barLeft, mid - 7, barArea, 14), 3, 3);
-        painter.setBrush(barColor_);
+        painter.setBrush(theme::color(barColor_));
         if (barWidth > 0) {
             painter.drawRoundedRect(QRectF(barLeft, mid - 7, barWidth, 14), 3, 3);
         }
@@ -453,15 +453,15 @@ void CompareChart::paintEvent(QPaintEvent* event) {
         // obligan a leer la leyenda; una raya se entiende como "antes estaba aca".
         if (row.previous > 0.0) {
             const int x = barLeft + static_cast<int>(barArea * (row.previous / maxValue));
-            painter.setPen(QPen(theme::kText, 2));
+            painter.setPen(QPen(theme::color(theme::kText), 2));
             painter.drawLine(x, mid - 10, x, mid + 10);
         }
 
         painter.setFont(numbers);
-        painter.setPen(theme::kText);
+        painter.setPen(theme::color(theme::kText));
         const QRect textRect(barLeft + barArea + 12, y, gutter, kCompareRowHeight);
         painter.drawText(textRect, Qt::AlignLeft | Qt::AlignVCenter, row.currentText);
-        painter.setPen(row.rose ? theme::kNegative : theme::kPositive);
+        painter.setPen(theme::color(row.rose ? theme::kNegative : theme::kPositive));
         const int offset = metrics.horizontalAdvance(row.currentText + QStringLiteral("  "));
         painter.drawText(textRect.adjusted(offset, 0, 0, 0), Qt::AlignLeft | Qt::AlignVCenter,
                          row.changeText);
@@ -501,7 +501,7 @@ void TypeChart::paintEvent(QPaintEvent* event) {
     painter.setRenderHint(QPainter::Antialiasing);
 
     if (rows_.empty()) {
-        painter.setPen(theme::kTextFaint);
+        painter.setPen(theme::color(theme::kTextFaint));
         painter.setFont(theme::bodyFont(9));
         painter.drawText(rect(), Qt::AlignCenter,
                          QStringLiteral("todavía no hay reparaciones entregadas en el periodo"));
@@ -524,7 +524,7 @@ void TypeChart::paintEvent(QPaintEvent* event) {
     };
 
     const int targetX = x(target_);
-    painter.setPen(theme::kTextMuted);
+    painter.setPen(theme::color(theme::kTextMuted));
     painter.setFont(theme::bodyFont(8));
     painter.drawText(QRect(targetX - 60, 0, 120, kTypeTop - 4), Qt::AlignCenter,
                      QStringLiteral("objetivo %1%").arg(target_, 0, 'f', 0));
@@ -533,32 +533,32 @@ void TypeChart::paintEvent(QPaintEvent* event) {
     for (const TypeRow& row : rows_) {
         const int mid = y + kTypeRowHeight / 2;
         painter.setFont(theme::bodyFont(10, QFont::DemiBold));
-        painter.setPen(theme::kText);
+        painter.setPen(theme::color(theme::kText));
         painter.drawText(QRect(0, y, kTypeLabelWidth - 10, kTypeRowHeight),
                          Qt::AlignLeft | Qt::AlignVCenter, row.label);
 
         painter.setPen(Qt::NoPen);
-        painter.setBrush(theme::kSurfaceRaised);
+        painter.setBrush(theme::color(theme::kSurfaceRaised));
         painter.drawRoundedRect(QRectF(barLeft, mid - 9, barWidth, 18), 4, 4);
         if (row.hasMargin && row.marginPercent > 0) {
-            painter.setBrush(row.color);
+            painter.setBrush(theme::color(row.color));
             painter.drawRoundedRect(QRectF(barLeft, mid - 9, x(row.marginPercent) - barLeft, 18), 4, 4);
         }
 
         const QRect textRect(barLeft + barWidth + 16, y, textWidth, kTypeRowHeight);
         painter.setFont(theme::numericFont(9));
-        painter.setPen(theme::kText);
+        painter.setPen(theme::color(theme::kText));
         painter.drawText(textRect.adjusted(0, 3, 0, -kTypeRowHeight / 2), Qt::AlignLeft | Qt::AlignVCenter,
                          row.detail);
         painter.setFont(theme::bodyFont(9, QFont::DemiBold));
-        painter.setPen(row.color);
+        painter.setPen(theme::color(row.color));
         painter.drawText(textRect.adjusted(0, kTypeRowHeight / 2 - 3, 0, 0),
                          Qt::AlignLeft | Qt::AlignVCenter, row.action);
         y += kTypeRowHeight;
     }
 
     // La raya del objetivo va encima de las barras: es contra lo que se mide.
-    painter.setPen(QPen(theme::kText, 2, Qt::DashLine));
+    painter.setPen(QPen(theme::color(theme::kText), 2, Qt::DashLine));
     painter.drawLine(targetX, kTypeTop, targetX, y);
 }
 
@@ -594,15 +594,15 @@ void SalaryScale::paintEvent(QPaintEvent* event) {
     const int barY = 40;
 
     painter.setPen(Qt::NoPen);
-    painter.setBrush(theme::kSurfaceRaised);
+    painter.setBrush(theme::color(theme::kSurfaceRaised));
     painter.drawRoundedRect(QRectF(left, barY, span, 22), 5, 5);
     const bool enough = personal_ < 0 || salary_ >= personal_;
-    painter.setBrush(enough ? theme::kPositive : theme::kNegative);
+    painter.setBrush(theme::color(enough ? theme::kPositive : theme::kNegative));
     if (salary_ > 0) {
         painter.drawRoundedRect(QRectF(left, barY, x(salary_) - left, 22), 5, 5);
     }
     painter.setFont(theme::bodyFont(9, QFont::DemiBold));
-    painter.setPen(theme::kText);
+    painter.setPen(theme::color(theme::kText));
     painter.drawText(QRect(left, barY - 26, span, 20), Qt::AlignLeft | Qt::AlignVCenter,
                      QStringLiteral("Sueldo sostenible: ") + salaryText_);
 
@@ -616,11 +616,11 @@ void SalaryScale::paintEvent(QPaintEvent* event) {
         triangle.lineTo(px + 7, barY + 38);
         triangle.closeSubpath();
         painter.setPen(Qt::NoPen);
-        painter.setBrush(theme::kInversion);
+        painter.setBrush(theme::color(theme::kAviso));
         painter.drawPath(triangle);
-        painter.setPen(QPen(theme::kInversion, 2));
+        painter.setPen(QPen(theme::color(theme::kAviso), 2));
         painter.drawLine(px, barY - 4, px, barY + 26);
-        painter.setPen(theme::kInversion);
+        painter.setPen(theme::color(theme::kAviso));
         const QString text = QStringLiteral("gasto personal promedio: ") + personalText_;
         const int w = QFontMetrics(painter.font()).horizontalAdvance(text) + 8;
         const int tx = std::clamp(px - w / 2, left, right - w);
@@ -636,9 +636,9 @@ void SalaryScale::paintEvent(QPaintEvent* event) {
         diamond.lineTo(dx - 7, barY + 67);
         diamond.closeSubpath();
         painter.setPen(Qt::NoPen);
-        painter.setBrush(theme::kAccent);
+        painter.setBrush(theme::color(theme::kSerie));
         painter.drawPath(diamond);
-        painter.setPen(theme::kAccent);
+        painter.setPen(theme::color(theme::kSerie));
         const QString text = QStringLiteral("te pagaste por mes: ") + paidText_;
         const int w = QFontMetrics(painter.font()).horizontalAdvance(text) + 8;
         const int tx = std::clamp(dx - w / 2, left, right - w);
@@ -666,7 +666,7 @@ void SplitBar::paintEvent(QPaintEvent* event) {
     double total = 0;
     for (const SplitSegment& s : segments_) total += std::max(0.0, s.value);
     if (total <= 0) {
-        painter.setPen(theme::kTextFaint);
+        painter.setPen(theme::color(theme::kTextFaint));
         painter.setFont(theme::bodyFont(9));
         painter.drawText(rect(), Qt::AlignCenter, QStringLiteral("sin utilidad para repartir"));
         return;
@@ -677,13 +677,13 @@ void SplitBar::paintEvent(QPaintEvent* event) {
     for (const SplitSegment& s : segments_) {
         const double w = span * std::max(0.0, s.value) / total;
         painter.setPen(Qt::NoPen);
-        painter.setBrush(s.color);
+        painter.setBrush(theme::color(s.color));
         painter.drawRect(QRectF(x, 6, std::max(0.0, w - 2), 18));
-        painter.setPen(theme::kText);
+        painter.setPen(theme::color(theme::kText));
         painter.setFont(theme::bodyFont(8, QFont::DemiBold));
         painter.drawText(QRectF(x, 28, std::max(60.0, w), 14), Qt::AlignLeft | Qt::AlignVCenter, s.label);
         painter.setFont(theme::numericFont(8));
-        painter.setPen(theme::kTextMuted);
+        painter.setPen(theme::color(theme::kTextMuted));
         painter.drawText(QRectF(x, 43, std::max(60.0, w), 14), Qt::AlignLeft | Qt::AlignVCenter, s.amount);
         x += w;
     }

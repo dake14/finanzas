@@ -43,7 +43,6 @@ void styleDialog(QDialog* dialog, const QString& title, int width) {
     dialog->setWindowTitle(title);
     dialog->setMinimumWidth(width);
     dialog->setModal(true);
-    dialog->setStyleSheet(theme::styleSheet());
 }
 
 [[nodiscard]] QPushButton* button(const QString& text, bool primary, QWidget* parent) {

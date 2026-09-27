@@ -16,6 +16,7 @@
 #include <QScrollArea>
 #include <QSignalBlocker>
 #include <QSplitter>
+#include <QStyle>
 #include <QVBoxLayout>
 
 #include "cards.hpp"
@@ -48,13 +49,40 @@ enum StatusFilter { kAbiertas = 0, kEnProceso, kPorCobrar, kCobradas, kTodas };
     return {};
 }
 
-[[nodiscard]] QColor statusColor(core::RepairStatus status) {
+[[nodiscard]] QString pillId(core::RepairStatus status) {
     switch (status) {
-        case core::RepairStatus::EnProceso: return theme::kAccent;
-        case core::RepairStatus::Entregada: return theme::kInversion;
-        case core::RepairStatus::Cobrada: return theme::kPositive;
+        case core::RepairStatus::EnProceso: return QStringLiteral("proceso");
+        case core::RepairStatus::Entregada: return QStringLiteral("cobrar");
+        case core::RepairStatus::Cobrada: return QStringLiteral("cobrada");
     }
-    return theme::kText;
+    return QStringLiteral("proceso");
+}
+
+/// Convierte la etiqueta en pastilla de estado; el color lo pone la hoja global.
+void setPill(QLabel* label, core::RepairStatus status) {
+    label->setText(statusLabel(status));
+    label->setProperty("pill", pillId(status));
+    label->style()->unpolish(label);
+    label->style()->polish(label);
+}
+
+/// Una pastilla para una celda de tabla: sin el contenedor se estiraria a
+/// todo el ancho de la columna.
+[[nodiscard]] QWidget* pillCell(core::RepairStatus status) {
+    auto* cell = new QWidget();
+    cell->setObjectName(QStringLiteral("PillCell"));
+    auto* row = new QHBoxLayout(cell);
+    row->setContentsMargins(0, 0, 0, 0);
+    auto* pill = new QLabel(cell);
+    pill->setFont(theme::bodyFont(8, QFont::DemiBold));
+    // Tamano fijo: el relleno de 7 px que la hoja le da a cada celda deja unos
+    // 16 px de alto para el widget; sin esto el texto sale cortado ("Por cobr").
+    pill->setAlignment(Qt::AlignCenter);
+    pill->setFixedSize(84, 16);
+    setPill(pill, status);
+    row->addWidget(pill);
+    row->addStretch(1);
+    return cell;
 }
 
 [[nodiscard]] bool passes(const core::Repair& repair, int filter) {
@@ -146,6 +174,9 @@ void RepairsPage::buildUi() {
                        QStringLiteral("Tipo"), QStringLiteral("Estado"), QStringLiteral("Precio"),
                        QStringLiteral("Margen")},
                       1);
+    // ResizeToContents mide el texto de la celda, que en Estado esta vacio: la
+    // pastilla es un widget encima y sin ancho fijo sale cortada.
+    fixColumn(list_, 4, 120);
     list_->setMinimumWidth(460);
     connect(list_, &QTableWidget::currentCellChanged, this, [this](int row) {
         if (filling_ || row < 0) return;
@@ -191,6 +222,7 @@ QWidget* RepairsPage::buildPanel() {
     title_->setWordWrap(true);
     theme::setLabelColor(title_, theme::kText);
     status_ = new QLabel(body);
+    status_->setObjectName(QStringLiteral("RepairStatus"));
     status_->setFont(theme::bodyFont(9, QFont::DemiBold));
     titleRow->addWidget(title_, 1);
     titleRow->addWidget(status_);
@@ -352,7 +384,7 @@ QWidget* RepairsPage::buildPanel() {
     warnings_ = new QLabel(body);
     warnings_->setWordWrap(true);
     warnings_->setFont(theme::bodyFont(9));
-    theme::setLabelColor(warnings_, theme::kInversion);
+    theme::setLabelColor(warnings_, theme::kAviso);
     bodyLayout->addWidget(warnings_);
 
     card_->addContent(body);
@@ -413,7 +445,11 @@ void RepairsPage::refillList() {
         setText(list_, row, 2, job != nullptr ? QString::fromStdString(job->client) : QString(),
                 theme::kTextMuted);
         setText(list_, row, 3, typeLabel(repair.type), theme::kTextMuted);
-        setText(list_, row, 4, statusLabel(repair.status), statusColor(repair.status));
+        setText(list_, row, 4, QString());
+        // Qt borra la pastilla reemplazada en la proxima vuelta del bucle, sin
+        // esconderla: hasta entonces queda flotando arriba de la tabla.
+        if (QWidget* old = list_->cellWidget(row, 4)) old->hide();
+        list_->setCellWidget(row, 4, pillCell(repair.status));
         setNumber(list_, row, 5, costing.price.isZero() ? QStringLiteral("—") : money(costing.price));
         if (costing.marginBps) {
             const bool low = costing.belowTarget(snapshot_.costs.targetMarginBps);
@@ -446,8 +482,7 @@ void RepairsPage::showRepair(const core::Id& jobId) {
 
     title_->setText(QStringLiteral("%1 · %2").arg(QString::fromStdString(repair->orderNo),
                                                  QString::fromStdString(repair->device)));
-    status_->setText(statusLabel(repair->status).toUpper());
-    theme::setLabelColor(status_, statusColor(repair->status));
+    setPill(status_, repair->status);
 
     // Lo que vino de Cotizaciones se corrige alla: aca se ve pero no se toca.
     const bool fromQuotes = !repair->sourceRef.empty();
@@ -484,7 +519,7 @@ void RepairsPage::showRepair(const core::Id& jobId) {
             part.costKnown ? money(core::Money::fromMinor(part.costMinor, snapshot_.currency))
                            : QStringLiteral("¿costo?"));
         cost->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
-        cost->setForeground(part.costKnown ? theme::kText : theme::kInversion);
+        cost->setForeground(theme::color(part.costKnown ? theme::kText : theme::kAviso));
         cost->setData(Qt::UserRole, QString::fromStdString(part.id));
         cost->setToolTip(QStringLiteral("Doble clic para cambiar el costo."));
         parts_->setItem(row, 1, cost);
@@ -534,7 +569,7 @@ void RepairsPage::showRepair(const core::Id& jobId) {
     }
     if (c.suggestedPrice && low) {
         html += line(QStringLiteral("Precio para llegar al objetivo"), money(*c.suggestedPrice),
-                     theme::kInversion, true);
+                     theme::kAviso, true);
     }
     html += QStringLiteral("</table>");
     costing_->setText(html);

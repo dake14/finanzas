@@ -42,7 +42,6 @@ BankImportDialog::BankImportDialog(const Snapshot& snapshot, const QString& file
     : QDialog(parent), snapshot_(snapshot), profiles_(std::move(profiles)) {
     setWindowTitle(QStringLiteral("Importar ") + fileName);
     setModal(true);
-    setStyleSheet(theme::styleSheet());
     resize(1060, 680);
 
     const std::string raw = text.toStdString();
@@ -206,7 +205,7 @@ void BankImportDialog::refresh() {
                 const core::Movement* existing = snapshot_.movement(m.matchedMovementId);
                 what = QStringLiteral("ya anotado: ") +
                        (existing != nullptr ? QString::fromStdString(existing->name) : QString());
-                color = theme::kAccent;
+                color = theme::kPositive;
                 ++linked;
                 break;
             }

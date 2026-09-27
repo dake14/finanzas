@@ -37,6 +37,7 @@
 #include "dake/storage/repository.hpp"
 #include "mainwindow.hpp"
 #include "pages.hpp"
+#include "theme.hpp"
 
 namespace {
 
@@ -201,6 +202,31 @@ int main(int argc, char** argv) {
 
     std::printf("Banco de pruebas — la interfaz, sin mouse\n(%s)\n", path.toStdString().c_str());
 
+    std::printf("\n[fuentes y logo empaquetados]\n");
+    check(QFile::exists(QStringLiteral(":/dake/fuentes/Anton-Regular.ttf")), "Anton va dentro del ejecutable");
+    check(QFile::exists(QStringLiteral(":/dake/logo/DAke.png")), "y el logo tambien");
+    check(ui::theme::fontsLoaded(), "Inter y Anton quedaron registradas");
+    check(ui::theme::bodyFont(10).family() == QStringLiteral("Inter"), "el texto sale en Inter");
+    check(ui::theme::figureFont(21).family() == QStringLiteral("Anton"), "las cifras grandes en Anton");
+
+    std::printf("\n[tema: un papel cambia de color con el tema]\n");
+    {
+        ui::theme::setTheme(ui::theme::Tema::Claro);
+        QLabel probe;
+        ui::theme::setLabelColor(&probe, ui::theme::kNegative);
+        probe.ensurePolished();
+        check(probe.property("tono").toString() == QStringLiteral("gasto"),
+              "el monto de un gasto lleva el papel 'gasto'");
+        check(probe.palette().color(probe.foregroundRole()) == QColor(QStringLiteral("#E8590C")),
+              "en claro, naranja #E8590C");
+        ui::theme::setTheme(ui::theme::Tema::Oscuro);
+        probe.ensurePolished();
+        check(probe.palette().color(probe.foregroundRole()) == QColor(QStringLiteral("#FF922B")),
+              "en oscuro, el mismo papel da #FF922B sin volver a tocar la etiqueta");
+        check(QColor(ui::theme::kNegative) == QColor(QStringLiteral("#FF922B")), "y pintar a mano tambien lo ve");
+        ui::theme::setTheme(ui::theme::Tema::Claro);
+    }
+
     // Hermetica: una carpeta de Cotizaciones vacia y propia. Sin esto la
     // ventana leeria la carpeta real de Documentos.
     {
@@ -212,6 +238,14 @@ int main(int argc, char** argv) {
     ui::MainWindow window(path);
     window.show();
     check(QTest::qWaitForWindowExposed(&window), "la ventana principal se abre");
+    {
+        auto* logo = window.findChild<QLabel*>(QStringLiteral("SidebarLogo"));
+        auto* brand = window.findChild<QLabel*>(QStringLiteral("SidebarBrand"));
+        check(logo != nullptr && !logo->pixmap().isNull(), "el logo de DakeLabs esta en la barra lateral");
+        check(brand != nullptr && brand->text().contains(QStringLiteral("LABS")) &&
+                  brand->font().family() == QStringLiteral("Anton"),
+              "con DAKELABS en Anton");
+    }
     window.activateWindow();
     (void)QTest::qWaitForWindowActive(&window);
 
@@ -320,6 +354,15 @@ int main(int argc, char** argv) {
         check(asus != nullptr, "la segunda reparacion existe");
         check(asus != nullptr && asus->status == core::RepairStatus::Cobrada,
               "'60 cobro asus' la deja cobrada sin tocar la ficha");
+        if (asus != nullptr) {
+            auto* repairsPage = window.findChild<ui::RepairsPage*>();
+            repairsPage->selectRepair(asus->jobId);
+            settle();
+            auto* pill = repairsPage->findChild<QLabel*>(QStringLiteral("RepairStatus"));
+            check(pill != nullptr && pill->text() == QStringLiteral("Cobrada") &&
+                      pill->property("pill").toString() == QStringLiteral("cobrada"),
+                  "la ficha muestra la pastilla 'Cobrada'");
+        }
     }
 
 
@@ -611,6 +654,42 @@ int main(int argc, char** argv) {
         reactivate(&bankWindow);
         check(brepo.loadMovements().size() == before + 2, "importar el mismo extracto otra vez no agrega nada");
     }
+
+    std::printf("\n[tema oscuro desde Ajustes, y que se recuerde]\n");
+    {
+        check(ui::theme::temaFromString(QStringLiteral("azul")) == ui::theme::Tema::Claro,
+              "un valor raro arranca en claro");
+        check(ui::theme::temaFromString(QString()) == ui::theme::Tema::Claro, "sin valor, claro");
+        check(ui::theme::temaFromString(QStringLiteral(" Oscuro ")) == ui::theme::Tema::Oscuro,
+              "'Oscuro' con espacios, oscuro");
+
+        auto* selector = window.findChild<QComboBox*>(QStringLiteral("TemaSelector"));
+        auto* amount = window.findChild<QLabel*>(QStringLiteral("CaptureAmount"));
+        auto* input = window.findChild<QLineEdit*>(QStringLiteral("CaptureInput"));
+        check(selector != nullptr && amount != nullptr && input != nullptr, "el selector de tema esta en Ajustes");
+        if (selector != nullptr && amount != nullptr && input != nullptr) {
+            input->clear();
+            input->setFocus();
+            QTest::keyClicks(input, QStringLiteral("25 almuerzo"));
+            settle();
+            check(amount->property("tono").toString() == QStringLiteral("gasto"),
+                  "el monto del gasto lleva el papel 'gasto'");
+            selector->setCurrentIndex(1);
+            settle();
+            check(ui::theme::currentTheme() == ui::theme::Tema::Oscuro, "elegir Oscuro cambia el tema");
+            check(amount->palette().color(amount->foregroundRole()) == QColor(QStringLiteral("#FF922B")),
+                  "y el monto ya esta en el naranja del oscuro, sin reabrir nada");
+            check(repository.setting(QStringLiteral("ui.tema")).value_or(QString()) == QStringLiteral("oscuro"),
+                  "queda guardado en ui.tema");
+            input->clear();
+        }
+    }
+    {
+        ui::theme::setTheme(ui::theme::Tema::Claro);
+        ui::MainWindow again(path);
+        check(ui::theme::currentTheme() == ui::theme::Tema::Oscuro, "al reabrir, arranca en oscuro");
+    }
+    ui::theme::setTheme(ui::theme::Tema::Claro);
 
     std::printf("\n%s\n", gFailures == 0 ? "Todo pasa." : "HAY FALLAS.");
     std::fflush(stdout);
