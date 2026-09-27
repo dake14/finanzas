@@ -516,6 +516,25 @@ void elCasoCompleto() {
 
 } // namespace
 
+void bolsilloDeEmergencia() {
+    std::printf("\n-- bolsillo de emergencia --\n");
+    check(pocketKindFromString("Emergencia") == PocketKind::Emergencia, "'Emergencia' se lee");
+    check(toString(PocketKind::Emergencia) == "Emergencia", "y se escribe igual");
+    check(isReserve(PocketKind::Emergencia), "es reserva, como el ahorro");
+    check(allPocketKinds().size() == 5, "hay cinco tipos de bolsillo");
+
+    std::vector<Pocket> pockets = tresBolsillos();
+    Pocket fondo;
+    fondo.id = "fondo";
+    fondo.name = "Fondo";
+    fondo.kind = PocketKind::Emergencia;
+    fondo.openingMinor = 50'00;
+    pockets.push_back(fondo);
+    const auto balances = pocketBalances(pockets, {}, kUsd, Date::fromIso("2026-09-27"));
+    checkMinor(reserveTotal(balances, kUsd).minor(), 850'00,
+               "la reserva suma ahorro, inversion y emergencia");
+}
+
 int main() {
     std::printf("Banco de pruebas — verificacion del nucleo\n");
 
@@ -533,6 +552,7 @@ int main() {
     diasDeCobro();
     elCasoDeAgosto();
     elCasoCompleto();
+    bolsilloDeEmergencia();
 
     std::printf("\n%s\n", gFailures == 0 ? "Todo pasa." : "HAY FALLAS.");
     return gFailures == 0 ? 0 : 1;

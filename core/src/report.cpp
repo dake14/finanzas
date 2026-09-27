@@ -115,6 +115,16 @@ std::vector<PocketBalance> pocketBalances(const std::vector<Pocket>& pockets,
     return out;
 }
 
+Money reserveTotal(const std::vector<PocketBalance>& balances, Currency currency) {
+    Money total = Money::zero(currency);
+    for (const PocketBalance& balance : balances) {
+        if (isReserve(balance.kind)) {
+            total += balance.balance;
+        }
+    }
+    return total;
+}
+
 Money totalFor(const std::vector<PocketBalance>& balances, PocketKind kind, Currency currency) {
     Money total = Money::zero(currency);
     for (const PocketBalance& balance : balances) {
@@ -186,9 +196,7 @@ Funding funding(const std::vector<Pocket>& pockets,
     result.net = result.fromReserves - result.toReserves;
 
     const auto balances = pocketBalances(pockets, movements, currency, to);
-    result.reserveBalance =
-        totalFor(balances, PocketKind::Ahorro, currency) +
-        totalFor(balances, PocketKind::Inversion, currency);
+    result.reserveBalance = reserveTotal(balances, currency);
 
     return result;
 }

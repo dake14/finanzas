@@ -32,8 +32,9 @@ enum class Papel {
     Marca, MarcaSuave,
     Ingreso, Gasto, Aviso, Serie,
     Operacion, Ahorro, Inversion, Personal,
+    Emergencia,
 };
-inline constexpr int kPapeles = 18;
+inline constexpr int kPapeles = 19;
 
 enum class Tema { Claro, Oscuro };
 
@@ -66,6 +67,7 @@ inline constexpr Tono kOperacion{Papel::Operacion};
 inline constexpr Tono kAhorro{Papel::Ahorro};
 inline constexpr Tono kInversion{Papel::Inversion};   // SOLO el bolsillo de inversion
 inline constexpr Tono kPersonal{Papel::Personal};
+inline constexpr Tono kEmergencia{Papel::Emergencia};  // el fondo para imprevistos
 
 [[nodiscard]] QColor color(Tono tono);
 [[nodiscard]] Tema currentTheme();

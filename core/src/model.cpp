@@ -31,27 +31,30 @@ std::string_view toString(PocketKind value) noexcept {
         case PocketKind::Ahorro: return "Ahorro";
         case PocketKind::Inversion: return "Inversion";
         case PocketKind::Personal: return "Personal";
+        case PocketKind::Emergencia: return "Emergencia";
     }
     return "Operacion";
 }
 
 PocketKind pocketKindFromString(std::string_view text) {
-    static constexpr std::array<std::pair<std::string_view, PocketKind>, 4> table{{
+    static constexpr std::array<std::pair<std::string_view, PocketKind>, 5> table{{
         {"Operacion", PocketKind::Operacion},
         {"Ahorro", PocketKind::Ahorro},
         {"Inversion", PocketKind::Inversion},
         {"Personal", PocketKind::Personal},
+        {"Emergencia", PocketKind::Emergencia},
     }};
     return fromName(text, table, "PocketKind");
 }
 
-std::array<PocketKind, 4> allPocketKinds() noexcept {
+std::array<PocketKind, 5> allPocketKinds() noexcept {
     return {PocketKind::Operacion, PocketKind::Ahorro, PocketKind::Inversion,
-            PocketKind::Personal};
+            PocketKind::Personal, PocketKind::Emergencia};
 }
 
 bool isReserve(PocketKind value) noexcept {
-    return value == PocketKind::Ahorro || value == PocketKind::Inversion;
+    return value == PocketKind::Ahorro || value == PocketKind::Inversion ||
+           value == PocketKind::Emergencia;
 }
 
 // -------------------------------------------------------------- Movimientos

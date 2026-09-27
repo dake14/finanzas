@@ -45,12 +45,13 @@ enum class PocketKind {
     Operacion,  ///< caja del dia a dia: entra lo que cobras, sale lo que pagas
     Ahorro,     ///< reserva. Sacar de aca es una decision, no un accidente
     Inversion,  ///< capital puesto a trabajar (maquinas, stock, mercado)
-    Personal    ///< lo que ya te pagaste; gastarlo no es gasto del negocio
+    Personal,   ///< lo que ya te pagaste; gastarlo no es gasto del negocio
+    Emergencia  ///< el fondo para imprevistos: no se toca salvo emergencia
 };
 
 [[nodiscard]] std::string_view toString(PocketKind value) noexcept;
 [[nodiscard]] PocketKind pocketKindFromString(std::string_view text);
-[[nodiscard]] std::array<PocketKind, 4> allPocketKinds() noexcept;
+[[nodiscard]] std::array<PocketKind, 5> allPocketKinds() noexcept;
 
 /// true si el bolsillo es una reserva: financiar la operacion desde aca es
 /// justo lo que la app tiene que saber decir en voz alta.

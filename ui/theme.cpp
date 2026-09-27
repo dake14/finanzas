@@ -42,20 +42,23 @@ const std::array<QColor, kPapeles> kClaro{
     hex(0x2B2D42), hex(0x6B7690), hex(0x8D99AE),
     hex(0xEF233C), hex(0xFDE8EB),
     hex(0x1F9D6B), hex(0xE8590C), hex(0xB7791F), hex(0x4361EE),
-    hex(0x4361EE), hex(0x7B2CBF), hex(0x0F8FA3), hex(0x8D99AE)};
+    hex(0x4361EE), hex(0x7B2CBF), hex(0x0F8FA3), hex(0x8D99AE),
+    hex(0xD6336C)};
 const std::array<QColor, kPapeles> kOscuro{
     hex(0x23253A), hex(0x2B2D42), hex(0x33364F), hex(0x1A1C2B), hex(0x3A3D55),
     hex(0xEDF2F4), hex(0xA9B1C4), hex(0x737C96),
     hex(0xEF233C), hex(0x4A2332),
     hex(0x3ECF8E), hex(0xFF922B), hex(0xF6C453), hex(0x7B93FF),
-    hex(0x7B93FF), hex(0xB57BFF), hex(0x3CC8DC), hex(0xA9B1C4)};
+    hex(0x7B93FF), hex(0xB57BFF), hex(0x3CC8DC), hex(0xA9B1C4),
+    hex(0xF06595)};
 
 constexpr std::array<const char*, kPapeles> kIds{
     "fondo", "superficie", "superficie-alzada", "barra", "borde",
     "texto", "tenue", "apagado",
     "marca", "marca-suave",
     "ingreso", "gasto", "aviso", "serie",
-    "operacion", "ahorro", "inversion", "personal"};
+    "operacion", "ahorro", "inversion", "personal",
+    "emergencia"};
 
 Tema gTema = Tema::Claro;
 
@@ -173,6 +176,7 @@ Tono pocketColor(core::PocketKind kind) {
     case core::PocketKind::Ahorro:    return kAhorro;
     case core::PocketKind::Inversion: return kInversion;
     case core::PocketKind::Personal:  return kPersonal;
+    case core::PocketKind::Emergencia: return kEmergencia;
     }
     return kOperacion;
 }

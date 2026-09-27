@@ -52,6 +52,10 @@ struct PocketBalance {
                              PocketKind kind,
                              Currency currency);
 
+/// Todo lo que es reserva (ahorro, inversion, emergencia): lo que se puede
+/// consumir si el negocio no alcanza.
+[[nodiscard]] Money reserveTotal(const std::vector<PocketBalance>& balances, Currency currency);
+
 /// Suma de todos los saldos.
 [[nodiscard]] Money totalAll(const std::vector<PocketBalance>& balances, Currency currency);
 

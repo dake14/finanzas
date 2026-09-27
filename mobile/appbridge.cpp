@@ -33,6 +33,7 @@ constexpr int kAutoSyncDelayMs = 5000;
         case core::PocketKind::Ahorro: return QStringLiteral("Ahorro");
         case core::PocketKind::Inversion: return QStringLiteral("Inversion");
         case core::PocketKind::Personal: return QStringLiteral("Personal");
+        case core::PocketKind::Emergencia: return QStringLiteral("Emergencia");
     }
     return {};
 }
@@ -434,8 +435,7 @@ void AppBridge::reload() {
 
     // --- Lo que va arriba de Bolsillos ---
     const core::Money todoElDinero = core::totalAll(balances, currency_);
-    const core::Money reserva = core::totalFor(balances, core::PocketKind::Ahorro, currency_) +
-                                core::totalFor(balances, core::PocketKind::Inversion, currency_);
+    const core::Money reserva = core::reserveTotal(balances, currency_);
     pocketsSummary_.clear();
     pocketsSummary_["total"] = qs(core::formatAmount(todoElDinero));
     pocketsSummary_["reserves"] = qs(core::formatAmount(reserva));

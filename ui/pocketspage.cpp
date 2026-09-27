@@ -30,6 +30,7 @@ namespace {
         case core::PocketKind::Ahorro: return QStringLiteral("Ahorro");
         case core::PocketKind::Inversion: return QStringLiteral("Inversion");
         case core::PocketKind::Personal: return QStringLiteral("Personal");
+        case core::PocketKind::Emergencia: return QStringLiteral("Emergencia");
     }
     return {};
 }
@@ -160,9 +161,7 @@ void PocketsPage::setSnapshot(const Snapshot& snapshot) {
     }
 
     const core::Money all = core::totalAll(balances, currency);
-    const core::Money reserves =
-        core::totalFor(balances, core::PocketKind::Ahorro, currency) +
-        core::totalFor(balances, core::PocketKind::Inversion, currency);
+    const core::Money reserves = core::reserveTotal(balances, currency);
     total_->setText(
         QStringLiteral("En total tenés %1, de los cuales %2 son reserva. Este es el unico "
                        "numero de toda la aplicacion que se puede contar a mano y comparar; "
