@@ -25,10 +25,16 @@ deja datos rotos ni rompe la sincronización del teléfono.
 Este documento es solo la **etapa 1**.
 
 1. **Recorte** (este documento). Reparaciones queda igual.
-2. **Trabajos desde Cotizaciones.** La cotización cobrada llega con sus
-   líneas de piezas; en Finanzas se completa con horas y costo real (lo
-   cobrado, salvo que se escriba otro); los insumos se promedian del gasto
-   mensual; se van la ficha manual y las plantillas. Diseño aparte.
+2. **Trabajos desde Cotizaciones.** Tiene diseño aparte.
+   - La cotización cobrada llega con sus líneas de piezas. En Finanzas se
+     completa con las horas y el costo real, que es lo cobrado salvo que se
+     escriba otro.
+   - La compra de una pieza se anota cuando se hace, con el formulario. La
+     pieza de la factura solo sirve para calcular el margen y nunca crea otro
+     gasto: así la caja siempre cuadra y nada se cuenta dos veces.
+   - Los insumos se promedian del gasto mensual en insumos. Por eso se van el
+     campo "Consumibles" y "lo compré ahora", junto con la ficha manual y las
+     plantillas.
 3. **Cotizaciones dentro de Finanzas.** Sigue pausada.
 
 ## Decisión técnica: borrar el código, dejar los datos
@@ -123,8 +129,11 @@ por la ventana chica de `Ctrl+Alt+Espacio`. Reemplaza a `CaptureWidget`.
 
 ### Pendientes
 
-Cada fila tiene la acción que la resuelve y un botón **Después**, que la
-pospone 7 días con el mecanismo actual de posponer. Si no hay nada, dice
+Es una **lista con todos los pendientes a la vista, uno por fila**, y no un
+bloque que muestra uno por vez como la Revisión de ahora. Cada fila tiene la
+acción que la resuelve y un botón **Después**, que la pospone 7 días con el
+mecanismo actual de posponer. Al resolver una fila, desaparece y el resto se
+mantiene en su lugar. Si no hay nada, dice
 "Nada pendiente". El orden es el de `core::inbox`, y "bolsillo sin cuadrar"
 va al final.
 
@@ -184,7 +193,28 @@ donde está hoy.
   - "Cobrado" se mantiene, para los ingresos viejos que siguen por cobrar.
 - **Bolsillos:** saldos, cuadrar y nuevo bolsillo (con Emergencia). "Mes a
   mes" se va a Informes.
-- **Reparaciones:** sin cambios.
+- **Reparaciones:** sin cambios de contenido hasta la etapa 2. Solo se
+  arreglan los dos errores de abajo.
+
+### Dos errores que se arreglan
+
+- **Celda vacía al escribir.** El campo que se abre dentro de una celda
+  (repuestos, plantillas, gastos fijos) hereda de la hoja global el relleno
+  `7px 10px` de `QLineEdit`, y la celda le suma `QTableWidget::item
+  { padding: 7px 10px }`. Con la fila baja no queda alto para el texto: se
+  escribe sin ver nada y solo aparece al terminar. Arreglo: una regla
+  `QTableView QLineEdit { padding: 0 4px; border-radius: 0; }` en
+  `ui/theme.cpp`, y que el editor ocupe la celda entera. Prueba: en
+  `dake_uitest`, al abrir el editor de una celda, su `contentsRect()` tiene al
+  menos la altura de la fuente.
+- **Lentitud al elegir o editar una reparación.** Cada cambio de la ficha
+  (un repuesto, un costo, un campo) dispara el `reload()` completo de la
+  ventana, que recalcula todos los informes y rellena todas las páginas.
+  Arreglo: medir con `QElapsedTimer` qué parte se lleva el tiempo y, en los
+  cambios de la ficha, recalcular y rellenar solo la página visible; las
+  demás se rellenan al mostrarse. Criterio: elegir una reparación o agregar
+  un repuesto se ve en menos de 150 ms en la compilación release, con los
+  datos reales.
 - **Ajustes:**
   - Se quitan "Revisión de la semana", "Extractos del banco" y el contador de
     capturas.
