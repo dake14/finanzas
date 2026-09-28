@@ -1,5 +1,25 @@
 # Estado
 
+## Cotizaciones en la base (2026-09-27)
+
+Finanzas ya no lee la carpeta de DakeLabs Cotizaciones: lee lo esencial de
+cada documento desde la nube (`v2_quotes`). Cotizaciones de PC lo sube, y la
+app de Cotizaciones del teléfono lo ve y marca aceptada, rechazada o pagado.
+**Hasta que Cotizaciones suba, Finanzas no muestra documentos.**
+
+**Para vos, en este orden:**
+
+1. **Correr `supabase_v4_cotizaciones.sql`** en el panel de Supabase (SQL
+   Editor → New query → pegar → Run). Crea la tabla nueva y no toca las
+   demás.
+2. **En Cotizaciones de PC:** Datos y respaldo → Nube → Conectar, con la
+   misma cuenta de Finanzas. La primera vez sube los documentos que hay.
+3. **En Finanzas:** Sincronizar. Los documentos bajan y se importan como
+   antes (lo que ya estaba importado no se duplica; INF-2026-002 sigue
+   ignorado).
+4. **Instalar `CotizacionesDakeLabs.apk`** (en
+   `dakelabsfactura\apk\`) en el teléfono y entrar con la misma cuenta.
+
 ## Recorte a lo fundamental (2026-09-27)
 
 Hoy es para anotar y resolver pendientes; todos los números están en

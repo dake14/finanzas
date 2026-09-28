@@ -28,6 +28,8 @@
 #include <QTabWidget>
 #include <QTableWidget>
 #include <QHeaderView>
+#include <QJsonObject>
+#include <QJsonDocument>
 #include <QStyle>
 #include <QStyleOptionFrame>
 #include <QTest>
@@ -146,32 +148,29 @@ void reactivate(QWidget* window) {
     return nullptr;
 }
 
-void writeDoc(const QString& folder, const QString& name, const QByteArray& json) {
-    QDir().mkpath(folder + QStringLiteral("/documentos"));
-    // Como Cotizaciones: a un temporal y despues renombrado encima.
-    const QString target = folder + QStringLiteral("/documentos/") + name;
-    QFile tmp(target + QStringLiteral(".tmp"));
-    tmp.open(QIODevice::WriteOnly);
-    tmp.write(json);
-    tmp.close();
-    QFile::remove(target);
-    QFile::rename(target + QStringLiteral(".tmp"), target);
+/// Una fila de v2_quotes con lo esencial, como la sube Cotizaciones.
+[[nodiscard]] QByteArray quoteRow(const char* id, const char* number, const char* kind,
+                                  const char* status, const char* client, const char* device,
+                                  int unit, const char* origin, const char* paidOn) {
+    QByteArray json = R"({"id":"ID","numero":"NUM","tipo":"KIND","forma":"servicio","cliente":"CLI",
+      "equipo":"DEV","lineas":[{"seccion":"Mano de obra","concepto":"Reparacion","cantidad":1,"valorUnitario":UNIT}],
+      "descuento_tipo":"","descuento_valor":0,"abono_minor":0,"fecha_emision":"2026-09-19",
+      "fecha_ingreso":"2026-09-10","origen_id":"ORIG","hecho_en":"pc","estado":"EST",
+      "fecha_entrega":"DELIV","fecha_pago":"PAGO_EN","motivo_rechazo":"","deleted":false})";
+    const bool informe = QByteArray(kind) == "informe";
+    json.replace("ID", id).replace("NUM", number).replace("KIND", kind).replace("EST", status)
+        .replace("CLI", client).replace("DEV", device).replace("UNIT", QByteArray::number(unit))
+        .replace("ORIG", origin == nullptr ? QByteArray() : QByteArray(origin))
+        .replace("DELIV", informe ? QByteArray("2026-09-19") : QByteArray())
+        .replace("PAGO_EN", paidOn == nullptr ? QByteArray() : QByteArray(paidOn));
+    return json;
 }
 
-[[nodiscard]] QByteArray informe(const char* id, const char* number, const char* status,
-                                 const char* client, const char* device, int unit,
-                                 const char* origin, bool paid) {
-    QByteArray json = R"({"id":"ID","numero":"NUM","tipo":"informe","forma":"servicio","estado":"EST",
-      "fechaEmision":"2026-09-19","fechaEntrega":"2026-09-19",
-      "clienteCongelado":{"nombre":"CLI"},"equipo":{"descripcion":"DEV","fechaIngreso":"2026-09-10"},
-      "categorias":[{"nombre":"Mano de obra","lineas":[{"concepto":"Reparacion","cantidad":1,"valorUnitario":UNIT}]}],
-      "descuento":null,"abono":0,"origenId":ORIG,"historial":[HIST]})";
-    json.replace("ID", id).replace("NUM", number).replace("EST", status).replace("CLI", client)
-        .replace("DEV", device).replace("UNIT", QByteArray::number(unit))
-        .replace("ORIG", origin == nullptr ? QByteArray("null") : QByteArray("\"") + origin + "\"")
-        .replace("HIST", paid ? QByteArray(R"({"fecha":"2026-09-22","tipo":"estado","detalle":"Pagado"})")
-                              : QByteArray());
-    return json;
+/// Lo que haria la sincronizacion al bajarla.
+void putQuote(storage::Repository& repo, const QByteArray& json, const char* updatedAt) {
+    const QJsonObject row = QJsonDocument::fromJson(json).object();
+    repo.applyRemoteQuote(row.value(QStringLiteral("id")).toString(), QString::fromLatin1(updatedAt),
+                          false, QString::fromUtf8(json));
 }
 } // namespace
 
@@ -261,14 +260,6 @@ int main(int argc, char** argv) {
               "en oscuro, el mismo papel da #FF922B sin volver a tocar la etiqueta");
         check(QColor(ui::theme::kNegative) == QColor(QStringLiteral("#FF922B")), "y pintar a mano tambien lo ve");
         ui::theme::setTheme(ui::theme::Tema::Claro);
-    }
-
-    // Hermetica: una carpeta de Cotizaciones vacia y propia. Sin esto la
-    // ventana leeria la carpeta real de Documentos.
-    {
-        storage::Database setup(path);
-        storage::Repository repo(setup);
-        repo.setSetting(QStringLiteral("cot.carpeta"), temp.path() + QStringLiteral("/sin-cotizaciones"));
     }
 
     ui::MainWindow window(path);
@@ -741,26 +732,22 @@ int main(int argc, char** argv) {
 
     // --- DakeLabs Cotizaciones -----------------------------------------------
     //
-    // Otra base y otra ventana, con una carpeta sintetica: una cotizacion
-    // aceptada, su informe entregado, y el Macbook dos veces.
+    // Otra base y otra ventana, con filas como las que baja la sincronizacion:
+    // una cotizacion aceptada, su informe entregado, y el Macbook dos veces.
     std::printf("\n[DakeLabs Cotizaciones]\n");
     {
         const QString quotesPath = temp.path() + QStringLiteral("/cotizaciones.db");
-        const QString folder = temp.path() + QStringLiteral("/DakeLabs Cotizaciones");
-        writeDoc(folder, QStringLiteral("COT-2026-001.json"), R"({"id":"c1","numero":"COT-2026-001",
-          "tipo":"cotizacion","estado":"aceptada","fechaEmision":"2026-09-01",
-          "clienteCongelado":{"nombre":"Josue Rodríguez"},"equipo":{"descripcion":"asus x556U","fechaIngreso":"2026-09-01"},
-          "categorias":[],"descuento":null,"abono":0,"origenId":null,"historial":[]})");
-        writeDoc(folder, QStringLiteral("INF-2026-004.json"),
-                 informe("i4", "INF-2026-004", "entregado", "Josue Rodríguez", "asus x556U", 1000, "c1", false));
-        writeDoc(folder, QStringLiteral("INF-2026-001.json"),
-                 informe("i1", "INF-2026-001", "pagado", "Sr. Galván", "Macbook M1", 6983, nullptr, true));
-        writeDoc(folder, QStringLiteral("INF-2026-002.json"),
-                 informe("i2", "INF-2026-002", "pagado", "Sr. Galván", "Macbook M1", 6982, nullptr, true));
         {
             storage::Database setup(quotesPath);
             storage::Repository repo(setup);
-            repo.setSetting(QStringLiteral("cot.carpeta"), folder);
+            putQuote(repo, quoteRow("c1", "COT-2026-001", "cotizacion", "aceptada", "Josue Rodríguez",
+                                    "asus x556U", 0, nullptr, nullptr), "2026-09-27T10:00:00+00:00");
+            putQuote(repo, quoteRow("i4", "INF-2026-004", "informe", "entregado", "Josue Rodríguez",
+                                    "asus x556U", 1000, "c1", nullptr), "2026-09-27T10:00:01+00:00");
+            putQuote(repo, quoteRow("i1", "INF-2026-001", "informe", "pagado", "Sr. Galván",
+                                    "Macbook M1", 6983, nullptr, "2026-09-22"), "2026-09-27T10:00:02+00:00");
+            putQuote(repo, quoteRow("i2", "INF-2026-002", "informe", "pagado", "Sr. Galván",
+                                    "Macbook M1", 6982, nullptr, "2026-09-22"), "2026-09-27T10:00:03+00:00");
         }
         qputenv("DAKE_TEST_DB_PATH", quotesPath.toLocal8Bit());
 
@@ -780,45 +767,42 @@ int main(int argc, char** argv) {
               "sobre la reparacion que abrio la cotizacion");
         const auto quoteRepairs = qrepo.loadRepairs();
         const core::Repair* asus = findRepair(quoteRepairs, "asus x556U");
-        if (asus != nullptr) {
-            std::printf("      (asus: %s, %s)\n", std::string(core::toString(asus->status)).c_str(),
-                        asus->orderNo.c_str());
-        }
         check(asus != nullptr && asus->status == core::RepairStatus::Entregada &&
                   asus->orderNo == "INF-2026-004",
               "la reparacion queda entregada, con el numero del informe");
         const core::Movement* mac = findMovement(movements, "cot-i1-saldo");
         check(mac != nullptr && mac->settled && mac->settledDate == (core::Date{2026, 9, 22}),
-              "el informe pagado entra cobrado, con la fecha del evento Pagado");
+              "el informe pagado entra cobrado, con su fecha de pago");
         check(findMovement(movements, "cot-i2-saldo") == nullptr,
               "el repetido no entra: espera que decidas");
 
         // Releer no duplica nada.
         const std::size_t before = qrepo.loadMovements().size();
-        emit quotesWindow.findChild<ui::SettingsPage*>()->quoteReadRequested();
+        quotesWindow.importQuotes(false);
         settle();
-        check(qrepo.loadMovements().size() == before, "leer la carpeta otra vez no agrega nada");
+        check(qrepo.loadMovements().size() == before, "leer otra vez no agrega nada");
 
-        // Cotizaciones marca el informe pagado: el archivo cambia y Finanzas se entera sola.
-        writeDoc(folder, QStringLiteral("INF-2026-004.json"),
-                 informe("i4", "INF-2026-004", "pagado", "Josue Rodríguez", "asus x556U", 1000, "c1", true));
-        bool settledNow = false;
-        for (int i = 0; i < 60 && !settledNow; ++i) {
-            QTest::qWait(100);
-            const auto now = qrepo.loadMovements();
-            const core::Movement* m = findMovement(now, "cot-i4-saldo");
-            settledNow = m != nullptr && m->settled && m->settledDate == (core::Date{2026, 9, 22});
-        }
-        check(settledNow, "al marcarlo pagado en Cotizaciones, el ingreso queda cobrado sin tocar nada");
+        // El telefono marca el informe pagado: baja la fila nueva y, al terminar
+        // la sincronizacion, Finanzas importa.
+        putQuote(qrepo, quoteRow("i4", "INF-2026-004", "informe", "pagado", "Josue Rodríguez",
+                                 "asus x556U", 1000, "c1", "2026-09-22"), "2026-09-27T11:00:00+00:00");
+        quotesWindow.importQuotes(true);
+        settle();
+        const auto afterPaid = qrepo.loadMovements();
+        const core::Movement* paid = findMovement(afterPaid, "cot-i4-saldo");
+        check(paid != nullptr && paid->settled && paid->settledDate == (core::Date{2026, 9, 22}),
+              "marcado pagado en el telefono, el ingreso queda cobrado con esa fecha");
         check(findRepair(qrepo.loadRepairs(), "asus x556U") != nullptr &&
                   findRepair(qrepo.loadRepairs(), "asus x556U")->status == core::RepairStatus::Cobrada,
               "y la reparacion, cobrada");
 
+        auto* settings = quotesWindow.findChild<ui::SettingsPage*>();
+        check(settings->findChild<QLineEdit*>(QStringLiteral("QuoteFolder")) == nullptr,
+              "Ajustes ya no pide carpeta");
+
         // La revision: Enter aplica lo sugerido (ignorar el repetido).
-        onNextDialog([](QWidget* dialog) {
-            QTest::keyClick(dialog, Qt::Key_Return);
-        });
-        emit quotesWindow.findChild<ui::SettingsPage*>()->quoteReviewRequested();
+        onNextDialog([](QWidget* dialog) { QTest::keyClick(dialog, Qt::Key_Return); });
+        emit settings->quoteReviewRequested();
         reactivate(&quotesWindow);
         const QString decisions = qrepo.setting(QStringLiteral("cot.decisiones")).value_or(QString());
         check(decisions.contains(QStringLiteral("\"i2\":\"ignorar\"")),
@@ -837,7 +821,6 @@ int main(int argc, char** argv) {
             storage::Database setup(reviewPath);
             storage::Repository repo(setup);
             repo.seedIfEmpty(core::Currency::usd());
-            repo.setSetting(QStringLiteral("cot.carpeta"), temp.path() + QStringLiteral("/sin-cotizaciones"));
             core::Recurring luz;
             luz.id = "R-luz";
             luz.name = "Luz";

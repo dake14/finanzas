@@ -28,7 +28,7 @@
 #include "dake/core/accounts.hpp"
 #include "dake/core/demo.hpp"
 #include "dake/storage/database.hpp"
-#include "dake/storage/quotefolder.hpp"
+#include "dake/storage/quoterows.hpp"
 #include "dake/storage/repository.hpp"
 #include "dake/core/repairs.hpp"
 #include "dake/core/salary.hpp"
@@ -213,22 +213,22 @@ int main(int argc, char** argv) {
     const bool dark = arguments.removeAll(QStringLiteral("--oscuro")) > 0;
     dake::ui::theme::setTheme(dark ? dake::ui::theme::Tema::Oscuro : dake::ui::theme::Tema::Claro);
 
-    if (arguments.size() < 2 || (arguments.size() < 3 && arguments.at(1) != QLatin1String("cotizaciones"))) {
+    if (arguments.size() < 3) {
         std::cout << "Uso: dake_uipreview <pantalla|todas> <salida.png|carpeta> "
                      "[ancho] [alto] [--oscuro]\n"
-                  << "Pantallas: hoy | reparaciones | movimientos | bolsillos | informes[-mes|-gastos|-trabajos|-sueldo] | ajustes | captura | todas\n";
+                  << "Pantallas: hoy | reparaciones | movimientos | bolsillos | informes[-mes|-gastos|-trabajos|-sueldo] | ajustes | captura | todas\n"
+                  << "     dake_uipreview cotizaciones|plan|medir <copia de la base>\n";
         return 2;
     }
 
-    // "cotizaciones [carpeta]": lista lo que Finanzas entiende de cada
-    // documento de DakeLabs Cotizaciones. Solo lee; sirve para comparar contra
-    // lo que muestra Cotizaciones.
+    // "cotizaciones <base>": lista lo que Finanzas entiende de cada documento
+    // de DakeLabs Cotizaciones que bajo a esa base. Pensado para una COPIA de
+    // la base real: abrirla la migra.
     if (arguments.at(1) == QLatin1String("cotizaciones")) {
-        const QString folder =
-            arguments.size() > 2 ? arguments.at(2) : dake::storage::defaultQuoteFolder();
-        const auto read = dake::storage::readQuoteFolder(folder);
-        std::cout << "carpeta " << folder.toStdString() << (read.folderFound ? "" : " (no existe)")
-                  << "\n";
+        dake::storage::Database db(arguments.at(2));
+        dake::storage::Repository repository(db);
+        const auto read = dake::storage::readQuoteRows(repository);
+        std::cout << read.docs.size() << " documentos en " << arguments.at(2).toStdString() << "\n";
         for (const auto& d : read.docs) {
             std::cout << d.number << "\t" << d.status << "\tbase=" << d.baseMinor
                       << "\tabono=" << d.depositMinor << "\tsaldo=" << d.balanceMinor()
@@ -242,15 +242,13 @@ int main(int argc, char** argv) {
         return 0;
     }
 
-    // "plan <base> [carpeta]": lo que haria la importacion de Cotizaciones
+    // "plan <base>": lo que haria la importacion de Cotizaciones
     // sobre esa base, sin aplicar nada. Pensado para correrlo sobre una COPIA
     // de la base real: abrirla la migra.
     if (arguments.at(1) == QLatin1String("plan") && arguments.size() > 2) {
         dake::storage::Database db(arguments.at(2));
         dake::storage::Repository repository(db);
-        const QString folder =
-            arguments.size() > 3 ? arguments.at(3) : dake::storage::defaultQuoteFolder();
-        const auto read = dake::storage::readQuoteFolder(folder);
+        const auto read = dake::storage::readQuoteRows(repository);
         dake::core::QuoteContext context;
         context.repairs = repository.loadRepairs();
         context.jobs = repository.loadJobs();
@@ -302,12 +300,6 @@ int main(int argc, char** argv) {
         if (!QFile::copy(arguments.at(2), copy)) {
             std::cout << "no se pudo copiar " << arguments.at(2).toStdString() << "\n";
             return 1;
-        }
-        {
-            // Hermetica: sin la carpeta real de Cotizaciones.
-            dake::storage::Database setup(copy);
-            dake::storage::Repository repo(setup);
-            repo.setSetting(QStringLiteral("cot.carpeta"), temp.path() + QStringLiteral("/sin-cotizaciones"));
         }
         qputenv("DAKE_TEST_DB_PATH", copy.toLocal8Bit());
         dake::ui::MainWindow window(copy);

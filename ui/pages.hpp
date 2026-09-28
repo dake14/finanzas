@@ -282,8 +282,6 @@ signals:
     void templateChanged(const dake::core::RepairTemplate& tpl);
     void templateAdded();
     void templateRemoved(const dake::core::Id& templateId);
-    void quoteFolderChanged(const QString& folder);
-    void quoteReadRequested();
     void quoteReviewRequested();
     void recurringChanged(const dake::core::Recurring& recurring);
     void recurringAdded();
@@ -321,7 +319,6 @@ private:
     QLineEdit* splitEmergency_ = nullptr;
     QLabel* splitNote_ = nullptr;
     QTableWidget* templates_ = nullptr;
-    QLineEdit* quoteFolder_ = nullptr;
     QLabel* quoteStatus_ = nullptr;
     QPushButton* quoteReview_ = nullptr;
     QLabel* fixedSummary_ = nullptr;

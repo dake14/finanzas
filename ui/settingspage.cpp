@@ -279,34 +279,21 @@ void SettingsPage::buildUi() {
     // --- DakeLabs Cotizaciones ------------------------------------------------
     auto* quotesCard = new Card(QStringLiteral("DAKELABS COTIZACIONES"), page);
     quotesCard->setSubtitle(
-        QStringLiteral("Finanzas lee esta carpeta y nunca escribe en ella. Un informe entregado crea "
-                       "el ingreso por cobrar; al marcarlo pagado, queda cobrado con esa fecha. Una "
-                       "cotización aceptada abre la reparación."));
+        QStringLiteral("Finanzas lee lo esencial de cada documento desde la nube y nunca lo cambia. "
+                       "Un informe entregado crea el ingreso por cobrar; al marcarlo pagado —en la "
+                       "PC o en el teléfono—, queda cobrado con esa fecha. Una cotización aceptada "
+                       "abre la reparación."));
     auto* folderRow = new QWidget(quotesCard);
     auto* folderLayout = new QHBoxLayout(folderRow);
     folderLayout->setContentsMargins(0, 0, 0, 0);
     folderLayout->setSpacing(8);
-    quoteFolder_ = new QLineEdit(folderRow);
-    quoteFolder_->setFont(theme::bodyFont(10));
-    connect(quoteFolder_, &QLineEdit::editingFinished, this, [this] {
-        const QString folder = quoteFolder_->text().trimmed();
-        if (!folder.isEmpty() && folder != snapshot_.quoteFolder) {
-            emit quoteFolderChanged(folder);
-        }
-    });
-    auto* readNow = new QPushButton(QStringLiteral("Leer ahora"), folderRow);
-    readNow->setObjectName(QStringLiteral("GhostButton"));
     quoteReview_ = new QPushButton(QStringLiteral("Revisar"), folderRow);
     quoteReview_->setObjectName(QStringLiteral("PrimaryButton"));
-    for (QPushButton* b : {readNow, quoteReview_}) {
-        b->setCursor(Qt::PointingHandCursor);
-        b->setFont(theme::bodyFont(9, QFont::DemiBold));
-        b->setFixedHeight(32);
-    }
-    connect(readNow, &QPushButton::clicked, this, &SettingsPage::quoteReadRequested);
+    quoteReview_->setCursor(Qt::PointingHandCursor);
+    quoteReview_->setFont(theme::bodyFont(9, QFont::DemiBold));
+    quoteReview_->setFixedHeight(32);
     connect(quoteReview_, &QPushButton::clicked, this, &SettingsPage::quoteReviewRequested);
-    folderLayout->addWidget(quoteFolder_, 1);
-    folderLayout->addWidget(readNow);
+    folderLayout->addStretch(1);
     folderLayout->addWidget(quoteReview_);
     quotesCard->addContent(folderRow);
     quoteStatus_ = new QLabel(quotesCard);
@@ -368,22 +355,20 @@ void SettingsPage::setSnapshot(const Snapshot& snapshot) {
                                        "promedio por el porcentaje de sueldo."));
     theme::setLabelColor(splitNote_, theme::kTextFaint);
 
-    if (!quoteFolder_->hasFocus()) {
-        quoteFolder_->setText(snapshot.quoteFolder);
-    }
     const int holds = snapshot.quoteHolds();
     quoteReview_->setText(holds > 0 ? QStringLiteral("Revisar (%1)").arg(holds) : QStringLiteral("Revisar"));
     quoteReview_->setEnabled(holds > 0);
-    if (!snapshot.quoteFolderFound) {
-        quoteStatus_->setText(QStringLiteral("No se encuentra la carpeta (tiene que tener adentro la "
-                                             "carpeta «documentos»)."));
-        theme::setLabelColor(quoteStatus_, theme::kAviso);
+    if (snapshot.quoteDocs.empty()) {
+        quoteStatus_->setText(QStringLiteral("Todavía no bajó ningún documento. En DakeLabs "
+                                             "Cotizaciones: Datos y respaldo → Nube → Conectar, "
+                                             "con esta misma cuenta, y después Sincronizar."));
+        theme::setLabelColor(quoteStatus_, theme::kTextMuted);
     } else {
         int imported = 0;
         for (const core::QuotePlan& plan : snapshot.quotePlans) {
             if (plan.decision == core::QuoteDecision::Importar) ++imported;
         }
-        QString text = QStringLiteral("%1 documentos leídos · %2 al día en Finanzas")
+        QString text = QStringLiteral("%1 documentos desde la nube · %2 al día en Finanzas")
                            .arg(snapshot.quoteDocs.size())
                            .arg(imported);
         if (holds > 0) {

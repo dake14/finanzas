@@ -7,7 +7,6 @@ add_library(dake_storage STATIC
     src/exchange.cpp
     src/wire.cpp
     src/repository.cpp
-    src/quotefolder.cpp
     src/quoterows.cpp
 )
 

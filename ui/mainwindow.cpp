@@ -8,7 +8,6 @@
 #include <QDir>
 #include <QFileDialog>
 #include <QFileInfo>
-#include <QFileSystemWatcher>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -37,7 +36,7 @@
 
 #include "dake/core/accounts.hpp"
 #include "dake/core/hlc.hpp"
-#include "dake/storage/quotefolder.hpp"
+#include "dake/storage/quoterows.hpp"
 #include "dake/sync/config.hpp"
 #include "dialogs.hpp"
 #include "quotedialog.hpp"
@@ -142,6 +141,8 @@ MainWindow::MainWindow(const QString& dbPath, QWidget* parent) : QMainWindow(par
         if (error.isEmpty()) {
             updateCloudUi(QStringLiteral("%1 ↑, %2 ↓").arg(uploaded).arg(downloaded));
             reload();
+            // Lo que bajo de Cotizaciones entra en la misma corrida.
+            if (downloaded > 0) importQuotes(true);
         } else {
             updateCloudUi(error);
         }
@@ -183,14 +184,6 @@ MainWindow::MainWindow(const QString& dbPath, QWidget* parent) : QMainWindow(par
     // ejecutable si se movio de carpeta.
     applyAutostart(repository_->setting(QStringLiteral("config.arranque")).value_or(QStringLiteral("1")) ==
                    QStringLiteral("1"));
-
-    quoteWatcher_ = new QFileSystemWatcher(this);
-    quoteDebounce_ = new QTimer(this);
-    quoteDebounce_->setSingleShot(true);
-    quoteDebounce_->setInterval(1500);
-    connect(quoteWatcher_, &QFileSystemWatcher::directoryChanged, quoteDebounce_,
-            qOverload<>(&QTimer::start));
-    connect(quoteDebounce_, &QTimer::timeout, this, [this] { importQuotes(true); });
 
     reload();
     importQuotes(false);
@@ -512,14 +505,6 @@ void MainWindow::buildUi() {
                 repository_->saveTemplate(tpl);
                 reload();
             },
-            Qt::QueuedConnection);
-    connect(settings_, &SettingsPage::quoteFolderChanged, this,
-            [this](const QString& folder) {
-                repository_->setSetting(QStringLiteral("cot.carpeta"), folder);
-                importQuotes(false);
-            },
-            Qt::QueuedConnection);
-    connect(settings_, &SettingsPage::quoteReadRequested, this, [this] { importQuotes(true); },
             Qt::QueuedConnection);
     connect(settings_, &SettingsPage::quoteReviewRequested, this, &MainWindow::reviewQuotes,
             Qt::QueuedConnection);
@@ -1134,10 +1119,6 @@ namespace {
 
 } // namespace
 
-QString MainWindow::quoteFolder() {
-    return repository_->setting(QStringLiteral("cot.carpeta")).value_or(storage::defaultQuoteFolder());
-}
-
 core::QuoteDecisions MainWindow::loadQuoteDecisions() {
     core::QuoteDecisions out;
     const QString raw = repository_->setting(QStringLiteral("cot.decisiones")).value_or(QString());
@@ -1155,19 +1136,6 @@ void MainWindow::saveQuoteDecisions(const core::QuoteDecisions& decisions) {
     }
     repository_->setSetting(QStringLiteral("cot.decisiones"),
                             QString::fromUtf8(QJsonDocument(object).toJson(QJsonDocument::Compact)));
-}
-
-void MainWindow::watchQuoteFolder(const QString& folder) {
-    // Se vigila la carpeta y no los archivos: el renombrado reemplaza el
-    // archivo, y el aviso de un archivo reemplazado se pierde.
-    if (!quoteWatcher_->directories().isEmpty()) {
-        quoteWatcher_->removePaths(quoteWatcher_->directories());
-    }
-    for (const QString& path : {folder, folder + QStringLiteral("/documentos")}) {
-        if (QDir(path).exists()) {
-            quoteWatcher_->addPath(path);
-        }
-    }
 }
 
 bool MainWindow::applyQuotePlan(const core::QuotePlan& plan,
@@ -1237,12 +1205,7 @@ bool MainWindow::applyQuotePlan(const core::QuotePlan& plan,
 }
 
 void MainWindow::importQuotes(bool notify) {
-    const QString folder = quoteFolder();
-    const storage::QuoteFolderRead read = storage::readQuoteFolder(folder);
-    watchQuoteFolder(folder);
-
-    snapshot_.quoteFolder = folder;
-    snapshot_.quoteFolderFound = read.folderFound;
+    const storage::QuoteRowsRead read = storage::readQuoteRows(*repository_);
     snapshot_.quoteErrors = read.errors;
     snapshot_.quoteDocs = read.docs;
 

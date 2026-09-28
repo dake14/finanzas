@@ -63,8 +63,6 @@ struct Snapshot {
     }
 
     // --- DakeLabs Cotizaciones ------------------------------------------
-    QString quoteFolder;
-    bool quoteFolderFound = false;
     QStringList quoteErrors;
     std::vector<core::QuoteDoc> quoteDocs;
     std::vector<core::QuotePlan> quotePlans;

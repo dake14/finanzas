@@ -22,7 +22,6 @@
 
 class QLabel;
 class QPushButton;
-class QFileSystemWatcher;
 class QSystemTrayIcon;
 class QStackedWidget;
 class QTimer;
@@ -60,6 +59,14 @@ public:
     /// dice cuanto tardo cada tramo. No cambia nada en la base.
     [[nodiscard]] QString measure();
 
+public slots:
+    /// Arma el plan de lo que bajo de DakeLabs Cotizaciones y lo aplica. Solo
+    /// lectura: Finanzas nunca escribe cotizaciones. La llama la
+    /// sincronizacion al terminar, y el arranque; tambien las pruebas.
+    /// `notify`: avisar en la bandeja lo que entro (no al arrancar: seria un
+    /// aviso por cada documento viejo).
+    void importQuotes(bool notify);
+
 protected:
     /// Cerrar la ventana la esconde en la bandeja: el atajo global solo
     /// funciona mientras la aplicacion este abierta.
@@ -82,13 +89,6 @@ private slots:
     void removePart(const dake::core::RepairPart& part);
 
     // --- DakeLabs Cotizaciones ----------------------------------------------
-    //
-    // Solo lectura: Finanzas lee la carpeta y nunca escribe en ella. Se lee al
-    // arrancar, cada vez que cambia un archivo y con "Leer ahora".
-
-    /// Lee la carpeta y aplica el plan. `notify`: avisar en la bandeja lo que
-    /// entro (no al arrancar: seria un aviso por cada documento viejo).
-    void importQuotes(bool notify);
 
     /// Abre la revision de los documentos que esperan una decision.
     void reviewQuotes();
@@ -200,8 +200,6 @@ private:
 
     [[nodiscard]] core::QuoteDecisions loadQuoteDecisions();
     void saveQuoteDecisions(const core::QuoteDecisions& decisions);
-    [[nodiscard]] QString quoteFolder();
-    void watchQuoteFolder(const QString& folder);
     [[nodiscard]] core::Id stamp(std::string& hlc, std::string& deviceId);
 
     /// Refleja el estado de la sesion en el boton y en el pie.
@@ -272,10 +270,6 @@ private:
     GlobalHotkey* hotkey_ = nullptr;
     QSystemTrayIcon* tray_ = nullptr;
 
-    QFileSystemWatcher* quoteWatcher_ = nullptr;
-    /// Cotizaciones escribe un archivo temporal y lo renombra: una rafaga de
-    /// avisos por cada guardado. Se espera un momento y se lee una vez.
-    QTimer* quoteDebounce_ = nullptr;
 
     /// true solo cuando se eligio Salir en la bandeja. Cerrar la ventana con
     /// la X no sale.
