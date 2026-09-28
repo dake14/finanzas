@@ -7,6 +7,7 @@
 // forma del movimiento no se pueda esquivar por un camino lateral.
 //
 #include <QMainWindow>
+#include <array>
 #include <memory>
 #include <optional>
 #include <set>
@@ -54,6 +55,10 @@ public:
     /// Abrir la aplicacion dos veces no abre dos aplicaciones: le avisa a la
     /// que ya esta andando.
     void handleInstanceMessage(const QString& message);
+
+    /// Para medir la lentitud: recarga, rellena las seis paginas una por una y
+    /// dice cuanto tardo cada tramo. No cambia nada en la base.
+    [[nodiscard]] QString measure();
 
 protected:
     /// Cerrar la ventana la esconde en la bandeja: el atajo global solo
@@ -162,6 +167,9 @@ private:
                       const dake::core::Movement& despues, const QString& que);
     void showPage(int index);
 
+    /// Rellena esa pagina con la foto actual, si quedo vieja.
+    void refreshPage(int index);
+
     /// Guarda el bolsillo usado para ese tipo: la proxima vez arranca ahi.
     void rememberPockets(const core::Movement& movement);
 
@@ -240,6 +248,14 @@ private:
     std::vector<dake::core::Movement> undoAlso_;
 
     Snapshot snapshot_;
+
+    /// Paginas del stack: Hoy, Reparaciones, Movimientos, Bolsillos, Informes,
+    /// Ajustes. Una pagina queda vieja en cada recarga y se rellena al
+    /// mostrarse.
+    static constexpr int kPages = 6;
+    std::array<bool, kPages> stale_{};
+    std::array<qint64, kPages> pageMs_{};
+    qint64 dataMs_ = 0;
 
     QStackedWidget* stack_ = nullptr;
     QList<QPushButton*> navButtons_;

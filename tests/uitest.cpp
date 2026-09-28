@@ -493,6 +493,8 @@ int main(int argc, char** argv) {
         const auto repairs = repository.loadRepairs();
         const core::Repair* rtx = findRepair(repairs, "RTX 3080");
         if (rtx != nullptr) {
+            QTest::keyClick(&window, Qt::Key_2, Qt::ControlModifier);
+            settle();
             auto* repairsPage = window.findChild<ui::RepairsPage*>();
             repairsPage->selectRepair(rtx->jobId);
             settle();
@@ -605,6 +607,45 @@ int main(int argc, char** argv) {
                 settle();
             }
         }
+        QTest::keyClick(&window, Qt::Key_1, Qt::ControlModifier);
+        settle();
+    }
+
+    // --- Solo se rellena la pagina visible ---------------------------------------
+    std::printf("\n[solo se rellena la pagina que se mira]\n");
+    {
+        QTest::keyClick(&window, Qt::Key_5, Qt::ControlModifier);  // Informes
+        settle();
+        auto* reports = window.findChild<ui::ReportsPage*>();
+        auto valueOf = [](ui::KpiCard* card) {
+            QStringList texts;
+            for (QLabel* l : card->findChildren<QLabel*>()) texts << l->text();
+            return texts.join(QLatin1Char('|'));
+        };
+        ui::KpiCard* cashKpi = nullptr;
+        for (ui::KpiCard* card : reports->findChildren<ui::KpiCard*>()) {
+            if (valueOf(card).startsWith(QStringLiteral("CAJA DEL NEGOCIO"))) cashKpi = card;
+        }
+        check(cashKpi != nullptr, "Informes tiene la caja del negocio");
+        if (cashKpi == nullptr) return 1;
+        const QString before = valueOf(cashKpi);
+        QTest::keyClick(&window, Qt::Key_1, Qt::ControlModifier);  // Hoy
+        settle();
+        auto* amount = window.findChild<QLineEdit*>(QStringLiteral("EntryAmount"));
+        auto* category = window.findChild<ui::CategoryBox*>(QStringLiteral("EntryCategory"));
+        QTest::keyClick(amount, Qt::Key_G, Qt::AltModifier);
+        settle();
+        auto* from = window.findChild<QComboBox*>(QStringLiteral("EntryPocket"));
+        from->setCurrentIndex(from->findData(QStringLiteral("p-caja")));
+        amount->setFocus();
+        QTest::keyClicks(amount, QStringLiteral("3"));
+        category->setCategory(QStringLiteral("Almuerzo taller"));
+        QTest::keyClick(amount, Qt::Key_Return);
+        settle();
+        check(valueOf(cashKpi) == before, "anotar en Hoy no rellena Informes mientras no se mira");
+        QTest::keyClick(&window, Qt::Key_5, Qt::ControlModifier);
+        settle();
+        check(valueOf(cashKpi) != before, "al abrir Informes ya muestra la caja con el gasto nuevo");
         QTest::keyClick(&window, Qt::Key_1, Qt::ControlModifier);
         settle();
     }

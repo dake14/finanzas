@@ -3,6 +3,7 @@
 #include <QAction>
 #include <QApplication>
 #include <QCloseEvent>
+#include <QElapsedTimer>
 #include <QCoreApplication>
 #include <QDir>
 #include <QFileDialog>
@@ -699,12 +700,54 @@ void MainWindow::buildSidebar(QWidget* parent) {
 
 void MainWindow::showPage(int index) {
     stack_->setCurrentIndex(index);
+    refreshPage(index);
     for (int i = 0; i < navButtons_.size(); ++i) {
         navButtons_[i]->setChecked(i == index);
     }
 }
 
+void MainWindow::refreshPage(int index) {
+    if (index < 0 || index >= kPages || !stale_[static_cast<std::size_t>(index)]) {
+        return;
+    }
+    stale_[static_cast<std::size_t>(index)] = false;
+    QElapsedTimer clock;
+    clock.start();
+    switch (index) {
+        case 0: today_->setSnapshot(snapshot_); break;
+        case 1: repairs_->setSnapshot(snapshot_); break;
+        case 2: movements_->setSnapshot(snapshot_); break;
+        case 3: pockets_->setSnapshot(snapshot_); break;
+        case 4: reports_->setSnapshot(snapshot_); break;
+        case 5: settings_->setSnapshot(snapshot_); break;
+        default: break;
+    }
+    pageMs_[static_cast<std::size_t>(index)] = clock.elapsed();
+}
+
+QString MainWindow::measure() {
+    QElapsedTimer clock;
+    clock.start();
+    reload();
+    const qint64 total = clock.elapsed();
+    QStringList pages;
+    const QStringList names{QStringLiteral("hoy"), QStringLiteral("reparaciones"), QStringLiteral("movimientos"),
+                            QStringLiteral("bolsillos"), QStringLiteral("informes"), QStringLiteral("ajustes")};
+    for (int i = 0; i < kPages; ++i) {
+        stale_[static_cast<std::size_t>(i)] = true;
+        refreshPage(i);
+        pages << QStringLiteral("%1 %2").arg(names[i]).arg(pageMs_[static_cast<std::size_t>(i)]);
+    }
+    return QStringLiteral("recarga %1 ms (datos y calculos %2, pagina visible %3) · cada pagina: %4 ms")
+        .arg(total)
+        .arg(dataMs_)
+        .arg(total - dataMs_)
+        .arg(pages.join(QStringLiteral(", ")));
+}
+
 void MainWindow::reload() {
+    QElapsedTimer clock;
+    clock.start();
     snapshot_.pockets = repository_->loadPockets();
     snapshot_.jobs = repository_->loadJobs();
     snapshot_.movements = repository_->loadMovements();
@@ -813,18 +856,18 @@ void MainWindow::reload() {
     snapshot_.lastTransferFrom = repository_->setting(QStringLiteral("anotar.ultimo.traspaso.de")).value_or(QString());
     snapshot_.lastTransferTo = repository_->setting(QStringLiteral("anotar.ultimo.traspaso.a")).value_or(QString());
 
-    today_->setSnapshot(snapshot_);
-    repairs_->setSnapshot(snapshot_);
-    movements_->setSnapshot(snapshot_);
-    pockets_->setSnapshot(snapshot_);
     snapshot_.hotkey = hotkey_ != nullptr ? hotkey_->shortcut().toString(QKeySequence::PortableText)
                                           : QString();
     snapshot_.hotkeyRegistered = hotkey_ != nullptr && hotkey_->isRegistered();
     snapshot_.autostart = repository_->setting(QStringLiteral("config.arranque"))
                               .value_or(QStringLiteral("1")) == QStringLiteral("1");
+    dataMs_ = clock.elapsed();
 
-    reports_->setSnapshot(snapshot_);
-    settings_->setSnapshot(snapshot_);
+    // Solo se rellena la pagina que se esta mirando; las demas, al mostrarse.
+    // Rellenar las seis despues de cada cambio (Informes sobre todo) era lo
+    // que hacia lenta la ficha de una reparacion.
+    stale_.fill(true);
+    refreshPage(stack_->currentIndex());
     const int pending = static_cast<int>(snapshot_.inbox.size());
     navButtons_[0]->setText(pending > 0 ? QStringLiteral("Hoy (%1)").arg(pending) : QStringLiteral("Hoy"));
     if (tray_ != nullptr) {

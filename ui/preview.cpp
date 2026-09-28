@@ -15,6 +15,9 @@
 //
 #include <QApplication>
 #include <QDir>
+#include <QFile>
+#include <QElapsedTimer>
+#include <QTemporaryDir>
 #include <QFileInfo>
 #include <QPixmap>
 
@@ -30,6 +33,7 @@
 #include "dake/core/repairs.hpp"
 #include "dake/core/salary.hpp"
 #include "entryform.hpp"
+#include "mainwindow.hpp"
 #include "capturewindow.hpp"
 #include "pages.hpp"
 #include "theme.hpp"
@@ -283,6 +287,40 @@ int main(int argc, char** argv) {
                           << (m.settled ? " cobrado" : " por cobrar");
             }
             std::cout << "\n";
+        }
+        return 0;
+    }
+
+    // "medir <base>": cuanto tarda la ventana en recargar y en rellenar cada
+    // pagina, sobre una COPIA de la base (abrirla la migra). Tambien cuanto
+    // tarda elegir cada reparacion en la ficha.
+    if (arguments.at(1) == QLatin1String("medir") && arguments.size() > 2) {
+        QTemporaryDir temp;
+        const QString copy = temp.path() + QStringLiteral("/medir.db");
+        if (!QFile::copy(arguments.at(2), copy)) {
+            std::cout << "no se pudo copiar " << arguments.at(2).toStdString() << "\n";
+            return 1;
+        }
+        {
+            // Hermetica: sin la carpeta real de Cotizaciones.
+            dake::storage::Database setup(copy);
+            dake::storage::Repository repo(setup);
+            repo.setSetting(QStringLiteral("cot.carpeta"), temp.path() + QStringLiteral("/sin-cotizaciones"));
+        }
+        qputenv("DAKE_TEST_DB_PATH", copy.toLocal8Bit());
+        dake::ui::MainWindow window(copy);
+        window.show();
+        for (int i = 0; i < 3; ++i) {
+            std::cout << window.measure().toStdString() << "\n";
+        }
+        dake::storage::Database db(copy);
+        dake::storage::Repository repository(db);
+        auto* repairs = window.findChild<dake::ui::RepairsPage*>();
+        QElapsedTimer clock;
+        for (const auto& repair : repository.loadRepairs()) {
+            clock.start();
+            repairs->selectRepair(repair.jobId);
+            std::cout << "elegir " << repair.orderNo << ": " << clock.elapsed() << " ms\n";
         }
         return 0;
     }
