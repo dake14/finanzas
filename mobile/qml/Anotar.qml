@@ -5,11 +5,10 @@ import DakeMobile
 
 // Anotar.qml — la pantalla que justifica que esto exista.
 //
-// El diagnostico de la aplicacion de escritorio decia que la friccion no esta
-// en los reportes sino en el momento de anotar: la plata se gasta en la calle y
-// se anota en la computadora dos dias despues, y lo que se posterga se olvida.
-// Todo aca esta ordenado para que el camino corto —monto, nombre, guardar— sean
-// tres gestos, y el resto quede en lo que se dejo la vez anterior.
+// El mismo formulario que en la PC: tipo, monto, categoria (o una nueva),
+// bolsillo y fecha. Nada de trabajo ni de "cuanto dura": lo anotado ya esta
+// pagado o cobrado. El camino corto —monto, categoria, guardar— son tres
+// gestos, y el resto queda en lo que se dejo la vez anterior.
 
 Item {
     id: pagina
@@ -23,13 +22,8 @@ Item {
     property string targetId: ""
     property string targetNombre: ""
     property string categoria: ""
-    property string jobId: ""
-    property string jobNombre: ""
-    property int duracion: 1
-    property bool pagado: true
 
     readonly property bool esTraspaso: tipo === Estilo.traspaso
-    readonly property bool esGasto: tipo === Estilo.gasto
 
     /// Un archivo QML no ve los `id` del archivo que lo instancia, asi que el
     /// mensaje sale por una señal y la ventana decide como mostrarlo.
@@ -52,26 +46,20 @@ Item {
     }
 
     function limpiar() {
-        // Se limpian el monto y el nombre; el resto se conserva. Cargar cinco
-        // compras de insumos seguidas no puede costar cinco veces elegir el
-        // mismo bolsillo.
+        // Se limpia el monto; el resto se conserva. Cargar cinco compras de
+        // insumos seguidas no puede costar cinco veces elegir el mismo bolsillo.
         monto = ""
-        nombre.text = ""
         montoCampo.forceActiveFocus()
     }
 
     function guardar() {
         var error = App.saveMovement({
-            "name": nombre.text,
             "amount": monto,
             "kind": tipo,
             "date": fecha,
             "pocketId": pocketId,
             "targetPocketId": targetId,
-            "category": categoria,
-            "jobId": jobId,
-            "spreadMonths": duracion,
-            "settled": pagado
+            "category": categoria
         })
         if (error === "") {
             limpiar()
@@ -125,7 +113,10 @@ Item {
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
                     }
-                    onClicked: pagina.tipo = botonTipo.modelData.valor
+                    onClicked: {
+                        if (pagina.tipo !== botonTipo.modelData.valor) pagina.categoria = ""
+                        pagina.tipo = botonTipo.modelData.valor
+                    }
                 }
             }
         }
@@ -184,26 +175,9 @@ Item {
                     regularExpression: /^[0-9]{0,9}([.,][0-9]{0,2})?$/
                 }
 
-                // Enter pasa al nombre en vez de guardar a medias.
-                onAccepted: nombre.forceActiveFocus()
+                // Enter guarda, igual que en la PC.
+                onAccepted: pagina.guardar()
             }
-        }
-
-        // --- Nombre -------------------------------------------------------
-        TextField {
-            id: nombre
-            Layout.fillWidth: true
-            Layout.preferredHeight: Estilo.toque
-            placeholderText: "Que fue"
-            color: Estilo.texto
-            placeholderTextColor: Estilo.textoTenue
-            font.pixelSize: 16
-            background: Rectangle {
-                color: Estilo.tarjeta
-                radius: 10
-                border.color: nombre.activeFocus ? Estilo.acento : Estilo.borde
-            }
-            onAccepted: pagina.guardar()
         }
 
         // --- Contexto -----------------------------------------------------
@@ -221,56 +195,32 @@ Item {
                 spacing: 0
 
                 Fila {
-                    rotulo: "Fecha"
-                    valor: App.relativeDate(pagina.fecha)
-                    onClicked: fechaSelector.open()
+                    visible: !pagina.esTraspaso
+                    rotulo: "Categoria"
+                    valor: pagina.categoria === "" ? "—" : pagina.categoria
+                    colorValor: pagina.categoria === "" ? Estilo.aviso : Estilo.texto
+                    onClicked: categoriaSelector.abrir(pagina.tipo)
                 }
 
                 Fila {
-                    rotulo: pagina.tipo === Estilo.ingreso ? "Entra a" : "Sale de"
+                    rotulo: pagina.esTraspaso ? "De"
+                            : (pagina.tipo === Estilo.ingreso ? "Entra a" : "Sale de")
                     valor: pagina.pocketNombre
                     onClicked: { bolsilloSelector.destino = false; bolsilloSelector.open() }
                 }
 
                 Fila {
                     visible: pagina.esTraspaso
-                    rotulo: "Va a"
+                    rotulo: "A"
                     valor: pagina.targetNombre
                     colorValor: Estilo.ahorro
                     onClicked: { bolsilloSelector.destino = true; bolsilloSelector.open() }
                 }
 
                 Fila {
-                    visible: !pagina.esTraspaso
-                    rotulo: "Categoria"
-                    valor: pagina.categoria === "" ? "—" : pagina.categoria
-                    onClicked: categoriaSelector.abrir(pagina.tipo)
-                }
-
-                Fila {
-                    visible: !pagina.esTraspaso
-                    rotulo: "Trabajo"
-                    valor: pagina.jobNombre === "" ? "sin trabajo" : pagina.jobNombre
-                    onClicked: trabajoSelector.open()
-                }
-
-                Fila {
-                    visible: pagina.esGasto
-                    rotulo: "Cuanto dura"
-                    valor: pagina.duracion === 1
-                           ? "se gasta este mes"
-                           : pagina.duracion + " meses"
-                    colorValor: pagina.duracion === 1 ? Estilo.texto : Estilo.ahorro
-                    onClicked: duracionSelector.open()
-                }
-
-                Fila {
-                    visible: !pagina.esTraspaso
-                    rotulo: pagina.esGasto ? "Ya lo pague" : "Ya me lo pagaron"
-                    valor: pagina.pagado ? "si" : "todavia no"
-                    colorValor: pagina.pagado ? Estilo.texto : Estilo.aviso
-                    mostrarFlecha: false
-                    onClicked: pagina.pagado = !pagina.pagado
+                    rotulo: "Fecha"
+                    valor: App.relativeDate(pagina.fecha)
+                    onClicked: fechaSelector.open()
                 }
             }
         }
@@ -279,7 +229,7 @@ Item {
         Button {
             Layout.fillWidth: true
             Layout.preferredHeight: 56
-            enabled: pagina.monto !== "" && nombre.text.trim() !== ""
+            enabled: pagina.monto !== "" && (pagina.esTraspaso || pagina.categoria !== "")
 
             background: Rectangle {
                 radius: Estilo.radio
@@ -317,31 +267,6 @@ Item {
                 pagina.pocketNombre = texto
             }
         }
-    }
-
-    Selector {
-        id: trabajoSelector
-        title: "A que trabajo pertenece"
-        modelo: [{ "id": "", "label": "— sin trabajo —" }].concat(App.jobs)
-        campoTexto: "label"
-        onElegido: function(valor, texto) {
-            pagina.jobId = valor
-            pagina.jobNombre = valor === "" ? "" : texto
-        }
-    }
-
-    Selector {
-        id: duracionSelector
-        title: "Cuantos meses dura"
-        modelo: [
-            { "id": 1,  "label": "se gasta este mes" },
-            { "id": 2,  "label": "2 meses" },
-            { "id": 3,  "label": "3 meses" },
-            { "id": 4,  "label": "4 meses" },
-            { "id": 6,  "label": "6 meses" },
-            { "id": 12, "label": "12 meses" }
-        ]
-        onElegido: function(valor, texto) { pagina.duracion = valor }
     }
 
     Selector {

@@ -79,8 +79,6 @@ Item {
                             var partes = [App.relativeDate(fila.modelData.date),
                                           fila.modelData.where]
                             if (fila.modelData.job !== "") partes.push(fila.modelData.job)
-                            if (fila.modelData.spreadMonths > 1)
-                                partes.push(fila.modelData.spreadMonths + " meses")
                             return partes.join(" · ")
                         }
                         color: Estilo.textoSuave

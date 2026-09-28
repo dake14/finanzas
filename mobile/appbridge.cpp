@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <stdexcept>
 
+#include "dake/core/accounts.hpp"
 #include "dake/core/format.hpp"
 #include "dake/core/report.hpp"
 #include "dake/storage/exchange.hpp"
@@ -504,11 +505,6 @@ QString AppBridge::saveMovement(const QVariantMap& draft) {
     if (!repository_) {
         return fatalError_;
     }
-    const QString name = draft.value("name").toString().trimmed();
-    if (name.isEmpty()) {
-        return QStringLiteral("Falta decir que fue.");
-    }
-
     const QString amountText = draft.value("amount").toString().trimmed();
     if (amountText.isEmpty()) {
         return QStringLiteral("Falta el monto.");
@@ -526,13 +522,19 @@ QString AppBridge::saveMovement(const QVariantMap& draft) {
 
     core::Movement movement;
     movement.kind = kindFromIndex(draft.value("kind").toInt());
-    movement.name = name.toStdString();
     movement.amountMinor = amount.minor();
+    // Anotar es un formulario, como en la PC: nada de trabajo ni de "cuanto
+    // dura", y lo anotado ya esta pagado o cobrado.
+    movement.settled = true;
+    movement.spreadMonths = 1;
 
     try {
         movement.date = core::Date::fromIso(draft.value("date").toString().toStdString());
     } catch (const std::exception&) {
         return QStringLiteral("Fecha invalida.");
+    }
+    if (today_ < movement.date) {
+        return QStringLiteral("La fecha no puede ser futura.");
     }
 
     movement.pocketId = draft.value("pocketId").toString().toStdString();
@@ -549,15 +551,26 @@ QString AppBridge::saveMovement(const QVariantMap& draft) {
             return QStringLiteral("Un traspaso necesita dos bolsillos distintos.");
         }
         movement.category = std::string(core::kUncategorized);
+        movement.name = "Traspaso";
+        const core::Pocket* source = nullptr;
+        const core::Pocket* target = nullptr;
+        for (const core::Pocket& p : pocketsData_) {
+            if (p.id == movement.pocketId) source = &p;
+            if (p.id == movement.targetPocketId) target = &p;
+        }
+        if (source != nullptr && target != nullptr &&
+            core::accountOf(*source) == core::Account::Negocio &&
+            core::accountOf(*target) == core::Account::Personal) {
+            movement.name = "Sueldo";
+        }
     } else {
         const QString category = draft.value("category").toString().trimmed();
-        movement.category = category.isEmpty() ? std::string(core::kUncategorized)
-                                               : category.toStdString();
-        movement.jobId = draft.value("jobId").toString().toStdString();
-        movement.settled = draft.value("settled", true).toBool();
-        if (movement.kind == core::MovementKind::Gasto) {
-            movement.spreadMonths = std::max(1, draft.value("spreadMonths", 1).toInt());
+        if (category.isEmpty()) {
+            return QStringLiteral("Falta la categoria.");
         }
+        // Sin descripcion aparte: el nombre es la categoria, como en la PC.
+        movement.category = category.toStdString();
+        movement.name = movement.category;
     }
 
     movement.id = storage::newId();
@@ -632,7 +645,7 @@ QString AppBridge::addPocket(const QString& name, int kind, const QString& openi
 
     core::Pocket pocket;
     pocket.name = name.trimmed().toStdString();
-    pocket.kind = static_cast<core::PocketKind>(std::clamp(kind, 0, 3));
+    pocket.kind = static_cast<core::PocketKind>(std::clamp(kind, 0, 4));
     try {
         const QString text = opening.trimmed().isEmpty() ? QStringLiteral("0") : opening.trimmed();
         pocket.openingMinor = core::Money::parse(text.toStdString(), currency_).minor();

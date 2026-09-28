@@ -46,7 +46,7 @@ Flickable {
             Cifra {
                 rotulo: "DE ESO, RESERVA"
                 valor: App.pocketsSummary.reserves !== undefined ? App.pocketsSummary.reserves : "—"
-                nota: "ahorro mas inversion"
+                nota: "ahorro, inversion y emergencia"
                 tinte: Estilo.ahorro
             }
         }
@@ -381,7 +381,7 @@ Flickable {
                 Layout.preferredHeight: Estilo.toque
                 // El orden es el de core::PocketKind y no otro: si aca dijera
                 // "Ahorro" primero, elegir el primero guardaria "Operacion".
-                model: ["Operacion", "Ahorro", "Inversion", "Personal"]
+                model: ["Operacion", "Ahorro", "Inversion", "Personal", "Emergencia"]
             }
 
             TextField {

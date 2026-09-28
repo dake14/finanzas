@@ -34,6 +34,7 @@ QtObject {
     readonly property color operacion:  "#38bdf8"
     readonly property color inversion:  "#fbbf24"
     readonly property color personal:   "#9ca3af"
+    readonly property color emergencia: "#f06595"
 
     // Un dedo necesita 48 dp para no errarle al objetivo. Todo lo que se toca
     // respeta ese minimo: es la diferencia entre anotar el gasto ahi mismo en
@@ -57,11 +58,12 @@ QtObject {
     }
 
     /// El numero es core::PocketKind: 0 operacion, 1 ahorro, 2 inversion,
-    /// 3 personal.
+    /// 3 personal, 4 emergencia.
     function colorBolsillo(kind) {
         if (kind === 1) return ahorro
         if (kind === 2) return inversion
         if (kind === 3) return personal
+        if (kind === 4) return emergencia
         return operacion
     }
 
