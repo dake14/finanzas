@@ -29,7 +29,7 @@
 #include "dake/storage/repository.hpp"
 #include "dake/core/repairs.hpp"
 #include "dake/core/salary.hpp"
-#include "capturewidget.hpp"
+#include "entryform.hpp"
 #include "capturewindow.hpp"
 #include "pages.hpp"
 #include "theme.hpp"
@@ -140,11 +140,9 @@ namespace {
         return page;
     }
     if (screen.startsWith(QLatin1String("captura"))) {
-        // "captura:25 almuerzo ayer" muestra la ventana mini con esa linea.
+        // La ventana chica del atajo, con el formulario vacio.
         auto window = std::make_unique<dake::ui::CaptureWindow>();
-        window->capture()->setSnapshot(snapshot);
-        const QString line = screen.section(QLatin1Char(':'), 1);
-        window->capture()->setInput(line.isEmpty() ? QStringLiteral("25 almuerzo ayer") : line);
+        window->entry()->setSnapshot(snapshot);
         window->setAttribute(Qt::WA_TranslucentBackground, false);
         return window;
     }

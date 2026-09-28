@@ -16,8 +16,6 @@ set(DAKE_UI_SOURCES
     repairdialogs.cpp
     quotedialog.cpp
     quotedialog.hpp
-    bankdialog.cpp
-    bankdialog.hpp
     repairdialogs.hpp
     fields.hpp
     movementspage.cpp
@@ -25,8 +23,8 @@ set(DAKE_UI_SOURCES
     reportspage.cpp
     reviewpage.cpp
     settingspage.cpp
-    capturewidget.cpp
-    capturewidget.hpp
+    entryform.cpp
+    entryform.hpp
     capturewindow.cpp
     capturewindow.hpp
     globalhotkey.cpp

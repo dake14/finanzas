@@ -18,7 +18,7 @@
 #include "dake/core/report.hpp"
 #include "dake/core/repairs.hpp"
 #include "pages.hpp"
-#include "capturewidget.hpp"
+#include "entryform.hpp"
 #include "theme.hpp"
 
 namespace dake::ui {
@@ -134,8 +134,8 @@ void TodayPage::buildUi() {
     // Va primero y no al final: es lo que se viene a hacer. Un formulario al
     // que hay que bajar con la rueda es un formulario que se usa menos.
     entryCard_ = new Card(QStringLiteral("ANOTAR"), page);
-    capture_ = new CaptureWidget(entryCard_);
-    entryCard_->addContent(capture_);
+    entry_ = new EntryForm(entryCard_);
+    entryCard_->addContent(entry_);
     layout->addWidget(entryCard_);
 
     // --- Las tres preguntas ----------------------------------------------------
@@ -428,7 +428,7 @@ void TodayPage::setSnapshot(const Snapshot& snapshot) {
         alertsLayout_->addWidget(block);
     }
 
-    capture_->setSnapshot(snapshot);
+    entry_->setSnapshot(snapshot);
 
     // ¿Subir precios? El peor tipo de los ultimos seis meses, si hay alguno
     // bajo el objetivo.
@@ -502,8 +502,7 @@ void TodayPage::setSnapshot(const Snapshot& snapshot) {
                            .toString(QKeySequence::NativeText))
             : QString();
     entryCard_->setSubtitle(
-        QStringLiteral("Monto y descripción, y Enter. La categoría, el bolsillo y la reparación "
-                       "se deducen; lo que no, queda para la revisión del domingo.") +
+        QStringLiteral("Monto, categoría, Enter. Alt+G gasto · Alt+I ingreso · Alt+T traspaso.") +
         anywhere);
 }
 

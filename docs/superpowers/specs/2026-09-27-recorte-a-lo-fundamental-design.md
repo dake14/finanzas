@@ -90,8 +90,8 @@ por la ventana chica de `Ctrl+Alt+Espacio`. Reemplaza a `CaptureWidget`.
  ✓ Anotado: Gasto 25,00 · Comida · Caja del negocio
 ```
 
-- **Tipo:** Gasto, Ingreso o Traspaso. Se elige con clic o con `Ctrl+1`,
-  `Ctrl+2`, `Ctrl+3`. Arranca en Gasto.
+- **Tipo:** Gasto, Ingreso o Traspaso. Se elige con clic o con `Alt+G`,
+  `Alt+I`, `Alt+T` (`Ctrl+número` ya cambia de sección). Arranca en Gasto.
 - **Monto:** acepta `25`, `25,50` y `25.50`. Tiene que ser mayor que cero y
   con dos decimales como mucho. El foco arranca aquí.
 - **Categoría** (Gasto e Ingreso):
@@ -112,7 +112,7 @@ por la ventana chica de `Ctrl+Alt+Espacio`. Reemplaza a `CaptureWidget`.
   sueldo. De la caja a Emergencia no es gasto.
 - **Fecha:** por defecto hoy, con calendario. No se permiten fechas futuras.
 - **Lo que se guarda:**
-  - nombre vacío (Movimientos muestra la categoría);
+  - como nombre, la categoría ("Sueldo" o "Traspaso" en un traspaso): así Movimientos muestra la categoría y el núcleo, que exige nombre, no cambia;
   - cobrado siempre;
   - `spreadMonths = 1`;
   - sin trabajo.

@@ -13,7 +13,6 @@
 #include <vector>
 
 #include "dake/core/accounts.hpp"
-#include "dake/core/bankcsv.hpp"
 #include "dake/core/capture.hpp"
 #include "dake/core/fixed.hpp"
 #include "dake/core/quotes.hpp"
@@ -268,12 +267,19 @@ void gastoPorCategoria() {
     return m;
 }
 
+/// Lo que el formulario sabe al abrirse.
+struct Contexto {
+    Date today;
+    std::vector<Pocket> pockets;
+    std::vector<Category> categories;
+    std::vector<Movement> history;
+};
+
 /// Hoy es viernes 25 de septiembre de 2026. Hay dos bolsillos del negocio (el
-/// banco se uso por ultima vez), uno personal, y tres reparaciones abiertas.
-[[nodiscard]] CaptureContext contexto() {
-    CaptureContext c;
+/// banco se uso por ultima vez) y uno personal.
+[[nodiscard]] Contexto contexto() {
+    Contexto c;
     c.today = Date{2026, 9, 25};
-    c.currency = kUsd;
     c.pockets = {pocket("caja", PocketKind::Operacion), pocket("banco", PocketKind::Operacion),
                  pocket("mio", PocketKind::Personal)};
     c.categories = {{"Almuerzo", Account::Personal},
@@ -297,118 +303,42 @@ void gastoPorCategoria() {
                 MovementKind::Ingreso),
         anotado("09", "2026-09-24", 12'00, "banco", "cable", "Repuestos"),
     };
-    c.openRepairs = {{"job-asus", "INF-2026-004", "asus x556U", "Josue Rodríguez"},
-                     {"job-3080", "R-0042", "RTX 3080", "Juan Perez"},
-                     {"job-3070", "R-0043", "RTX 3070", "Ana"}};
     return c;
 }
 
-void capturaDelMonto() {
-    std::printf("\n[captura: el monto, donde sea que este]\n");
-    const auto c = contexto();
-    const auto a = parseCapture("25 almuerzo", c);
-    check(a.amountMinor == 25'00, "'25 almuerzo': 25,00");
-    check(parseCapture("almuerzo 25", c).amountMinor == 25'00, "'almuerzo 25': tambien al final");
-    check(parseCapture("25,50 almuerzo", c).amountMinor == 25'50, "coma decimal");
-    check(parseCapture("25.50 almuerzo", c).amountMinor == 25'50, "punto decimal");
-    check(parseCapture("$25 almuerzo", c).amountMinor == 25'00, "con signo de pesos");
-    check(parseCapture("1.200 alquiler", c).amountMinor == 1200'00, "1.200 son mil doscientos");
-    check(parseCapture("cobro 120 gpu", c).amountMinor == 120'00, "en el medio, si no hay otro");
-    check(!parseCapture("almuerzo", c).amountMinor, "sin numero no hay monto");
-    check(!parseCapture("almuerzo", c).canSave(), "y sin monto no se puede guardar");
-    check(!parseCapture("", c).canSave(), "una linea vacia tampoco");
-    checkText(a.description, "almuerzo", "la descripcion es lo que queda");
+void montoEscrito() {
+    std::printf("\n[un monto escrito como se dice]\n");
+    check(parseAmount("25", kUsd) == 25'00, "'25'");
+    check(parseAmount("25,50", kUsd) == 25'50, "coma decimal");
+    check(parseAmount("25.50", kUsd) == 25'50, "punto decimal");
+    check(parseAmount("25,5", kUsd) == 25'50, "'25,5' son 25,50");
+    check(parseAmount("$25", kUsd) == 25'00, "con signo");
+    check(parseAmount(" 25 ", kUsd) == 25'00, "con espacios alrededor");
+    check(parseAmount("1.200", kUsd) == 1200'00, "1.200 son mil doscientos");
+    check(!parseAmount("0", kUsd), "cero no es un monto");
+    check(!parseAmount("abc", kUsd), "letras tampoco");
+    check(!parseAmount("12 pan", kUsd), "ni un monto con texto");
+    check(!parseAmount("+12", kUsd), "ni con signo mas: el tipo lo dice el formulario");
+    check(!parseAmount("", kUsd), "ni vacio");
 }
 
-void capturaDelTipoYLaFecha() {
-    std::printf("\n[captura: tipo y fecha]\n");
-    const auto c = contexto();
-    check(parseCapture("25 almuerzo", c).kind == MovementKind::Gasto, "por defecto es gasto");
-    check(parseCapture("+50 venta cable", c).kind == MovementKind::Ingreso, "'+' es ingreso");
-    check(parseCapture("50 cobro limpieza", c).kind == MovementKind::Ingreso, "'cobro' es ingreso");
-    check(parseCapture("50 cobré limpieza", c).kind == MovementKind::Ingreso, "'cobré' tambien");
-    check(parseCapture("80 arreglo pc", c).kind == MovementKind::Ingreso,
-          "una categoria de ingreso aprendida hace ingreso");
-
-    const auto sueldo = parseCapture("500 sueldo", c);
-    check(sueldo.salary, "'sueldo' es sueldo");
-    check(sueldo.toMovement().kind == MovementKind::Traspaso, "y se guarda como traspaso");
-    checkText(sueldo.pocketId, "banco", "desde el ultimo bolsillo del negocio usado");
-    checkText(sueldo.targetPocketId, "mio", "al bolsillo personal");
-    check(sueldo.toMovement().isWellFormed(), "bien formado");
-
-    check(parseCapture("15 almuerzo", c).date == (Date{2026, 9, 25}), "sin fecha es hoy");
-    const auto ayer = parseCapture("15 almuerzo ayer", c);
-    check(ayer.date == (Date{2026, 9, 24}), "'ayer'");
-    checkText(ayer.description, "almuerzo", "y 'ayer' no queda en la descripcion");
-    check(parseCapture("15 almuerzo anteayer", c).date == (Date{2026, 9, 23}), "'anteayer'");
-    check(parseCapture("15 almuerzo lun", c).date == (Date{2026, 9, 21}), "'lun': el lunes pasado");
-    check(parseCapture("15 almuerzo vie", c).date == (Date{2026, 9, 25}), "'vie' un viernes es hoy");
-    check(parseCapture("15 almuerzo sábado", c).date == (Date{2026, 9, 19}), "'sábado' con tilde");
-    check(parseCapture("15 almuerzo 12/9", c).date == (Date{2026, 9, 12}), "'12/9' es dia/mes");
-    check(parseCapture("15 regalo 28/12", c).date == (Date{2025, 12, 28}),
-          "una fecha futura es del año pasado");
+void bolsilloSugerido() {
+    std::printf("\n[el bolsillo que se propone]\n");
+    auto c = contexto();
+    checkText(suggestedPocket(c.pockets, c.history, Account::Personal), "mio",
+              "a personal propone 'mio'");
+    checkText(suggestedPocket(c.pockets, c.history, Account::Negocio), "banco",
+              "a negocio, el ultimo usado");
+    checkText(suggestedPocket(c.pockets, c.history, std::nullopt), "banco",
+              "sin cuenta, el ultimo de todos");
+    c.pockets[1].archived = true;
+    checkText(suggestedPocket(c.pockets, c.history, Account::Negocio), "caja",
+              "un bolsillo archivado no se propone aunque sea el ultimo");
 }
 
-void capturaDeLaCategoria() {
-    std::printf("\n[captura: categoria y bolsillo]\n");
+void categoriasPorUso() {
+    std::printf("\n[las categorias, de la mas usada a la menos]\n");
     const auto c = contexto();
-    const auto a = parseCapture("25 almuerzo", c);
-    checkText(a.category, "Almuerzo", "'almuerzo' ya se anoto como Almuerzo");
-    check(a.categorySource == CategorySource::Historial, "y lo dice el historial");
-    checkText(a.pocketId, "mio", "Almuerzo es personal: sale del bolsillo personal");
-
-    checkText(parseCapture("30 super", c).category, "Mercado", "'super': gana la mas usada (2 a 1)");
-    checkText(parseCapture("3 pasta térmica", c).category, "Consumibles",
-              "corregir es aprender: la correccion ya gana 2 a 1");
-
-    const auto luz = parseCapture("40 luz de septiembre", c);
-    checkText(luz.category, "Luz", "una palabra que es el nombre de una categoria");
-    check(luz.categorySource == CategorySource::Nombre, "sale del nombre");
-    checkText(luz.pocketId, "banco", "Luz es del negocio: el ultimo bolsillo del negocio usado");
-
-    const auto rara = parseCapture("30 cosa rara", c);
-    check(rara.category.empty() && rara.categorySource == CategorySource::Ninguna,
-          "sin pistas no inventa categoria");
-    check(rara.canSave() && rara.incomplete(), "pero se puede guardar, marcada por completar");
-    checkText(rara.pocketId, "banco", "desde el ultimo bolsillo usado");
-    checkText(rara.toMovement().category, "", "y el movimiento queda sin categoria");
-
-    checkText(suggestedPocket(c, Account::Personal), "mio", "cambiar a personal propone 'mio'");
-    checkText(suggestedPocket(c, Account::Negocio), "banco", "a negocio, el ultimo usado");
-    checkText(suggestedPocket(c, std::nullopt), "banco", "sin cuenta, el ultimo de todos");
-}
-
-void capturaDeLaReparacion() {
-    std::printf("\n[captura: la reparacion dentro de la frase]\n");
-    const auto c = contexto();
-    const auto cobro = parseCapture("120 cobro GPU 3080", c);
-    checkText(cobro.jobId, "job-3080", "'3080' es la RTX 3080 de Juan");
-    checkText(cobro.category, "Reparaciones", "un cobro de reparacion va a Reparaciones");
-    check(cobro.categorySource == CategorySource::Reparacion, "por la reparacion");
-    checkText(cobro.pocketId, "banco", "a un bolsillo del negocio");
-    checkText(cobro.description, "cobro GPU 3080", "la descripcion conserva lo escrito");
-
-    // Un gasto no es de ninguna reparacion: los repuestos se cargan en la
-    // ficha, que anota el gasto sola y enlazado.
-    const auto pasta = parseCapture("12 pasta 3070", c);
-    checkText(pasta.jobId, "", "un gasto que nombra la 3070 no se le pega");
-    check(pasta.categorySource != CategorySource::Reparacion, "ni saca la categoria de ella");
-    checkText(parseCapture("200 cobro INF-2026-004", c).jobId, "job-asus", "por numero de orden");
-    checkText(parseCapture("10 cobro #43", c).jobId, "job-3070", "'#43' es la R-0043");
-    checkText(parseCapture("30 cobro josue", c).jobId, "job-asus", "por el nombre del cliente");
-    checkText(parseCapture("10 cobro rtx", c).jobId, "", "'rtx' coincide con dos: no adivina");
-    checkText(parseCapture("25 almuerzo", c).jobId, "", "un almuerzo no es de ninguna");
-}
-
-void aprenderCategorias() {
-    std::printf("\n[aprender categorias]\n");
-    checkText(normalizeDescription("  Almuerzo 2x con Pepé! "), "almuerzo x con pepe",
-              "normalizar: minusculas, sin tildes, sin numeros ni signos");
-    const auto c = contexto();
-    checkText(learnedCategory("SUPER", c.history), "Mercado", "aprendida sin distinguir mayusculas");
-    checkText(learnedCategory("nunca visto", c.history), "", "lo nunca visto no tiene categoria");
-
     const auto gastos = categoriesByUse(c.categories, c.history, MovementKind::Gasto, c.today);
     check(gastos.size() == 7, "las siete de gasto");
     if (gastos.size() == 7) {
@@ -1356,117 +1286,6 @@ void flujoDeCaja() {
     check(months[2].month == (Date{2026, 8, 1}) && months[2].in.isZero(), "agosto sin movimiento");
 }
 
-
-// ------------------------------------------------------------------- Bancos
-
-void csvDelBanco() {
-    std::printf("\n[bancos: leer el CSV]\n");
-    check(detectSeparator("Fecha;Descripcion;Monto\n01/09/2026;\"CAFE; LECHE\";-2,50") == ';',
-          "punto y coma, aunque haya uno entre comillas");
-    check(detectSeparator("date,description,amount\n2026-09-01,x,1") == ',', "coma");
-    check(detectSeparator("a\tb\tc") == '\t', "tabulador");
-
-    const auto rows = parseCsv("Fecha;Descripcion;Monto\r\n01/09/2026;\"CAFE; \"\"LA ESQUINA\"\"\";-2,50\r\n\r\n"
-                               "02/09/2026;PAGO CLIENTE;120,00\r\n",
-                               ';');
-    check(rows.size() == 3, "tres filas: la vacia no cuenta");
-    if (rows.size() == 3) {
-        check(rows[1].size() == 3 && rows[1][1] == "CAFE; \"LA ESQUINA\"",
-              "las comillas como las escribe Excel");
-        check(rows[2][2] == "120,00", "y el ultimo campo sin el fin de linea");
-    }
-
-    BankProfile perfil;
-    perfil.name = "Banco General";
-    const auto read = readBankRows(rows, perfil, kUsd);
-    check(read.rows.size() == 2 && read.errors.empty(), "dos movimientos, sin la cabecera");
-    if (read.rows.size() == 2) {
-        check(read.rows[0].date == (Date{2026, 9, 1}) && read.rows[0].kind == MovementKind::Gasto &&
-                  read.rows[0].amountMinor == 2'50,
-              "negativo es gasto, en positivo");
-        check(read.rows[1].kind == MovementKind::Ingreso && read.rows[1].amountMinor == 120'00,
-              "positivo es ingreso");
-        check(!read.rows[0].fingerprint.empty() && read.rows[0].fingerprint != read.rows[1].fingerprint,
-              "cada uno con su huella");
-    }
-
-    // Otro banco: cargos y abonos en columnas separadas, fecha al reves.
-    const auto otro = parseCsv("fecha,detalle,cargo,abono\n2026-09-03,UBER *TRIP,8.40,\n"
-                               "2026-09-03,UBER *TRIP,8.40,\n2026-09-04,DEPOSITO,,\"1,250.00\"\n2026-02-30,MAL,1,\n",
-                               ',');
-    BankProfile dos;
-    dos.dateFormat = DateFormat::AnioMesDia;
-    dos.amountColumn = -1;
-    dos.debitColumn = 2;
-    dos.creditColumn = 3;
-    const auto read2 = readBankRows(otro, dos, kUsd);
-    check(read2.rows.size() == 3, "las tres filas buenas se leen");
-    check(read2.errors.size() == 1, "la fecha imposible queda como error, sin frenar las demas");
-    if (read2.rows.size() == 3) {
-        check(read2.rows[2].kind == MovementKind::Ingreso && read2.rows[2].amountMinor == 1250'00,
-              "el abono es ingreso, con separador de miles entre comillas");
-        check(read2.rows[0].kind == MovementKind::Gasto && read2.rows[0].amountMinor == 8'40,
-              "el cargo es gasto");
-        check(read2.rows[0].fingerprint != read2.rows[1].fingerprint,
-              "dos viajes iguales el mismo dia son dos viajes: huellas distintas");
-    }
-}
-
-void cruzarConLoAnotado() {
-    std::printf("\n[bancos: nunca dos veces]\n");
-    BankRow cafe{Date{2026, 9, 1}, "CAFE LA ESQUINA", 2'50, MovementKind::Gasto, "h-cafe"};
-    BankRow cobro{Date{2026, 9, 2}, "TRANSFERENCIA JUAN PEREZ", 120'00, MovementKind::Ingreso, "h-cobro"};
-    BankRow uber{Date{2026, 9, 3}, "UBER *TRIP", 8'40, MovementKind::Gasto, "h-uber"};
-    BankRow viejo{Date{2026, 8, 3}, "NETFLIX", 9'99, MovementKind::Gasto, "h-netflix"};
-
-    Movement aMano;  // el cobro, anotado a mano un dia despues
-    aMano.id = "m-cobro";
-    aMano.date = Date{2026, 9, 3};
-    aMano.name = "cobro gpu";
-    aMano.kind = MovementKind::Ingreso;
-    aMano.amountMinor = 120'00;
-    aMano.pocketId = "banco";
-    Movement uberAnterior;  // un uber importado antes, ya con categoria
-    uberAnterior.id = "m-uber-viejo";
-    uberAnterior.date = Date{2026, 8, 20};
-    uberAnterior.name = "UBER *TRIP";
-    uberAnterior.kind = MovementKind::Gasto;
-    uberAnterior.amountMinor = 6'00;
-    uberAnterior.category = "Transporte";
-    uberAnterior.pocketId = "banco";
-    Movement netflix;
-    netflix.id = "m-netflix";
-    netflix.date = Date{2026, 8, 3};
-    netflix.name = "NETFLIX";
-    netflix.kind = MovementKind::Gasto;
-    netflix.amountMinor = 9'99;
-    netflix.pocketId = "banco";
-    const std::vector<MovementMeta> metas{{"m-netflix", "Importado", "", "", "", "h-netflix"}};
-
-    const auto matches = matchBankRows({cafe, cobro, uber, viejo}, {aMano, uberAnterior, netflix}, metas);
-    check(matches.size() == 4, "una respuesta por fila");
-    if (matches.size() != 4) return;
-    check(matches[0].status == BankStatus::Nuevo && matches[0].suggestedCategory.empty(),
-          "el cafe es nuevo y sin historia no tiene categoria");
-    check(matches[1].status == BankStatus::YaAnotado && matches[1].matchedMovementId == "m-cobro",
-          "el cobro ya estaba anotado a mano un dia despues: se enlaza");
-    check(matches[2].status == BankStatus::Nuevo && matches[2].suggestedCategory == "Transporte",
-          "el uber es nuevo y se sugiere Transporte por lo aprendido");
-    check(matches[3].status == BankStatus::YaImportado, "netflix ya se importo: su huella esta");
-
-    // El mismo anotado a mano no se enlaza a dos filas.
-    BankRow cobro2 = cobro;
-    cobro2.fingerprint = "h-cobro-2";
-    const auto twice = matchBankRows({cobro, cobro2}, {aMano}, {});
-    check(twice.size() == 2 && twice[0].status == BankStatus::YaAnotado && twice[1].status == BankStatus::Nuevo,
-          "un anotado a mano se enlaza con una sola fila");
-
-    BankRow lejos = cobro;
-    lejos.date = Date{2026, 9, 10};
-    const auto far = matchBankRows({lejos}, {aMano}, {});
-    check(far.size() == 1 && far[0].status == BankStatus::Nuevo, "a mas de dos dias no se confunde");
-}
-
 } // namespace
 
 int main() {
@@ -1487,11 +1306,9 @@ int main() {
     categorias();
     categoriasDeducidas();
     gastoPorCategoria();
-    capturaDelMonto();
-    capturaDelTipoYLaFecha();
-    capturaDeLaCategoria();
-    capturaDeLaReparacion();
-    aprenderCategorias();
+    montoEscrito();
+    bolsilloSugerido();
+    categoriasPorUso();
     costoDeUnaReparacion();
     rentabilidadPorTipo();
     altaDesdePlantilla();
@@ -1510,8 +1327,6 @@ int main() {
     utilidadNetaDelMes();
     sueldoRecomendado();
     flujoDeCaja();
-    csvDelBanco();
-    cruzarConLoAnotado();
 
     std::printf("\n%s\n", gFailures == 0 ? "Todo pasa." : "HAY FALLAS.");
     return gFailures == 0 ? 0 : 1;

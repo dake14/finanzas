@@ -34,7 +34,7 @@ namespace dake::ui {
 class Card;
 class CategoryBox;
 class KpiCard;
-class CaptureWidget;
+class EntryForm;
 
 /// Barra apilada de una sola linea: con que se pago el mes. Se pinta a mano
 /// porque son dos rectangulos y una leyenda, y traer una libreria de graficos
@@ -64,12 +64,12 @@ public:
     explicit TodayPage(QWidget* parent = nullptr);
 
     void setSnapshot(const Snapshot& snapshot);
-    [[nodiscard]] CaptureWidget* capture() const noexcept { return capture_; }
+    [[nodiscard]] EntryForm* entry() const noexcept { return entry_; }
 
 private:
     void buildUi();
 
-    CaptureWidget* capture_ = nullptr;
+    EntryForm* entry_ = nullptr;
     Card* entryCard_ = nullptr;
 
     // --- Las tres preguntas ------------------------------------------------
@@ -346,7 +346,6 @@ signals:
     void fallbackHoursChanged(int minutesPerMonth);
     void reminderChanged(int weekday, int hour);
     void splitChanged(const dake::core::ProfitSplit& split);
-    void bankImportRequested();
     /// Se eligio otro tema en la tarjeta Apariencia.
     void themeChanged(dake::ui::theme::Tema tema);
 
@@ -366,7 +365,6 @@ private:
     QKeySequenceEdit* hotkey_ = nullptr;
     QLabel* hotkeyStatus_ = nullptr;
     QCheckBox* autostart_ = nullptr;
-    QLabel* captureTiming_ = nullptr;
     QLineEdit* hourlyRate_ = nullptr;
     QLineEdit* targetMargin_ = nullptr;
     QLabel* costsNote_ = nullptr;

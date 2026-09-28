@@ -110,10 +110,6 @@ void SettingsPage::buildUi() {
     connect(autostart_, &QCheckBox::toggled, this, &SettingsPage::autostartChanged);
     captureCard->addContent(autostart_);
 
-    captureTiming_ = new QLabel(captureCard);
-    captureTiming_->setFont(theme::bodyFont(10));
-    captureTiming_->setWordWrap(true);
-    captureCard->addContent(captureTiming_);
     layout->addWidget(captureCard);
 
     // --- Costos ---------------------------------------------------------------
@@ -313,20 +309,6 @@ void SettingsPage::buildUi() {
     reviewCard->addContent(timings_);
     layout->addWidget(reviewCard);
 
-    // --- Bancos --------------------------------------------------------------
-    auto* bankCard = new Card(QStringLiteral("EXTRACTOS DEL BANCO"), page);
-    bankCard->setSubtitle(
-        QStringLiteral("Un CSV del banco. La primera vez se dice qué columna es cada cosa y queda "
-                       "guardado. Lo que ya anotaste a mano se enlaza en vez de duplicarse, e importar "
-                       "el mismo extracto dos veces no agrega nada. También con Ctrl+I."));
-    auto* bankButton = new QPushButton(QStringLiteral("Importar extracto…"), bankCard);
-    bankButton->setObjectName(QStringLiteral("PrimaryButton"));
-    bankButton->setCursor(Qt::PointingHandCursor);
-    bankButton->setFixedHeight(32);
-    connect(bankButton, &QPushButton::clicked, this, &SettingsPage::bankImportRequested);
-    bankCard->addContent(bankButton);
-    layout->addWidget(bankCard);
-
     // --- DakeLabs Cotizaciones ------------------------------------------------
     auto* quotesCard = new Card(QStringLiteral("DAKELABS COTIZACIONES"), page);
     quotesCard->setSubtitle(
@@ -463,19 +445,6 @@ void SettingsPage::setSnapshot(const Snapshot& snapshot) {
                                               "tecla no se admite; elige otra."));
         theme::setLabelColor(hotkeyStatus_, theme::kNegative);
     }
-    // El criterio de aceptacion, medido con el uso de verdad.
-    if (snapshot.captureMedianMs < 0) {
-        captureTiming_->setText(QStringLiteral("Todavía no hay capturas medidas."));
-        theme::setLabelColor(captureTiming_, theme::kTextMuted);
-    } else {
-        const double seconds = static_cast<double>(snapshot.captureMedianMs) / 1000.0;
-        const bool ok = snapshot.captureMedianMs < 10000;
-        captureTiming_->setText(
-            QStringLiteral("Anotar te toma %1 s (mediana de las últimas 30). La meta es menos de 10.")
-                .arg(QString::number(seconds, 'f', 1).replace(QLatin1Char('.'), QLatin1Char(','))));
-        theme::setLabelColor(captureTiming_, ok ? theme::kPositive : theme::kNegative);
-    }
-
     categories_->setRowCount(static_cast<int>(snapshot.categories.size()));
     for (int row = 0; row < static_cast<int>(snapshot.categories.size()); ++row) {
         const core::Category category = snapshot.categories[static_cast<std::size_t>(row)];

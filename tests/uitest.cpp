@@ -13,7 +13,10 @@
 // contesta la dejaria colgada para siempre.
 
 #include <QApplication>
+#include <QAbstractItemView>
 #include <QComboBox>
+#include <QCompleter>
+#include <QDateEdit>
 #include <QDir>
 #include <QFile>
 #include <QLabel>
@@ -32,9 +35,11 @@
 #include <crtdbg.h>
 #endif
 
-#include "capturewidget.hpp"
+#include "capturewindow.hpp"
+#include "categorybox.hpp"
 #include "dake/storage/database.hpp"
 #include "dake/storage/repository.hpp"
+#include "entryform.hpp"
 #include "mainwindow.hpp"
 #include "pages.hpp"
 #include "theme.hpp"
@@ -252,25 +257,174 @@ int main(int argc, char** argv) {
     storage::Database db(path);
     storage::Repository repository(db);
 
-    // --- Anotar desde Hoy ----------------------------------------------------
-    std::printf("\n[anotar desde Hoy]\n");
+    // --- Anotar con el formulario ---------------------------------------------
+    std::printf("\n[anotar con el formulario]\n");
     {
-        auto* input = window.findChild<QLineEdit*>(QStringLiteral("CaptureInput"));
-        check(input != nullptr, "la linea de captura esta en Hoy");
-        if (input != nullptr) {
-            input->setFocus();
-            QTest::keyClicks(input, QStringLiteral("25 almuerzo ayer"));
-            QTest::keyClick(input, Qt::Key_Return);
-            settle();
-            bool found = false;
+        auto* amount = window.findChild<QLineEdit*>(QStringLiteral("EntryAmount"));
+        auto* category = window.findChild<ui::CategoryBox*>(QStringLiteral("EntryCategory"));
+        auto* date = window.findChild<QDateEdit*>(QStringLiteral("EntryDate"));
+        auto* error = window.findChild<QLabel*>(QStringLiteral("EntryError"));
+        auto* from = window.findChild<QComboBox*>(QStringLiteral("EntryPocket"));
+        auto* to = window.findChild<QComboBox*>(QStringLiteral("EntryTarget"));
+        check(amount && category && date && error && from && to, "el formulario esta en Hoy");
+        check(window.findChild<QLineEdit*>(QStringLiteral("CaptureInput")) == nullptr,
+              "y la linea de captura ya no existe");
+        auto type = [](QWidget* w, const QString& text) {
+            w->setFocus();
+            QTest::keyClicks(w, text);
+        };
+        auto saved = [&repository](const std::function<bool(const core::Movement&)>& pred) {
+            int n = 0;
             for (const core::Movement& m : repository.loadMovements()) {
-                if (m.name == "almuerzo" && m.amountMinor == 25'00 &&
-                    m.kind == core::MovementKind::Gasto) {
-                    found = true;
+                if (!m.deleted && pred(m)) ++n;
+            }
+            return n;
+        };
+        if (amount && category && date && error && from && to) {
+            // 1. Un gasto con una categoria nueva.
+            type(amount, QStringLiteral("25"));
+            category->lineEdit()->clear();
+            type(category->lineEdit(), QStringLiteral("Almuerzo taller"));
+            // Si el completador quedo abierto, el primer Enter elige; el segundo guarda.
+            if (category->lineEdit()->completer() != nullptr &&
+                category->lineEdit()->completer()->popup()->isVisible()) {
+                QTest::keyClick(category->lineEdit()->completer()->popup(), Qt::Key_Escape);
+            }
+            QTest::keyClick(category->lineEdit(), Qt::Key_Return);
+            settle();
+            check(saved([](const core::Movement& m) {
+                      return m.kind == core::MovementKind::Gasto && m.amountMinor == 25'00 &&
+                             m.category == "Almuerzo taller" && m.name == "Almuerzo taller" && m.settled &&
+                             m.spreadMonths == 1 && m.jobId.empty();
+                  }) == 1,
+                  "25 + categoria nueva + Enter guarda un gasto de 25,00, pagado, con la categoria como nombre");
+            check(amount->text().isEmpty() && amount->hasFocus(), "el monto queda vacio y con el foco");
+            check(category->category() == QStringLiteral("Almuerzo taller"), "la categoria se conserva");
+            check(category->findText(QStringLiteral("Almuerzo taller")) >= 0, "y ya esta en la lista");
+            auto* done = window.findChild<QLabel*>(QStringLiteral("EntryDone"));
+            check(done != nullptr && done->text().contains(QStringLiteral("25,00")),
+                  "y dice que quedo anotado");
+
+            // 1b. Con el completador abierto, Enter elige la sugerencia y no guarda.
+            {
+                const std::size_t count = repository.loadMovements().size();
+                category->lineEdit()->clear();
+                type(amount, QStringLiteral("7"));
+                type(category->lineEdit(), QStringLiteral("taller"));
+                settle();
+                QCompleter* completer = category->lineEdit()->completer();
+                const bool open = completer != nullptr && completer->popup()->isVisible();
+                if (open) {
+                    QTest::keyClick(category->lineEdit(), Qt::Key_Return);
+                    settle();
+                    check(repository.loadMovements().size() == count,
+                          "Enter con la lista de sugerencias abierta no guarda a medias");
+                    QTest::keyClick(completer->popup(), Qt::Key_Escape);
+                } else {
+                    std::printf("      (el completador no se abrio sin pantalla: no se prueba)\n");
+                }
+                category->lineEdit()->clear();
+                amount->clear();
+                settle();
+            }
+
+            // 2. Un ingreso con la fecha cambiada, sin tocar el mouse.
+            QTest::keyClick(amount, Qt::Key_I, Qt::AltModifier);
+            settle();
+            category->lineEdit()->clear();
+            type(amount, QStringLiteral("40,5"));
+            type(category->lineEdit(), QStringLiteral("Venta"));
+            const QDate threeDaysAgo = date->date().addDays(-3);
+            date->setDate(threeDaysAgo);
+            QTest::keyClick(amount, Qt::Key_Return);
+            settle();
+            const std::string iso = threeDaysAgo.toString(Qt::ISODate).toStdString();
+            check(saved([&iso](const core::Movement& m) {
+                      return m.kind == core::MovementKind::Ingreso && m.amountMinor == 40'50 &&
+                             m.category == "Venta" && m.date.toIso() == iso;
+                  }) == 1,
+                  "Alt+I, 40,5 y la fecha de hace tres dias: un ingreso de 40,50 con esa fecha");
+
+            // 3. Sin categoria no se guarda.
+            const std::size_t before = repository.loadMovements().size();
+            category->lineEdit()->clear();
+            type(amount, QStringLiteral("5"));
+            QTest::keyClick(amount, Qt::Key_Return);
+            settle();
+            check(repository.loadMovements().size() == before &&
+                      error->text() == QStringLiteral("Falta la categoría"),
+                  "sin categoria no se guarda, y se dice por que");
+
+            // 4. Una fecha futura no se guarda.
+            type(category->lineEdit(), QStringLiteral("Venta"));
+            date->setMaximumDate(QDate(9999, 1, 1));  // la prueba fuerza el limite del campo
+            date->setDate(QDate::currentDate().addDays(2));
+            QTest::keyClick(amount, Qt::Key_Return);
+            settle();
+            check(repository.loadMovements().size() == before &&
+                      error->text() == QStringLiteral("La fecha no puede ser futura"),
+                  "una fecha futura no se guarda");
+            date->setDate(QDate::currentDate());
+            amount->clear();
+
+            // 5. Un traspaso al mismo bolsillo no se guarda.
+            QTest::keyClick(amount, Qt::Key_T, Qt::AltModifier);
+            settle();
+            check(!category->isVisibleTo(&window) && to->isVisibleTo(&window),
+                  "en traspaso se piden De y A, no la categoria");
+            to->setCurrentIndex(from->currentIndex());
+            type(amount, QStringLiteral("10"));
+            QTest::keyClick(amount, Qt::Key_Return);
+            settle();
+            check(repository.loadMovements().size() == before &&
+                      error->text() == QStringLiteral("De y A tienen que ser distintos"),
+                  "un traspaso al mismo bolsillo no se guarda");
+
+            // 6. El sueldo: de la caja del negocio a lo personal.
+            from->setCurrentIndex(from->findData(QStringLiteral("p-caja")));
+            to->setCurrentIndex(to->findData(QStringLiteral("p-personal")));
+            amount->clear();
+            type(amount, QStringLiteral("300"));
+            QTest::keyClick(amount, Qt::Key_Return);
+            settle();
+            check(saved([](const core::Movement& m) {
+                      return m.kind == core::MovementKind::Traspaso && m.amountMinor == 300'00 &&
+                             m.pocketId == "p-caja" && m.targetPocketId == "p-personal";
+                  }) == 1,
+                  "un traspaso de 300 de la caja a Mio: el sueldo");
+
+            // 7. Un gasto personal pagado con la caja del negocio se parte en
+            //    sueldo y gasto personal.
+            emit window.findChild<ui::SettingsPage*>()->categoryChanged(
+                {"Farmacia", core::Account::Personal, core::CategoryClass::General,
+                 core::MovementKind::Gasto});
+            settle();
+            QTest::keyClick(amount, Qt::Key_G, Qt::AltModifier);
+            settle();
+            from->setCurrentIndex(from->findData(QStringLiteral("p-caja")));
+            category->lineEdit()->clear();
+            type(amount, QStringLiteral("12"));
+            type(category->lineEdit(), QStringLiteral("Farmacia"));
+            QTest::keyClick(amount, Qt::Key_Return);
+            settle();
+            check(saved([](const core::Movement& m) {
+                      return m.kind == core::MovementKind::Gasto && m.amountMinor == 12'00 &&
+                             m.category == "Farmacia" && m.pocketId == "p-personal";
+                  }) == 1 &&
+                      saved([](const core::Movement& m) {
+                          return m.kind == core::MovementKind::Traspaso && m.amountMinor == 12'00 &&
+                                 m.pocketId == "p-caja";
+                      }) == 1,
+                  "farmacia pagada con la caja: sueldo de 12 y gasto personal de 12");
+
+            // 8. Un bolsillo archivado no se ofrece.
+            bool archivedOffered = false;
+            for (const core::Pocket& pk : repository.loadPockets()) {
+                if (pk.archived && from->findData(QString::fromStdString(pk.id)) >= 0) {
+                    archivedOffered = true;
                 }
             }
-            check(found, "'25 almuerzo ayer' + Enter guarda un gasto de 25,00");
-            check(input->text().isEmpty(), "y la linea queda vacia para el siguiente");
+            check(!archivedOffered, "ningun bolsillo archivado aparece en el formulario");
         }
     }
 
@@ -324,39 +478,14 @@ int main(int argc, char** argv) {
         check(closed, "el trabajo que ve el telefono queda cerrado");
     }
 
-    // --- El cobro anotado en la captura cierra la reparacion --------------------
-    std::printf("\n[el cobro anotado en la captura cierra la reparacion]\n");
+    // --- La pastilla de estado ------------------------------------------------
+    std::printf("\n[la ficha muestra el estado como pastilla]\n");
     {
-        onNextDialog([](QWidget* dialog) {
-            typeAndEnter(dialog, QStringLiteral("laptop"));
-            typeAndEnter(dialog, QStringLiteral("Ana"));
-            typeAndEnter(dialog, QStringLiteral("Asus X556U"));
-        });
-        QTest::keyClick(&window, Qt::Key_R, Qt::ControlModifier);
-        reactivate(&window);
-
-        auto* input = window.findChild<QLineEdit*>(QStringLiteral("CaptureInput"));
-        if (input != nullptr) {
-            QTest::keyClick(&window, Qt::Key_1, Qt::ControlModifier);
-            input->setFocus();
-            auto* job = input->parentWidget()->findChild<QComboBox*>(QStringLiteral("CaptureJob"));
-            QTest::keyClicks(input, QStringLiteral("12 pasta asus"));
-            check(job != nullptr && !job->isVisibleTo(input->parentWidget()),
-                  "un gasto no pregunta la reparacion, aunque la nombre");
-            input->clear();
-            QTest::keyClicks(input, QStringLiteral("60 cobro asus"));
-            check(job != nullptr && job->isVisibleTo(input->parentWidget()), "un cobro si");
-            QTest::keyClick(input, Qt::Key_Return);
-            settle();
-        }
         const auto repairs = repository.loadRepairs();
-        const core::Repair* asus = findRepair(repairs, "Asus X556U");
-        check(asus != nullptr, "la segunda reparacion existe");
-        check(asus != nullptr && asus->status == core::RepairStatus::Cobrada,
-              "'60 cobro asus' la deja cobrada sin tocar la ficha");
-        if (asus != nullptr) {
+        const core::Repair* rtx = findRepair(repairs, "RTX 3080");
+        if (rtx != nullptr) {
             auto* repairsPage = window.findChild<ui::RepairsPage*>();
-            repairsPage->selectRepair(asus->jobId);
+            repairsPage->selectRepair(rtx->jobId);
             settle();
             auto* pill = repairsPage->findChild<QLabel*>(QStringLiteral("RepairStatus"));
             check(pill != nullptr && pill->text() == QStringLiteral("Cobrada") &&
@@ -364,7 +493,6 @@ int main(int argc, char** argv) {
                   "la ficha muestra la pastilla 'Cobrada'");
         }
     }
-
 
     // --- DakeLabs Cotizaciones -----------------------------------------------
     //
@@ -441,26 +569,6 @@ int main(int argc, char** argv) {
                   findRepair(qrepo.loadRepairs(), "asus x556U")->status == core::RepairStatus::Cobrada,
               "y la reparacion, cobrada");
 
-        // Anotar el cobro a mano seria cobrarlo dos veces: la captura no deja.
-        const std::size_t count = qrepo.loadMovements().size();
-        auto* input = quotesWindow.findChild<QLineEdit*>(QStringLiteral("CaptureInput"));
-        if (input != nullptr) {
-            // La reparacion ya esta cobrada y no se ofrece; se prueba con una
-            // abierta: se reabre el informe como entregado.
-            writeDoc(folder, QStringLiteral("INF-2026-005.json"),
-                     informe("i5", "INF-2026-005", "entregado", "Luis", "RTX 3070", 5000, nullptr, false));
-            emit quotesWindow.findChild<ui::SettingsPage*>()->quoteReadRequested();
-            settle();
-            const std::size_t withFive = qrepo.loadMovements().size();
-            input->setFocus();
-            QTest::keyClicks(input, QStringLiteral("50 cobro 3070"));
-            QTest::keyClick(input, Qt::Key_Return);
-            settle();
-            check(withFive == count + 1, "el informe nuevo entro por cobrar");
-            check(qrepo.loadMovements().size() == withFive,
-                  "'50 cobro 3070' no crea un segundo ingreso: se cobra en Cotizaciones");
-        }
-
         // La revision: Enter aplica lo sugerido (ignorar el repetido).
         onNextDialog([](QWidget* dialog) {
             QTest::keyClick(dialog, Qt::Key_Return);
@@ -513,11 +621,14 @@ int main(int argc, char** argv) {
         }
         check(generated == 3, "la luz se anoto sola los tres meses, por confirmar");
 
-        auto* input = reviewWindow.findChild<QLineEdit*>(QStringLiteral("CaptureInput"));
-        if (input != nullptr) {
-            input->setFocus();
-            QTest::keyClicks(input, QStringLiteral("300 soldador herramientas"));
-            QTest::keyClick(input, Qt::Key_Return);
+        auto* toolAmount = reviewWindow.findChild<QLineEdit*>(QStringLiteral("EntryAmount"));
+        auto* toolCategory = reviewWindow.findChild<ui::CategoryBox*>(QStringLiteral("EntryCategory"));
+        if (toolAmount != nullptr && toolCategory != nullptr) {
+            toolAmount->setFocus();
+            QTest::keyClicks(toolAmount, QStringLiteral("300"));
+            toolCategory->lineEdit()->clear();
+            toolCategory->setCategory(QStringLiteral("Herramientas"));
+            QTest::keyClick(toolAmount, Qt::Key_Return);
             settle();
         }
         const auto tools = rrepo.loadTools();
@@ -575,9 +686,6 @@ int main(int argc, char** argv) {
         check(!recurring.empty() && recurring[0].amountMinor == 45'00,
               "y 45 pasa a ser el estimado del mes que viene");
 
-        typeInFocus(QStringLiteral("36"));  // vida util del soldador
-        const auto after = rrepo.loadTools();
-        check(!after.empty() && after[0].lifeMonths == 36, "la vida util se corrige a 36 meses");
         // Lo que queda (reparaciones del caso sembrado sin horas, un cobro
         // atrasado) se pospone una semana con Ctrl+P.
         for (int i = 0; i < 20 && rrepo.timingMedian(QStringLiteral("revision")) < 0; ++i) {
@@ -590,69 +698,11 @@ int main(int argc, char** argv) {
               "con la bandeja vacia, la revision quedo cronometrada");
     }
 
-    // --- Extracto del banco --------------------------------------------------
-    std::printf("\n[extracto del banco]\n");
+    std::printf("\n[la ventana chica usa el mismo formulario]\n");
     {
-        const QString bankPath = temp.path() + QStringLiteral("/banco.db");
-        core::Id pocketId;
-        {
-            storage::Database setup(bankPath);
-            storage::Repository repo(setup);
-            repo.seedIfEmpty(core::Currency::usd());
-            repo.setSetting(QStringLiteral("cot.carpeta"), temp.path() + QStringLiteral("/sin-cotizaciones"));
-            pocketId = repo.loadPockets().front().id;
-            core::Movement aMano;
-            aMano.id = "m-cobro-a-mano";
-            aMano.date = core::Date{2026, 9, 3};
-            aMano.name = "cobro gpu";
-            aMano.kind = core::MovementKind::Ingreso;
-            aMano.amountMinor = 120'00;
-            aMano.pocketId = pocketId;
-            aMano.category = "Reparacion";
-            repo.save(aMano);
-        }
-        const QString csvPath = temp.path() + QStringLiteral("/extracto.csv");
-        {
-            QFile csv(csvPath);
-            csv.open(QIODevice::WriteOnly);
-            csv.write("Fecha;Descripcion;Monto\r\n"
-                      "01/09/2026;CAFE LA ESQUINA;-2,50\r\n"
-                      "02/09/2026;TRANSFERENCIA JUAN PEREZ;120,00\r\n"
-                      "03/09/2026;UBER *TRIP;-8,40\r\n");
-        }
-        qputenv("DAKE_TEST_DB_PATH", bankPath.toLocal8Bit());
-        ui::MainWindow bankWindow(bankPath);
-        bankWindow.show();
-        (void)QTest::qWaitForWindowExposed(&bankWindow);
-        settle();
-
-        storage::Database bdb(bankPath);
-        storage::Repository brepo(bdb);
-        const std::size_t before = brepo.loadMovements().size();
-
-        onNextDialog([](QWidget* dialog) { QTest::keyClick(dialog, Qt::Key_Return); });
-        bankWindow.importBankFile(csvPath);
-        reactivate(&bankWindow);
-        const auto after = brepo.loadMovements();
-        check(after.size() == before + 2, "el cafe y el uber entran; la transferencia no");
-        bool cafe = false;
-        for (const core::Movement& m : after) {
-            if (m.name == "CAFE LA ESQUINA" && m.amountMinor == 2'50 && m.kind == core::MovementKind::Gasto &&
-                m.date == (core::Date{2026, 9, 1})) {
-                cafe = true;
-            }
-        }
-        check(cafe, "el cafe, como gasto de 2,50 el 1 de septiembre");
-        bool linked = false;
-        for (const core::MovementMeta& meta : brepo.loadMovementMeta()) {
-            if (meta.movementId == "m-cobro-a-mano" && !meta.externalRef.empty()) linked = true;
-        }
-        check(linked, "la transferencia se enlazo al cobro que ya estaba anotado a mano");
-
-        onNextDialog([](QWidget* dialog) { QTest::keyClick(dialog, Qt::Key_Return); });
-        bankWindow.importBankFile(csvPath);
-        reactivate(&bankWindow);
-        check(brepo.loadMovements().size() == before + 2, "importar el mismo extracto otra vez no agrega nada");
+        ui::CaptureWindow mini;
+        check(mini.findChild<ui::EntryForm*>() != nullptr && mini.entry() != nullptr,
+              "Ctrl+Alt+Espacio abre el mismo formulario");
     }
 
     std::printf("\n[tema oscuro desde Ajustes, y que se recuerde]\n");
@@ -664,24 +714,20 @@ int main(int argc, char** argv) {
               "'Oscuro' con espacios, oscuro");
 
         auto* selector = window.findChild<QComboBox*>(QStringLiteral("TemaSelector"));
-        auto* amount = window.findChild<QLabel*>(QStringLiteral("CaptureAmount"));
-        auto* input = window.findChild<QLineEdit*>(QStringLiteral("CaptureInput"));
-        check(selector != nullptr && amount != nullptr && input != nullptr, "el selector de tema esta en Ajustes");
-        if (selector != nullptr && amount != nullptr && input != nullptr) {
-            input->clear();
-            input->setFocus();
-            QTest::keyClicks(input, QStringLiteral("25 almuerzo"));
+        auto* amount = window.findChild<QLineEdit*>(QStringLiteral("EntryAmount"));
+        check(selector != nullptr && amount != nullptr, "el selector de tema esta en Ajustes");
+        if (selector != nullptr && amount != nullptr) {
+            QTest::keyClick(amount, Qt::Key_G, Qt::AltModifier);
             settle();
             check(amount->property("tono").toString() == QStringLiteral("gasto"),
-                  "el monto del gasto lleva el papel 'gasto'");
+                  "el monto de un gasto lleva el papel 'gasto'");
             selector->setCurrentIndex(1);
             settle();
             check(ui::theme::currentTheme() == ui::theme::Tema::Oscuro, "elegir Oscuro cambia el tema");
-            check(amount->palette().color(amount->foregroundRole()) == QColor(QStringLiteral("#FF922B")),
+            check(amount->palette().color(QPalette::Text) == QColor(QStringLiteral("#FF922B")),
                   "y el monto ya esta en el naranja del oscuro, sin reabrir nada");
             check(repository.setting(QStringLiteral("ui.tema")).value_or(QString()) == QStringLiteral("oscuro"),
                   "queda guardado en ui.tema");
-            input->clear();
         }
     }
     {

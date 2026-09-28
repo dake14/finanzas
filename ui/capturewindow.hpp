@@ -11,7 +11,7 @@
 
 namespace dake::ui {
 
-class CaptureWidget;
+class EntryForm;
 
 class CaptureWindow : public QWidget {
     Q_OBJECT
@@ -19,16 +19,16 @@ class CaptureWindow : public QWidget {
 public:
     explicit CaptureWindow(QWidget* parent = nullptr);
 
-    [[nodiscard]] CaptureWidget* capture() const noexcept { return capture_; }
+    [[nodiscard]] EntryForm* entry() const noexcept { return entry_; }
 
-    /// La muestra al frente, con el foco en la linea y el cronometro andando.
+    /// La muestra al frente, con el foco en el monto.
     void popup();
 
 protected:
     bool event(QEvent* event) override;
 
 private:
-    CaptureWidget* capture_ = nullptr;
+    EntryForm* entry_ = nullptr;
 };
 
 } // namespace dake::ui

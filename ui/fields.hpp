@@ -25,16 +25,9 @@ namespace dake::ui {
     if (trimmed.isEmpty()) {
         return std::nullopt;
     }
-    // El interprete de la captura ya sabe leer "1.200" como mil doscientos y
-    // "25,50" como veinticinco cincuenta: se usa el mismo para no tener dos
-    // reglas distintas segun donde se escriba un monto.
-    core::CaptureContext context;
-    context.currency = currency;
-    const auto draft = core::parseCapture(trimmed.toStdString(), context);
-    if (!draft.amountMinor || !draft.description.empty()) {
-        return std::nullopt;
-    }
-    return draft.amountMinor;
+    // Una sola regla para leer montos en toda la aplicacion: "1.200" es mil
+    // doscientos y "25,50" veinticinco cincuenta, se escriba donde se escriba.
+    return core::parseAmount(trimmed.toStdString(), currency);
 }
 
 /// Minutos, o vacio. "2,5" y "2.5" son dos horas y media.

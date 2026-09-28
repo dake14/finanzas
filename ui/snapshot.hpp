@@ -95,9 +95,14 @@ struct Snapshot {
     QString hotkey = QStringLiteral("Ctrl+Alt+Space");
     bool hotkeyRegistered = false;
     bool autostart = true;
-    /// Mediana de lo que tardan las capturas, en ms. -1 si no hay datos.
-    qint64 captureMedianMs = -1;
     core::Date today{2026, 9, 2};
+
+    // --- Lo ultimo usado al anotar, por tipo --------------------------------
+    // Anotar tres gastos seguidos no puede costar tres veces elegir el bolsillo.
+    QString lastExpensePocket;
+    QString lastIncomePocket;
+    QString lastTransferFrom;
+    QString lastTransferTo;
 
     [[nodiscard]] QString pocketName(const core::Id& id) const {
         const auto it = std::find_if(pockets.begin(), pockets.end(),
@@ -138,23 +143,6 @@ struct Snapshot {
             }
         }
         return {};
-    }
-
-    /// Las reparaciones abiertas, como las necesita el interprete de la
-    /// captura para reconocerlas dentro de una frase.
-    [[nodiscard]] std::vector<core::RepairRef> openRepairRefs() const {
-        std::vector<core::RepairRef> out;
-        for (const core::Repair& repair : repairs) {
-            if (repair.status == core::RepairStatus::Cobrada) {
-                continue;
-            }
-            const core::Job* j = job(repair.jobId);
-            if (j == nullptr || j->deleted) {
-                continue;
-            }
-            out.push_back({repair.jobId, repair.orderNo, repair.device, j->client});
-        }
-        return out;
     }
 
     [[nodiscard]] const core::Job* job(const core::Id& id) const {

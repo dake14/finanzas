@@ -8,7 +8,7 @@
 #include <QScreen>
 #include <QVBoxLayout>
 
-#include "capturewidget.hpp"
+#include "entryform.hpp"
 #include "theme.hpp"
 
 namespace dake::ui {
@@ -34,8 +34,8 @@ CaptureWindow::CaptureWindow(QWidget* parent)
     theme::setLabelColor(title, theme::kAccent);
     layout->addWidget(title);
 
-    capture_ = new CaptureWidget(frame);
-    layout->addWidget(capture_);
+    entry_ = new EntryForm(frame);
+    layout->addWidget(entry_);
 
     setFixedWidth(960);
 }
@@ -54,8 +54,7 @@ void CaptureWindow::popup() {
     show();
     raise();
     activateWindow();
-    capture_->startClock();
-    capture_->focusInput();
+    entry_->focusAmount();
 }
 
 bool CaptureWindow::event(QEvent* event) {

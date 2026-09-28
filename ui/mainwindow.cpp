@@ -39,12 +39,11 @@
 #include "dake/storage/quotefolder.hpp"
 #include "dake/sync/config.hpp"
 #include "dialogs.hpp"
-#include "bankdialog.hpp"
 #include "quotedialog.hpp"
 #include "repairdialogs.hpp"
 #include "pages.hpp"
-#include "capturewidget.hpp"
 #include "capturewindow.hpp"
+#include "entryform.hpp"
 #include "globalhotkey.hpp"
 #include "theme.hpp"
 
@@ -402,38 +401,31 @@ void MainWindow::buildUi() {
     root->addWidget(stack_, 1);
     setCentralWidget(central);
 
-    // Las dos capturas —la de Hoy y la ventana mini— guardan igual. Lo unico
-    // distinto es que la mini se esconde al guardar, salvo con Shift+Enter.
-    const auto onCapture = [this](const core::Movement& movement,
-                                  const core::Category& newCategory, qint64 elapsedMs) {
-        addMovement(movement, newCategory);
-        if (elapsedMs > 0) {
-            repository_->addTiming(QStringLiteral("captura"), elapsedMs);
-        }
-    };
-    connect(today_->capture(), &CaptureWidget::submitted, this,
-            [onCapture](const core::Movement& m, const core::Category& c, qint64 ms, bool) {
-                onCapture(m, c, ms);
-            });
-
+    // Los dos formularios —el de Hoy y el de la ventana chica— guardan igual.
+    // Lo unico distinto es que la chica se esconde al guardar, salvo con
+    // Shift+Enter.
     captureWindow_ = new CaptureWindow();
-    connect(captureWindow_->capture(), &CaptureWidget::submitted, this,
-            [this, onCapture](const core::Movement& m, const core::Category& c, qint64 ms,
-                              bool keepOpen) {
-                if (!keepOpen) {
-                    captureWindow_->hide();
-                }
-                onCapture(m, c, ms);
-                if (tray_ != nullptr && !keepOpen && !isVisible()) {
-                    tray_->showMessage(QStringLiteral("Anotado"),
-                                       QString::fromStdString(m.name) + QStringLiteral(" · ") +
-                                           theme::formatMoney(core::Money::fromMinor(
-                                               m.amountMinor, snapshot_.currency)),
-                                       QSystemTrayIcon::Information, 2500);
-                }
-            });
-    connect(captureWindow_->capture(), &CaptureWidget::cancelled, captureWindow_,
-            &QWidget::hide);
+    const auto wire = [this](EntryForm* form, bool mini) {
+        connect(form, &EntryForm::submitted, this,
+                [this, form, mini](const core::Movement& m, const core::Category& c, bool keepOpen) {
+                    if (!addMovement(m, c)) {
+                        return;
+                    }
+                    rememberPockets(m);
+                    const QString summary = savedSummary(m);
+                    form->confirmSaved(summary);
+                    if (mini && !keepOpen) {
+                        captureWindow_->hide();
+                        if (tray_ != nullptr && !isVisible()) {
+                            tray_->showMessage(QStringLiteral("Anotado"), summary,
+                                               QSystemTrayIcon::Information, 2500);
+                        }
+                    }
+                });
+    };
+    wire(today_->entry(), false);
+    wire(captureWindow_->entry(), true);
+    connect(captureWindow_->entry(), &EntryForm::cancelled, captureWindow_, &QWidget::hide);
 
     hotkey_ = new GlobalHotkey(this);
     connect(hotkey_, &GlobalHotkey::activated, this, &MainWindow::showCapture);
@@ -491,11 +483,6 @@ void MainWindow::buildUi() {
     connect(review_, &ReviewPage::reviewFinished, this, [this](qint64 ms) {
         repository_->addTiming(QStringLiteral("revision"), ms);
     });
-
-    auto* bankShortcut = new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_I), this);
-    connect(bankShortcut, &QShortcut::activated, this, &MainWindow::chooseBankFile);
-    connect(settings_, &SettingsPage::bankImportRequested, this, &MainWindow::chooseBankFile,
-            Qt::QueuedConnection);
 
     auto* repairShortcut = new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_R), this);
     connect(repairShortcut, &QShortcut::activated, this, &MainWindow::newRepair);
@@ -629,7 +616,7 @@ void MainWindow::buildUi() {
     auto* newShortcut = new QShortcut(QKeySequence::New, this);
     connect(newShortcut, &QShortcut::activated, this, [this] {
         showPage(0);
-        today_->capture()->focusInput();
+        today_->entry()->focusAmount();
     });
     auto* findShortcut = new QShortcut(QKeySequence::Find, this);
     connect(findShortcut, &QShortcut::activated, this, [this] {
@@ -832,7 +819,10 @@ void MainWindow::reload() {
     snapshot_.hotkeyRegistered = hotkey_ != nullptr && hotkey_->isRegistered();
     snapshot_.autostart = repository_->setting(QStringLiteral("config.arranque"))
                               .value_or(QStringLiteral("1")) == QStringLiteral("1");
-    snapshot_.captureMedianMs = repository_->timingMedian(QStringLiteral("captura"));
+    snapshot_.lastExpensePocket = repository_->setting(QStringLiteral("anotar.ultimo.gasto")).value_or(QString());
+    snapshot_.lastIncomePocket = repository_->setting(QStringLiteral("anotar.ultimo.ingreso")).value_or(QString());
+    snapshot_.lastTransferFrom = repository_->setting(QStringLiteral("anotar.ultimo.traspaso.de")).value_or(QString());
+    snapshot_.lastTransferTo = repository_->setting(QStringLiteral("anotar.ultimo.traspaso.a")).value_or(QString());
 
     reports_->setSnapshot(snapshot_);
     settings_->setSnapshot(snapshot_);
@@ -844,7 +834,7 @@ void MainWindow::reload() {
         tray_->setToolTip(QStringLiteral("Finanzas DakeLabs · %1 pendientes").arg(pending));
     }
     if (captureWindow_ != nullptr) {
-        captureWindow_->capture()->setSnapshot(snapshot_);
+        captureWindow_->entry()->setSnapshot(snapshot_);
     }
 
     footer_->setText(db_->path());
@@ -852,7 +842,7 @@ void MainWindow::reload() {
 
 // ---------------------------------------------------------------- Acciones
 
-void MainWindow::addMovement(const core::Movement& draft, const core::Category& newCategory) {
+bool MainWindow::addMovement(const core::Movement& draft, const core::Category& newCategory) {
     const core::Account account = !newCategory.name.empty()
                                       ? newCategory.account
                                       : snapshot_.categoryAccount(draft.category, draft.pocketId);
@@ -878,7 +868,7 @@ void MainWindow::addMovement(const core::Movement& draft, const core::Category& 
             repository_->save(part);
         }
         // Una compra de herramienta no es un gasto del mes: se deprecia. Se
-        // da de alta con 24 meses de vida y la revision pregunta si son otros.
+        // da de alta con 24 meses de vida; si son otros, se cambia en Ajustes.
         const core::Category* category = core::findCategory(snapshot_.categories, draft.category);
         const bool isTool = (category != nullptr && category->cls == core::CategoryClass::Activo);
         if (isTool && draft.kind == core::MovementKind::Gasto) {
@@ -891,7 +881,6 @@ void MainWindow::addMovement(const core::Movement& draft, const core::Category& 
             tool.lifeMonths = 24;
             tool.movementId = purchase.id;
             repository_->saveTool(tool);
-            repository_->saveMovementMeta({purchase.id, "Manual", "vida", {}, {}, {}});
         }
         if (ownTx && !db_->handle().commit()) {
             throw storage::StorageError(QStringLiteral("No se pudo confirmar la transaccion."));
@@ -900,7 +889,7 @@ void MainWindow::addMovement(const core::Movement& draft, const core::Category& 
         if (ownTx) db_->handle().rollback();
         QMessageBox::critical(this, QStringLiteral("No se pudo guardar"),
                               QString::fromUtf8(error.what()));
-        return;
+        return false;
     }
 
     const core::Movement& main = parts.back();
@@ -908,6 +897,46 @@ void MainWindow::addMovement(const core::Movement& draft, const core::Category& 
                  QStringLiteral("anotar «%1»").arg(QString::fromStdString(main.name)));
     undoAlso_.assign(parts.begin(), parts.end() - 1);
     afterLocalChange();
+    return true;
+}
+
+void MainWindow::rememberPockets(const core::Movement& movement) {
+    const QString from = QString::fromStdString(movement.pocketId);
+    switch (movement.kind) {
+        case core::MovementKind::Gasto:
+            repository_->setSetting(QStringLiteral("anotar.ultimo.gasto"), from);
+            break;
+        case core::MovementKind::Ingreso:
+            repository_->setSetting(QStringLiteral("anotar.ultimo.ingreso"), from);
+            break;
+        case core::MovementKind::Traspaso:
+            repository_->setSetting(QStringLiteral("anotar.ultimo.traspaso.de"), from);
+            repository_->setSetting(QStringLiteral("anotar.ultimo.traspaso.a"),
+                                    QString::fromStdString(movement.targetPocketId));
+            break;
+    }
+    snapshot_.lastExpensePocket = repository_->setting(QStringLiteral("anotar.ultimo.gasto")).value_or(QString());
+    snapshot_.lastIncomePocket = repository_->setting(QStringLiteral("anotar.ultimo.ingreso")).value_or(QString());
+    snapshot_.lastTransferFrom = repository_->setting(QStringLiteral("anotar.ultimo.traspaso.de")).value_or(QString());
+    snapshot_.lastTransferTo = repository_->setting(QStringLiteral("anotar.ultimo.traspaso.a")).value_or(QString());
+}
+
+QString MainWindow::savedSummary(const core::Movement& movement) const {
+    const QString money =
+        theme::formatMoney(core::Money::fromMinor(movement.amountMinor, snapshot_.currency));
+    switch (movement.kind) {
+        case core::MovementKind::Gasto:
+            return QStringLiteral("Gasto %1 · %2 · %3")
+                .arg(money, QString::fromStdString(movement.category), snapshot_.pocketName(movement.pocketId));
+        case core::MovementKind::Ingreso:
+            return QStringLiteral("Ingreso %1 · %2 · %3")
+                .arg(money, QString::fromStdString(movement.category), snapshot_.pocketName(movement.pocketId));
+        case core::MovementKind::Traspaso:
+            return QStringLiteral("%1 %2 · %3 → %4")
+                .arg(QString::fromStdString(movement.name), money, snapshot_.pocketName(movement.pocketId),
+                     snapshot_.pocketName(movement.targetPocketId));
+    }
+    return money;
 }
 
 void MainWindow::togglePocketAccount(const core::Id& pocketId) {
@@ -1104,137 +1133,6 @@ void MainWindow::deleteMovementById(const core::Id& movementId) {
     repository_->remove(gone);
     rememberUndo(gone, gone, QStringLiteral("borrar «%1»").arg(QString::fromStdString(gone.name)));
     afterLocalChange();
-}
-
-// ------------------------------------------------------------------ Bancos
-
-std::vector<core::BankProfile> MainWindow::loadBankProfiles() {
-    std::vector<core::BankProfile> out;
-    const QString raw = repository_->setting(QStringLiteral("banco.perfiles")).value_or(QString());
-    for (const QJsonValue& value : QJsonDocument::fromJson(raw.toUtf8()).array()) {
-        const QJsonObject o = value.toObject();
-        core::BankProfile p;
-        p.name = o.value(QStringLiteral("nombre")).toString().toStdString();
-        p.dateColumn = o.value(QStringLiteral("fecha")).toInt();
-        p.descriptionColumn = o.value(QStringLiteral("descripcion")).toInt(1);
-        p.amountColumn = o.value(QStringLiteral("monto")).toInt(2);
-        p.debitColumn = o.value(QStringLiteral("cargo")).toInt(-1);
-        p.creditColumn = o.value(QStringLiteral("abono")).toInt(-1);
-        p.negativeIsExpense = o.value(QStringLiteral("negativoGasto")).toBool(true);
-        p.dateFormat = static_cast<core::DateFormat>(o.value(QStringLiteral("formato")).toInt());
-        p.headerRows = o.value(QStringLiteral("cabecera")).toInt(1);
-        out.push_back(p);
-    }
-    return out;
-}
-
-void MainWindow::saveBankProfile(const core::BankProfile& profile) {
-    if (profile.name.empty()) {
-        return;
-    }
-    QJsonArray array;
-    array.append(QJsonObject{{QStringLiteral("nombre"), QString::fromStdString(profile.name)},
-                             {QStringLiteral("fecha"), profile.dateColumn},
-                             {QStringLiteral("descripcion"), profile.descriptionColumn},
-                             {QStringLiteral("monto"), profile.amountColumn},
-                             {QStringLiteral("cargo"), profile.debitColumn},
-                             {QStringLiteral("abono"), profile.creditColumn},
-                             {QStringLiteral("negativoGasto"), profile.negativeIsExpense},
-                             {QStringLiteral("formato"), static_cast<int>(profile.dateFormat)},
-                             {QStringLiteral("cabecera"), profile.headerRows}});
-    // El recien usado va primero: es el que se propone la proxima vez.
-    for (const core::BankProfile& other : loadBankProfiles()) {
-        if (other.name == profile.name) continue;
-        array.append(QJsonObject{{QStringLiteral("nombre"), QString::fromStdString(other.name)},
-                                 {QStringLiteral("fecha"), other.dateColumn},
-                                 {QStringLiteral("descripcion"), other.descriptionColumn},
-                                 {QStringLiteral("monto"), other.amountColumn},
-                                 {QStringLiteral("cargo"), other.debitColumn},
-                                 {QStringLiteral("abono"), other.creditColumn},
-                                 {QStringLiteral("negativoGasto"), other.negativeIsExpense},
-                                 {QStringLiteral("formato"), static_cast<int>(other.dateFormat)},
-                                 {QStringLiteral("cabecera"), other.headerRows}});
-    }
-    repository_->setSetting(QStringLiteral("banco.perfiles"),
-                            QString::fromUtf8(QJsonDocument(array).toJson(QJsonDocument::Compact)));
-}
-
-void MainWindow::chooseBankFile() {
-    const QString path = QFileDialog::getOpenFileName(this, QStringLiteral("Extracto del banco"), QString(),
-                                                      QStringLiteral("Extractos (*.csv *.txt);;Todos (*)"));
-    if (!path.isEmpty()) {
-        importBankFile(path);
-    }
-}
-
-void MainWindow::importBankFile(const QString& path) {
-    QFile file(path);
-    if (!file.open(QIODevice::ReadOnly)) {
-        QMessageBox::warning(this, QStringLiteral("Importar"), QStringLiteral("No se pudo abrir el archivo."));
-        return;
-    }
-    const QByteArray bytes = file.readAll();
-    // La mayoria de los bancos exporta en UTF-8; algunos, en Latin-1. Un UTF-8
-    // invalido se nota por el caracter de reemplazo.
-    QString text = QString::fromUtf8(bytes);
-    if (text.contains(QChar::ReplacementCharacter)) {
-        text = QString::fromLatin1(bytes);
-    }
-
-    BankImportDialog dialog(snapshot_, QFileInfo(path).fileName(), text, loadBankProfiles(), this);
-    if (dialog.exec() != QDialog::Accepted) {
-        return;
-    }
-    saveBankProfile(dialog.profile());
-
-    int imported = 0;
-    int linked = 0;
-    const bool ownTx = db_->handle().transaction();
-    try {
-        for (const core::BankMatch& match : dialog.matches()) {
-            if (match.status == core::BankStatus::YaImportado) continue;
-            if (match.status == core::BankStatus::YaAnotado) {
-                // Enlazado: el anotado a mano se queda como esta y guarda la
-                // huella, para que el proximo extracto tampoco lo duplique.
-                core::MovementMeta meta;
-                if (const core::MovementMeta* existing = snapshot_.meta(match.matchedMovementId)) meta = *existing;
-                meta.movementId = match.matchedMovementId;
-                meta.externalRef = match.row.fingerprint;
-                repository_->saveMovementMeta(meta);
-                ++linked;
-                continue;
-            }
-            core::Movement draft;
-            draft.date = match.row.date;
-            draft.name = match.row.description.empty() ? "Movimiento del banco" : match.row.description;
-            draft.kind = match.row.kind;
-            draft.amountMinor = match.row.amountMinor;
-            draft.pocketId = dialog.pocketId();
-            draft.category = match.suggestedCategory;
-            const core::Account account = snapshot_.categoryAccount(draft.category, draft.pocketId);
-            std::vector<core::Movement> parts =
-                core::splitCrossExpense(draft, snapshot_.pockets, account, snapshot_.personalPocket());
-            for (core::Movement& part : parts) {
-                part.id = stamp(part.hlc, part.deviceId);
-                repository_->save(part);
-            }
-            // Lo importado con categoria sugerida pasa una vez por la
-            // revision; sin categoria, aparece ahi igual como sin categoria.
-            repository_->saveMovementMeta({parts.back().id, "Importado",
-                                           draft.category.empty() ? "" : "sugerido", {}, {},
-                                           match.row.fingerprint});
-            ++imported;
-        }
-        if (ownTx && !db_->handle().commit()) {
-            throw storage::StorageError(QStringLiteral("No se pudo confirmar la transaccion."));
-        }
-    } catch (const std::exception& error) {
-        if (ownTx) db_->handle().rollback();
-        QMessageBox::critical(this, QStringLiteral("No se pudo importar"), QString::fromUtf8(error.what()));
-        return;
-    }
-    afterLocalChange();
-    updateCloudUi(QStringLiteral("Extracto: %1 nuevos, %2 enlazados").arg(imported).arg(linked));
 }
 
 // ------------------------------------------------------ DakeLabs Cotizaciones
@@ -1440,10 +1338,7 @@ void MainWindow::reviewQuotes() {
 // ----------------------------------------------------------- Reparaciones
 
 core::Id MainWindow::businessPocket() const {
-    core::CaptureContext context;
-    context.pockets = snapshot_.pockets;
-    context.history = snapshot_.movements;
-    return core::suggestedPocket(context, core::Account::Negocio);
+    return core::suggestedPocket(snapshot_.pockets, snapshot_.movements, core::Account::Negocio);
 }
 
 void MainWindow::persistRepair(const core::Repair& repair) {

@@ -13,7 +13,6 @@
 #include <string>
 #include <vector>
 
-#include "dake/core/bankcsv.hpp"
 #include "dake/storage/database.hpp"
 #include "dake/storage/repository.hpp"
 #include "dake/sync/supabase_client.hpp"
@@ -57,10 +56,6 @@ public:
     /// que ya esta andando.
     void handleInstanceMessage(const QString& message);
 
-    /// Importa un extracto: abre el dialogo con ese archivo. Publico para que
-    /// la prueba de la interfaz lo llame sin el selector de archivos.
-    void importBankFile(const QString& path);
-
 protected:
     /// Cerrar la ventana la esconde en la bandeja: el atajo global solo
     /// funciona mientras la aplicacion este abierta.
@@ -69,7 +64,8 @@ protected:
 private slots:
     /// Guarda lo que llega de una captura. `newCategory` trae nombre solo si
     /// la categoria no existia, con la cuenta elegida en la vista previa.
-    void addMovement(const dake::core::Movement& draft, const dake::core::Category& newCategory);
+    /// false si no se pudo guardar (ya se aviso al usuario).
+    bool addMovement(const dake::core::Movement& draft, const dake::core::Category& newCategory);
     void newPocket();
     // --- Reparaciones -------------------------------------------------------
     void newRepair();
@@ -111,8 +107,6 @@ private slots:
     void snooze(const std::string& id, int days);
     void deleteMovementById(const dake::core::Id& movementId);
 
-    /// Elige el archivo del extracto y lo importa.
-    void chooseBankFile();
     void reconcile(const dake::core::Id& pocketId);
     void editMovement(const dake::core::Id& movementId);
     void togglePocketAccount(const dake::core::Id& pocketId);
@@ -176,6 +170,12 @@ private:
                       const dake::core::Movement& despues, const QString& que);
     void showPage(int index);
 
+    /// Guarda el bolsillo usado para ese tipo: la proxima vez arranca ahi.
+    void rememberPockets(const core::Movement& movement);
+
+    /// "Gasto 25,00 · Comida · Caja del negocio": lo que se confirma al anotar.
+    [[nodiscard]] QString savedSummary(const core::Movement& movement) const;
+
     /// Guarda la ficha y deja el trabajo sincronizado a tono: cerrado si la
     /// reparacion esta cobrada, abierto si no. Asi el telefono, que solo ve
     /// trabajos, no muestra como pendiente algo que ya se cobro.
@@ -197,8 +197,6 @@ private:
     /// Borra la marca de revision de un movimiento (confirmado, revisado).
     void clearReview(const core::Id& movementId);
 
-    [[nodiscard]] std::vector<core::BankProfile> loadBankProfiles();
-    void saveBankProfile(const core::BankProfile& profile);
 
     [[nodiscard]] core::QuoteDecisions loadQuoteDecisions();
     void saveQuoteDecisions(const core::QuoteDecisions& decisions);

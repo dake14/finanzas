@@ -237,7 +237,7 @@ void ReviewPage::showCurrent() {
             category_->setSuggestions(names);
             const std::string suggestion = item->kind == core::InboxKind::Sugerido
                                                ? m->category
-                                               : core::learnedCategory(m->name, s.movements);
+                                               : std::string();
             category_->setCategory(QString::fromStdString(suggestion));
             category_->show();
             accept_->setText(QStringLiteral("Guardar categoría"));
