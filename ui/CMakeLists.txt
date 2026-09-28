@@ -21,6 +21,7 @@ set(DAKE_UI_SOURCES
     movementspage.cpp
     pocketspage.cpp
     reportspage.cpp
+    reportsummary.cpp
     pendinglist.cpp
     pendinglist.hpp
     settingspage.cpp

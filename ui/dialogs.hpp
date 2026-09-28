@@ -39,6 +39,7 @@ private:
     QComboBox* kind_ = nullptr;
     QLineEdit* opening_ = nullptr;
     QLabel* hint_ = nullptr;
+    QLabel* emergencyNote_ = nullptr;  ///< "EmergencyNote": primero el APK nuevo
 };
 
 /// Cuadrar un bolsillo contra la realidad.
@@ -98,7 +99,6 @@ private:
     CategoryBox* category_ = nullptr;
     QComboBox* job_ = nullptr;
     QFormLayout* form_ = nullptr;
-    QComboBox* spread_ = nullptr;
     QCheckBox* settled_ = nullptr;
     /// Cuando se cobro o se pago. Solo se habilita con `settled_` marcado, y
     /// arranca en la fecha del movimiento y no en la de hoy: el caso comun es

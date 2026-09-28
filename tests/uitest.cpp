@@ -24,6 +24,9 @@
 #include <QMessageBox>
 #include <QPushButton>
 #include <QTemporaryDir>
+#include <QTabWidget>
+#include <QTableWidget>
+#include <QHeaderView>
 #include <QTest>
 #include <QTimer>
 
@@ -40,9 +43,11 @@
 #include "categorybox.hpp"
 #include "dake/storage/database.hpp"
 #include "dake/storage/repository.hpp"
+#include "dialogs.hpp"
 #include "entryform.hpp"
 #include "pendinglist.hpp"
 #include "mainwindow.hpp"
+#include "cards.hpp"
 #include "pages.hpp"
 #include "theme.hpp"
 
@@ -493,6 +498,73 @@ int main(int argc, char** argv) {
             check(pill != nullptr && pill->text() == QStringLiteral("Cobrada") &&
                       pill->property("pill").toString() == QStringLiteral("cobrada"),
                   "la ficha muestra la pastilla 'Cobrada'");
+        }
+    }
+
+    // --- Informes por pregunta ------------------------------------------------
+    std::printf("\n[informes por pregunta]\n");
+    {
+        QTest::keyClick(&window, Qt::Key_5, Qt::ControlModifier);
+        settle();
+        auto* reports = window.findChild<ui::ReportsPage*>();
+        auto* tabs = reports != nullptr ? reports->findChild<QTabWidget*>() : nullptr;
+        QStringList names;
+        if (tabs != nullptr) {
+            for (int i = 0; i < tabs->count(); ++i) names << tabs->tabText(i);
+        }
+        std::printf("      (pestañas: %s)\n", names.join(QStringLiteral(" | ")).toStdString().c_str());
+        check(reports != nullptr && reports->isVisible() &&
+                  names == QStringList({QStringLiteral("Resumen"), QStringLiteral("El mes"),
+                                        QStringLiteral("Gastos"), QStringLiteral("Trabajos"),
+                                        QStringLiteral("Sueldo")}),
+              "Ctrl+5 abre Informes con cinco pestañas, una por pregunta");
+        auto cardTitles = [](QWidget* root) {
+            QStringList out;
+            for (QLabel* l : root->findChildren<QLabel*>(QStringLiteral("CardTitle"))) out << l->text();
+            return out;
+        };
+        if (tabs != nullptr && tabs->count() == 5) {
+            const QStringList resumen = cardTitles(tabs->widget(0));
+            check(resumen.contains(QStringLiteral("CON QUÉ SE PAGÓ ESTE MES")) &&
+                      resumen.contains(QStringLiteral("LO QUE HAY QUE MIRAR")),
+                  "Resumen: con que se pago el mes y lo que hay que mirar");
+            const QStringList mes = cardTitles(tabs->widget(1));
+            check(mes.contains(QStringLiteral("MES A MES")) &&
+                      mes.contains(QStringLiteral("CAJA Y RESULTADO NO SON EL MISMO NÚMERO")) &&
+                      mes.contains(QStringLiteral("RESULTADO POR MES")),
+                  "El mes: resultado, mes a mes, y caja contra resultado");
+            check(cardTitles(tabs->widget(2)).contains(QStringLiteral("COSTO DE ESTRUCTURA")),
+                  "Gastos: el costo de estructura");
+            check(cardTitles(tabs->widget(3)).contains(QStringLiteral("MARGEN POR TRABAJO")),
+                  "Trabajos: el margen por trabajo");
+            check(tabs->widget(3)->findChildren<ui::KpiCard*>().size() == 5 &&
+                      tabs->widget(0)->findChildren<ui::KpiCard*>().size() == 3,
+                  "las cifras de Hoy estan en Resumen (3) y en Trabajos (5)");
+        }
+        auto* today = window.findChild<ui::TodayPage*>();
+        check(today != nullptr && today->findChildren<ui::KpiCard*>().isEmpty() &&
+                  cardTitles(today) == QStringList({QStringLiteral("ANOTAR"), QStringLiteral("PENDIENTES")}),
+              "Hoy solo tiene Anotar y Pendientes");
+        auto* pocketsPage = window.findChild<ui::PocketsPage*>();
+        check(pocketsPage != nullptr && !cardTitles(pocketsPage).contains(QStringLiteral("MES A MES")),
+              "Mes a mes ya no esta en Bolsillos");
+        auto* table = window.findChild<ui::MovementsPage*>()->findChild<QTableWidget*>();
+        QStringList headers;
+        for (int c = 0; c < table->columnCount(); ++c) headers << table->horizontalHeaderItem(c)->text();
+        check(!headers.contains(QStringLiteral("Dura")) && !headers.contains(QStringLiteral("Trabajo")),
+              "Movimientos sin Dura ni Trabajo");
+
+        ui::PocketDialog dialog(core::Currency::usd());
+        auto* kind = dialog.findChild<QComboBox*>();
+        auto* note = dialog.findChild<QLabel*>(QStringLiteral("EmergencyNote"));
+        const int emergencia = kind != nullptr ? kind->findData(static_cast<int>(core::PocketKind::Emergencia)) : -1;
+        check(emergencia >= 0 && note != nullptr, "Nuevo bolsillo ofrece Emergencia");
+        if (emergencia >= 0 && note != nullptr) {
+            kind->setCurrentIndex(emergencia);
+            check(note->isVisibleTo(&dialog) && note->text().contains(QStringLiteral("APK")),
+                  "y avisa que primero va el APK nuevo del telefono");
+            kind->setCurrentIndex(kind->findData(static_cast<int>(core::PocketKind::Ahorro)));
+            check(!note->isVisibleTo(&dialog), "con otro tipo, el aviso no aparece");
         }
     }
 

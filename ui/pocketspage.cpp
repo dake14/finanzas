@@ -89,17 +89,6 @@ void PocketsPage::buildUi() {
     fixColumn(table_, 5, 96);
     layout->addWidget(table_);
 
-    auto* monthsCard = new Card(QStringLiteral("MES A MES"), page);
-    monthsCard->setSubtitle(
-        QStringLiteral("Lo que dejo cada mes y cuanto de eso salio de las reservas. Dos meses "
-                       "seguidos en rojo en la segunda columna es el aviso que importa."));
-    auto* monthsBody = new QWidget(monthsCard);
-    monthsLayout_ = new QVBoxLayout(monthsBody);
-    monthsLayout_->setContentsMargins(0, 4, 0, 0);
-    monthsLayout_->setSpacing(6);
-    monthsCard->addContent(monthsBody);
-    layout->addWidget(monthsCard);
-
     layout->addStretch(1);
 }
 
@@ -167,62 +156,6 @@ void PocketsPage::setSnapshot(const Snapshot& snapshot) {
                        "numero de toda la aplicacion que se puede contar a mano y comparar; "
                        "si no cuadra, cuadralo hoy y no en tres meses.")
             .arg(theme::formatMoney(all), theme::formatMoney(reserves)));
-
-    // --- Mes a mes ---------------------------------------------------------
-    while (QLayoutItem* item = monthsLayout_->takeAt(0)) {
-        if (QWidget* widget = item->widget()) {
-            widget->deleteLater();
-        }
-        delete item;
-    }
-
-    const auto months = core::summarizeByMonth(snapshot.pockets, snapshot.movements, currency);
-    if (months.empty()) {
-        auto* empty = new QLabel(QStringLiteral("Todavia no hay meses con actividad."), this);
-        empty->setFont(theme::bodyFont(9));
-        theme::setLabelColor(empty, theme::kTextMuted);
-        monthsLayout_->addWidget(empty);
-    }
-
-    for (const core::MonthSummary& month : months) {
-        auto* row = new QWidget(this);
-        auto* rowLayout = new QHBoxLayout(row);
-        rowLayout->setContentsMargins(0, 0, 0, 0);
-        rowLayout->setSpacing(12);
-
-        auto* label = new QLabel(QString::fromStdString(month.label()), row);
-        label->setFont(theme::bodyFont(10, QFont::DemiBold));
-        label->setFixedWidth(84);
-        theme::setLabelColor(label, theme::kText);
-
-        auto* result = new QLabel(
-            QStringLiteral("dejo %1").arg(theme::formatMoney(month.result)), row);
-        result->setFont(theme::numericFont(10));
-        result->setFixedWidth(160);
-        theme::setLabelColor(result,
-                             month.result.isNegative() ? theme::kNegative : theme::kPositive);
-
-        auto* fundingLabel = new QLabel(row);
-        fundingLabel->setFont(theme::numericFont(10));
-        if (month.netFunding.minor() > 0) {
-            fundingLabel->setText(QStringLiteral("y saco %1 de las reservas")
-                                      .arg(theme::formatMoney(month.netFunding)));
-            theme::setLabelColor(fundingLabel, theme::kNegative);
-        } else if (month.netFunding.minor() < 0) {
-            fundingLabel->setText(QStringLiteral("y guardo %1")
-                                      .arg(theme::formatMoney(-month.netFunding)));
-            theme::setLabelColor(fundingLabel, theme::kPositive);
-        } else {
-            fundingLabel->setText(QStringLiteral("sin tocar las reservas"));
-            theme::setLabelColor(fundingLabel, theme::kTextMuted);
-        }
-
-        rowLayout->addWidget(label);
-        rowLayout->addWidget(result);
-        rowLayout->addWidget(fundingLabel);
-        rowLayout->addStretch(1);
-        monthsLayout_->addWidget(row);
-    }
 }
 
 } // namespace dake::ui

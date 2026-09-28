@@ -72,8 +72,7 @@ void MovementsPage::buildUi() {
 
     table_ = makeTable({QStringLiteral("Fecha"), QStringLiteral("Que fue"),
                         QStringLiteral("Tipo"), QStringLiteral("Bolsillo"),
-                        QStringLiteral("Categoria"), QStringLiteral("Trabajo"),
-                        QStringLiteral("Dura"), QStringLiteral("Monto")},
+                        QStringLiteral("Categoria"), QStringLiteral("Monto")},
                        1);
     connect(table_, &QTableWidget::cellDoubleClicked, this, [this](int row, int) {
         const QTableWidgetItem* item = table_->item(row, 0);
@@ -151,13 +150,6 @@ void MovementsPage::refill() {
         setText(table_, row, 3, pocket, theme::kTextMuted);
 
         setText(table_, row, 4, QString::fromStdString(movement.category), theme::kTextMuted);
-        setText(table_, row, 5, snapshot_.jobName(movement.jobId), theme::kTextMuted);
-
-        setText(table_, row, 6,
-                movement.spreadMonths > 1
-                    ? QStringLiteral("%1 meses").arg(movement.spreadMonths)
-                    : QString(),
-                theme::kAhorro);
 
         const core::Money amount =
             core::Money::fromMinor(movement.amountMinor, snapshot_.currency);
@@ -166,7 +158,7 @@ void MovementsPage::refill() {
                                  : (movement.kind == core::MovementKind::Gasto
                                         ? QStringLiteral("−")
                                         : QString());
-        setNumber(table_, row, 7, sign + theme::formatMoney(amount), kindColor(movement.kind));
+        setNumber(table_, row, 5, sign + theme::formatMoney(amount), kindColor(movement.kind));
     }
 
     summary_->setText(QStringLiteral("%1 movimientos. Doble clic para editar o borrar.")

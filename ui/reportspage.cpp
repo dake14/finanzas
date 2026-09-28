@@ -1,4 +1,4 @@
-// ui/reportspage.cpp — los reportes, uno por pestana.
+// ui/reportspage.cpp — Informes: una pestana por pregunta.
 //
 // Ningun numero se calcula aca: todos salen de dake::core. La pantalla solo
 // decide en que orden se leen y con que color.
@@ -104,7 +104,7 @@ void ReportsPage::buildUi() {
     layout->setContentsMargins(28, 24, 28, 12);
     layout->setSpacing(10);
 
-    auto* heading = new QLabel(QStringLiteral("Reportes"), this);
+    auto* heading = new QLabel(QStringLiteral("Informes"), this);
     heading->setFont(theme::displayFont(22, QFont::Bold));
     theme::setLabelColor(heading, theme::kText);
     layout->addWidget(heading);
@@ -112,22 +112,52 @@ void ReportsPage::buildUi() {
     tabs_ = new QTabWidget(this);
     tabs_->setDocumentMode(true);
     tabs_->setFont(theme::bodyFont(10, QFont::DemiBold));
-    // Primero el panorama, que antes estaba en Hoy; despues, en el orden del
-    // diseño: caja, reparaciones, tipos, gastos, sueldo.
-    tabs_->addTab(buildChartsTab(), QStringLiteral("Gráficas"));
-    tabs_->addTab(buildCashTab(), QStringLiteral("Flujo de caja"));
-    tabs_->addTab(buildRepairsTab(), QStringLiteral("Por reparación"));
-    tabs_->addTab(buildTypesTab(), QStringLiteral("Por tipo"));
-    tabs_->addTab(buildSpendingTab(), QStringLiteral("Gastos por categoría"));
-    tabs_->addTab(buildSalaryTab(), QStringLiteral("Sueldo"));
+    // Una pestana por pregunta: cuanto tengo, como fue el mes, en que se va la
+    // plata, cuanto dejan los trabajos, cuanto me puedo pagar.
+    const auto tab = [this](const QString& name, const QString& id) {
+        auto* page = new QWidget(this);
+        page->setObjectName(QStringLiteral("Informe:") + id);
+        QVBoxLayout* body = scrollingTab(page);
+        tabs_->addTab(page, name);
+        return body;
+    };
+
+    QVBoxLayout* summary = tab(QStringLiteral("Resumen"), QStringLiteral("Resumen"));
+    addSummarySection(summary);
+    summary->addStretch(1);
+
+    QVBoxLayout* month = tab(QStringLiteral("El mes"), QStringLiteral("ElMes"));
+    addSpendKpi(month);
+    addMonthCharts(month);
+    addCashSection(month);
+    addMonthsSection(month);
+    addTwoNumbersSection(month);
+    month->addStretch(1);
+
+    QVBoxLayout* spending = tab(QStringLiteral("Gastos"), QStringLiteral("Gastos"));
+    addCategoriesChart(spending);
+    addSpendingSection(spending);
+    addOverheadSection(spending);
+    spending->addStretch(1);
+
+    QVBoxLayout* jobs = tab(QStringLiteral("Trabajos"), QStringLiteral("Trabajos"));
+    addJobsKpis(jobs);
+    addJobsChart(jobs);
+    addRepairsSection(jobs);
+    addTypesSection(jobs);
+    jobs->addStretch(1);
+
+    QVBoxLayout* salary = tab(QStringLiteral("Sueldo"), QStringLiteral("Sueldo"));
+    addSalaryKpi(salary);
+    addSalarySection(salary);
+    salary->addStretch(1);
+
     layout->addWidget(tabs_, 1);
 }
 
 // ------------------------------------------------------------- Graficas
 
-QWidget* ReportsPage::buildChartsTab() {
-    auto* tab = new QWidget(this);
-    QVBoxLayout* layout = scrollingTab(tab);
+void ReportsPage::addMonthCharts(QVBoxLayout* layout) {
     QWidget* body = layout->parentWidget();
 
     auto* resultCard = new Card(QStringLiteral("RESULTADO POR MES"), body);
@@ -146,24 +176,23 @@ QWidget* ReportsPage::buildChartsTab() {
     chartCash_ = new LineChart(cashCard);
     cashCard->addContent(chartCash_);
     layout->addWidget(cashCard);
+}
 
-    auto* categoriesCard = new Card(QStringLiteral("GASTOS POR CATEGORIA, ESTE MES"), body);
+void ReportsPage::addCategoriesChart(QVBoxLayout* layout) {
+    auto* categoriesCard = new Card(QStringLiteral("GASTOS POR CATEGORÍA, ESTE MES"), layout->parentWidget());
     chartCategories_ = new RankChart(categoriesCard);
     categoriesCard->addContent(chartCategories_);
     layout->addWidget(categoriesCard);
+}
 
-    auto* jobsCard = new Card(QStringLiteral("MARGEN POR TRABAJO"), body);
+void ReportsPage::addJobsChart(QVBoxLayout* layout) {
+    auto* jobsCard = new Card(QStringLiteral("MARGEN POR TRABAJO"), layout->parentWidget());
     chartJobs_ = new RankChart(jobsCard);
     jobsCard->addContent(chartJobs_);
     layout->addWidget(jobsCard);
-
-    layout->addStretch(1);
-    return tab;
 }
 
-QWidget* ReportsPage::buildSpendingTab() {
-    auto* tab = new QWidget(this);
-    QVBoxLayout* layout = scrollingTab(tab);
+void ReportsPage::addSpendingSection(QVBoxLayout* layout) {
     QWidget* body = layout->parentWidget();
 
     auto* monthRow = new QHBoxLayout();
@@ -205,8 +234,6 @@ QWidget* ReportsPage::buildSpendingTab() {
     legend->setFont(theme::bodyFont(9));
     theme::setLabelColor(legend, theme::kTextFaint);
     layout->addWidget(legend);
-    layout->addStretch(1);
-    return tab;
 }
 
 void ReportsPage::showTab(int index) {
@@ -229,6 +256,7 @@ void ReportsPage::setSnapshot(const Snapshot& snapshot) {
         const int keep = spendingMonth_->findText(previous);
         spendingMonth_->setCurrentIndex(keep >= 0 ? keep : 0);
     }
+    refillSummary();
     refillCharts();
     refillSpending();
     refillRepairs();
@@ -344,9 +372,7 @@ namespace {
 
 } // namespace
 
-QWidget* ReportsPage::buildRepairsTab() {
-    auto* tab = new QWidget(this);
-    QVBoxLayout* layout = scrollingTab(tab);
+void ReportsPage::addRepairsSection(QVBoxLayout* layout) {
     QWidget* body = layout->parentWidget();
     repairsHeadline_ = headline(body);
     layout->addWidget(repairsHeadline_);
@@ -358,7 +384,7 @@ QWidget* ReportsPage::buildRepairsTab() {
                                QStringLiteral("Sugerido")},
                               1);
     repairsTable_->setMinimumHeight(420);
-    layout->addWidget(repairsTable_, 1);
+    layout->addWidget(repairsTable_);
     auto* legend = new QLabel(
         QStringLiteral("Horas es tu tiempo a la tarifa objetivo; fijos, la parte del taller por "
                        "hora trabajada. Un margen de 0% es cobrar justo tu tarifa. En rojo, las que "
@@ -368,7 +394,6 @@ QWidget* ReportsPage::buildRepairsTab() {
     legend->setFont(theme::bodyFont(9));
     theme::setLabelColor(legend, theme::kTextFaint);
     layout->addWidget(legend);
-    return tab;
 }
 
 void ReportsPage::refillRepairs() {
@@ -433,9 +458,7 @@ void ReportsPage::refillRepairs() {
 
 // ---------------------------------------------------- Rentabilidad por tipo
 
-QWidget* ReportsPage::buildTypesTab() {
-    auto* tab = new QWidget(this);
-    QVBoxLayout* layout = scrollingTab(tab);
+void ReportsPage::addTypesSection(QVBoxLayout* layout) {
     QWidget* body = layout->parentWidget();
     auto* card = new Card(QStringLiteral("¿TENGO QUE SUBIR PRECIOS?"), body);
     typesHeadline_ = headline(card);
@@ -448,8 +471,6 @@ QWidget* ReportsPage::buildTypesTab() {
     theme::setLabelColor(typesNote_, theme::kTextFaint);
     card->addContent(typesNote_);
     layout->addWidget(card);
-    layout->addStretch(1);
-    return tab;
 }
 
 void ReportsPage::refillTypes() {
@@ -551,9 +572,7 @@ void ReportsPage::refillTypes() {
 
 // ---------------------------------------------------------- Flujo de caja
 
-QWidget* ReportsPage::buildCashTab() {
-    auto* tab = new QWidget(this);
-    QVBoxLayout* layout = scrollingTab(tab);
+void ReportsPage::addCashSection(QVBoxLayout* layout) {
     QWidget* body = layout->parentWidget();
     cashHeadline_ = headline(body);
     layout->addWidget(cashHeadline_);
@@ -578,7 +597,6 @@ QWidget* ReportsPage::buildCashTab() {
                            0);
     cashTable_->setMinimumHeight(260);
     layout->addWidget(cashTable_);
-    return tab;
 }
 
 void ReportsPage::refillCash() {
@@ -628,9 +646,7 @@ void ReportsPage::refillCash() {
 
 // ----------------------------------------------------------------- Sueldo
 
-QWidget* ReportsPage::buildSalaryTab() {
-    auto* tab = new QWidget(this);
-    QVBoxLayout* layout = scrollingTab(tab);
+void ReportsPage::addSalarySection(QVBoxLayout* layout) {
     QWidget* body = layout->parentWidget();
     auto* card = new Card(QStringLiteral("¿CUÁNTO ME PUEDO PAGAR?"), body);
     salaryHeadline_ = new QLabel(card);
@@ -654,8 +670,6 @@ QWidget* ReportsPage::buildSalaryTab() {
     theme::setLabelColor(salaryMonths_, theme::kTextFaint);
     card->addContent(salaryMonths_);
     layout->addWidget(card);
-    layout->addStretch(1);
-    return tab;
 }
 
 void ReportsPage::refillSalary() {

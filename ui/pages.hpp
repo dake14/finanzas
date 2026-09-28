@@ -71,43 +71,11 @@ public:
 private:
     void buildUi();
 
-    EntryForm* entry_ = nullptr;
-    PendingList* pending_ = nullptr;
-    Card* entryCard_ = nullptr;
-
-    // --- Las tres preguntas ------------------------------------------------
-    // Arriba de todo, despues de anotar: son la razon de la aplicacion.
-    KpiCard* qPrices_ = nullptr;  ///< ¿subir precios?
-    KpiCard* qSpend_ = nullptr;   ///< ¿cuanto gasto?
-    KpiCard* qSalary_ = nullptr;  ///< ¿cuanto me pago?
     QLabel* heading_ = nullptr;
     QLabel* subheading_ = nullptr;
-
-    KpiCard* kpiCash_ = nullptr;
-    KpiCard* kpiReserves_ = nullptr;
-    KpiCard* kpiPending_ = nullptr;
-
-    QLabel* fundingHeadline_ = nullptr;
-    QLabel* fundingDetail_ = nullptr;
-    FundingBar* fundingBar_ = nullptr;
-
-    QLabel* cashValue_ = nullptr;
-    QLabel* resultValue_ = nullptr;
-    QLabel* twoNumbersDetail_ = nullptr;
-
-    // --- Segunda fila de indicadores -------------------------------------
-    //
-    // Los cuatro de arriba contestan "cuanta plata hay". Estos contestan "como
-    // anda el negocio", que es otra pregunta y por eso van en su propia fila.
-    KpiCard* kpiBreakEven_ = nullptr;  ///< cuanto facturar por mes para no perder
-    KpiCard* kpiRunway_ = nullptr;     ///< meses que aguantan las reservas
-    KpiCard* kpiTicket_ = nullptr;     ///< cuanto deja un trabajo, en promedio
-    KpiCard* kpiCollection_ = nullptr; ///< dias que tardas en cobrar
-
-    QLabel* overheadValue_ = nullptr;    ///< costo de la estructura
-    QLabel* overheadDetail_ = nullptr;   ///< y que porcentaje se come
-
-    QVBoxLayout* alertsLayout_ = nullptr;
+    Card* entryCard_ = nullptr;
+    EntryForm* entry_ = nullptr;
+    PendingList* pending_ = nullptr;
 };
 
 // -------------------------------------------------------------- Trabajos
@@ -199,8 +167,8 @@ private:
     QTableWidget* table_ = nullptr;
 };
 
-/// Los reportes, en pestanas. Cada uno contesta una pregunta y la primera
-/// linea de cada uno es la respuesta.
+/// Informes: una pestana por pregunta (resumen, el mes, gastos, trabajos,
+/// sueldo). Todas las cifras de la aplicacion viven aca.
 class ReportsPage : public QWidget {
     Q_OBJECT
 
@@ -212,12 +180,25 @@ public:
 
 private:
     void buildUi();
-    [[nodiscard]] QWidget* buildChartsTab();
-    [[nodiscard]] QWidget* buildSpendingTab();
-    [[nodiscard]] QWidget* buildRepairsTab();
-    [[nodiscard]] QWidget* buildTypesTab();
-    [[nodiscard]] QWidget* buildCashTab();
-    [[nodiscard]] QWidget* buildSalaryTab();
+    // Cada seccion agrega sus tarjetas al layout de la pestana que le toca.
+    // reportspage.cpp: graficas, gastos, reparaciones, tipos, caja, sueldo.
+    void addMonthCharts(QVBoxLayout* layout);
+    void addCategoriesChart(QVBoxLayout* layout);
+    void addJobsChart(QVBoxLayout* layout);
+    void addSpendingSection(QVBoxLayout* layout);
+    void addRepairsSection(QVBoxLayout* layout);
+    void addTypesSection(QVBoxLayout* layout);
+    void addCashSection(QVBoxLayout* layout);
+    void addSalarySection(QVBoxLayout* layout);
+    // reportsummary.cpp: lo que llego de Hoy y de Bolsillos.
+    void addSummarySection(QVBoxLayout* layout);
+    void addSpendKpi(QVBoxLayout* layout);
+    void addMonthsSection(QVBoxLayout* layout);
+    void addTwoNumbersSection(QVBoxLayout* layout);
+    void addOverheadSection(QVBoxLayout* layout);
+    void addJobsKpis(QVBoxLayout* layout);
+    void addSalaryKpi(QVBoxLayout* layout);
+    void refillSummary();
     void refillCharts();
     void refillCash();
     void refillSalary();
@@ -227,6 +208,28 @@ private:
 
     Snapshot snapshot_;
     QTabWidget* tabs_ = nullptr;
+
+    // --- Lo que llego de Hoy y de Bolsillos (reportsummary.cpp) -----------
+    KpiCard* kpiCash_ = nullptr;
+    KpiCard* kpiReserves_ = nullptr;
+    KpiCard* kpiRunway_ = nullptr;      ///< meses que aguantan las reservas
+    QLabel* fundingHeadline_ = nullptr;
+    QLabel* fundingDetail_ = nullptr;
+    FundingBar* fundingBar_ = nullptr;
+    QVBoxLayout* alertsLayout_ = nullptr;
+    KpiCard* qSpend_ = nullptr;         ///< ¿cuanto gasto?
+    QVBoxLayout* monthsLayout_ = nullptr;
+    QLabel* cashValue_ = nullptr;
+    QLabel* resultValue_ = nullptr;
+    QLabel* twoNumbersDetail_ = nullptr;
+    QLabel* overheadValue_ = nullptr;   ///< costo de la estructura
+    QLabel* overheadDetail_ = nullptr;  ///< y que porcentaje se come
+    KpiCard* qPrices_ = nullptr;        ///< ¿subir precios?
+    KpiCard* kpiBreakEven_ = nullptr;   ///< cuanto facturar por mes para no perder
+    KpiCard* kpiTicket_ = nullptr;      ///< cuanto deja un trabajo, en promedio
+    KpiCard* kpiPending_ = nullptr;     ///< hecho y sin cobrar
+    KpiCard* kpiCollection_ = nullptr;  ///< dias que tardas en cobrar
+    KpiCard* qSalary_ = nullptr;        ///< ¿cuanto me puedo pagar?
 
     // --- Graficas ----------------------------------------------------------
     BarChart* chartResult_ = nullptr;    ///< resultado por mes, con signo
@@ -351,7 +354,6 @@ private:
     Snapshot snapshot_;
     QLabel* total_ = nullptr;
     QTableWidget* table_ = nullptr;
-    QVBoxLayout* monthsLayout_ = nullptr;
 };
 
 } // namespace dake::ui

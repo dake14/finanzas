@@ -82,15 +82,6 @@ void fillJobs(QComboBox* box, const Snapshot& snapshot, const core::Id& selected
     box->setCurrentIndex(index >= 0 ? index : 0);
 }
 
-void fillSpread(QComboBox* box, int months) {
-    box->addItem(QStringLiteral("se gasta en el mes"), 1);
-    for (int option : {2, 3, 4, 6, 12}) {
-        box->addItem(QStringLiteral("dura %1 meses").arg(option), option);
-    }
-    const int index = box->findData(months);
-    box->setCurrentIndex(index >= 0 ? index : 0);
-}
-
 } // namespace
 
 // ----------------------------------------------------------------- Bolsillo
@@ -111,6 +102,8 @@ PocketDialog::PocketDialog(core::Currency currency, QWidget* parent)
                    static_cast<int>(core::PocketKind::Inversion));
     kind_->addItem(QStringLiteral("Personal — lo que ya te pagaste"),
                    static_cast<int>(core::PocketKind::Personal));
+    kind_->addItem(QStringLiteral("Emergencia — fondo para imprevistos"),
+                   static_cast<int>(core::PocketKind::Emergencia));
 
     opening_ = new QLineEdit(QStringLiteral("0"), this);
     opening_->setAlignment(Qt::AlignRight);
@@ -127,8 +120,23 @@ PocketDialog::PocketDialog(core::Currency currency, QWidget* parent)
     form->addRow(QStringLiteral("Para que"), kind_);
     form->addRow(QStringLiteral("Cuanto hay hoy"), opening_);
 
+    // El telefono viejo no conoce este tipo: si lo recibe, deja de sincronizar.
+    emergencyNote_ = hintLabel(
+        QStringLiteral("Antes de crear el primero, instala el APK nuevo en el teléfono: el viejo "
+                       "no conoce este tipo y dejaría de sincronizar."),
+        this);
+    emergencyNote_->setObjectName(QStringLiteral("EmergencyNote"));
+    theme::setLabelColor(emergencyNote_, theme::kAviso);
+    const auto showNote = [this] {
+        emergencyNote_->setVisible(kind_->currentData().toInt() ==
+                                   static_cast<int>(core::PocketKind::Emergencia));
+    };
+    connect(kind_, &QComboBox::currentIndexChanged, this, showNote);
+    showNote();
+
     auto* root = new QVBoxLayout(this);
     root->addLayout(form);
+    root->addWidget(emergencyNote_);
     root->addWidget(hint_);
     root->addWidget(buttons(this, QStringLiteral("Crear")));
 }
@@ -273,8 +281,6 @@ MovementEditor::MovementEditor(const core::Movement& original, const Snapshot& s
     job_ = new QComboBox(this);
     fillJobs(job_, snapshot, original.jobId);
 
-    spread_ = new QComboBox(this);
-    fillSpread(spread_, original.spreadMonths);
 
     settled_ = new QCheckBox(original.kind == core::MovementKind::Gasto
                                  ? QStringLiteral("ya lo pague")
@@ -312,7 +318,6 @@ MovementEditor::MovementEditor(const core::Movement& original, const Snapshot& s
     form->addRow(targetLabel_, target_);
     form->addRow(QStringLiteral("Categoria"), category_);
     form->addRow(QStringLiteral("Trabajo"), job_);
-    form->addRow(QStringLiteral("Cuanto dura"), spread_);
     form->addRow(QString(), settled_);
     form->addRow(settledDateLabel_, settledDate_);
 
@@ -353,14 +358,12 @@ MovementEditor::MovementEditor(const core::Movement& original, const Snapshot& s
 
 void MovementEditor::applyKind() {
     const bool transfer = base_.kind == core::MovementKind::Traspaso;
-    const bool expense = base_.kind == core::MovementKind::Gasto;
 
     targetLabel_->setVisible(transfer);
     target_->setVisible(transfer);
     category_->setVisible(!transfer);
     // Solo un cobro es de un trabajo: un gasto no es de ninguno.
     form_->setRowVisible(job_, base_.kind == core::MovementKind::Ingreso);
-    spread_->setVisible(expense);
     settled_->setVisible(!transfer);
     settledDateLabel_->setVisible(!transfer);
     settledDate_->setVisible(!transfer);
@@ -416,9 +419,6 @@ void MovementEditor::save() {
             edited_.settledDate = fromQDate(settledDate_->date());
         } else {
             edited_.settledDate = std::nullopt;
-        }
-        if (base_.kind == core::MovementKind::Gasto) {
-            edited_.spreadMonths = spread_->currentData().toInt();
         }
     }
 
