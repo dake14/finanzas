@@ -677,6 +677,13 @@ QWidget[cardBody="true"] {
     background: transparent;
 }
 
+/* El tipo elegido en el formulario de anotar: Gasto, Ingreso o Traspaso. */
+QPushButton[entryKind="true"]:checked {
+    background-color: rgba(239, 35, 60, 38);
+    border: 1px solid #EF233C;
+    color: #EF233C;
+}
+
 #CaptureFrame {
     background-color: %1;
     border: 1px solid #EF233C;

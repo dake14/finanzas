@@ -4,6 +4,7 @@
 #include <QButtonGroup>
 #include <QComboBox>
 #include <QCompleter>
+#include <QDate>
 #include <QDateEdit>
 #include <QGridLayout>
 #include <QHBoxLayout>
@@ -49,6 +50,7 @@ const QString kNewCategory = QStringLiteral("+ Nueva…");
     button->setFont(theme::bodyFont(9, QFont::DemiBold));
     button->setFixedHeight(30);
     button->setMinimumWidth(92);
+    button->setProperty("entryKind", true);  // la hoja marca el elegido
     return button;
 }
 
@@ -94,6 +96,7 @@ void EntryForm::buildUi() {
 
     // --- Campos -------------------------------------------------------------
     auto* grid = new QGridLayout();
+    grid_ = grid;
     grid->setHorizontalSpacing(10);
     grid->setVerticalSpacing(2);
 
@@ -197,11 +200,16 @@ void EntryForm::buildUi() {
 
 void EntryForm::setSnapshot(const Snapshot& snapshot) {
     snapshot_ = snapshot;
-    date_->setMaximumDate(toQDate(snapshot.today));
-    if (!date_->date().isValid() || date_->date() < QDate(2000, 1, 1) ||
-        date_->date() > toQDate(snapshot.today)) {
-        date_->setDate(toQDate(snapshot.today));
+    // La fecha sigue a hoy mientras nadie la cambie: arranca en hoy y, si
+    // cambia el dia con la aplicacion abierta, se mueve con el. Una fecha
+    // elegida a mano se respeta.
+    const QDate today = toQDate(snapshot.today);
+    const bool followsToday = !shownToday_.isValid() || date_->date() == shownToday_;
+    date_->setMaximumDate(today);
+    if (followsToday || date_->date() > today) {
+        date_->setDate(today);
     }
+    shownToday_ = today;
     fillPockets();
     refreshCategories();
 }
@@ -308,6 +316,9 @@ void EntryForm::applyKind() {
     category_->setVisible(!transfer);
     targetLabel_->setVisible(transfer);
     target_->setVisible(transfer);
+    // Una columna escondida no puede quedarse con su parte del ancho.
+    grid_->setColumnStretch(1, transfer ? 0 : 2);
+    grid_->setColumnStretch(3, transfer ? 2 : 0);
     pocketLabel_->setText(transfer                 ? QStringLiteral("DE")
                           : kind_ == Kind::Ingreso ? QStringLiteral("ENTRA A")
                                                    : QStringLiteral("SALE DE"));

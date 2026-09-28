@@ -290,6 +290,7 @@ int main(int argc, char** argv) {
             return n;
         };
         if (amount && category && date && error && from && to) {
+            check(date->date() == QDate::currentDate(), "la fecha arranca en hoy");
             // 1. Un gasto con una categoria nueva.
             type(amount, QStringLiteral("25"));
             category->lineEdit()->clear();

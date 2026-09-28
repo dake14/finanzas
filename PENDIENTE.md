@@ -1,5 +1,34 @@
 # Estado
 
+## Recorte a lo fundamental (2026-09-27)
+
+Hoy es para anotar y resolver pendientes; todos los números están en
+Informes. Se fueron Revisión, el importador del banco, el intérprete de la
+línea de captura y "Dura". Hay un tipo de bolsillo nuevo: **Emergencia**.
+
+**Para vos, en este orden:**
+
+1. **Generar e instalar el APK nuevo** (`.\construir-android.ps1`) y
+   abrirlo una vez. El teléfono aprende el tipo Emergencia y el mismo
+   formulario que la PC.
+2. **Recién entonces** crear el primer bolsillo de Emergencia. Si se crea
+   antes, el APK viejo deja de sincronizar: no conoce ese tipo.
+3. **Usar la versión release** (`build\release\bin\dake_pruebas.exe`),
+   no la debug. Medido con tus datos: la release recarga en ~5 ms; la
+   debug, en ~55 ms, y Ajustes en ~340 ms.
+
+**Cambió en los números:** las tres compras de filamento que estaban
+repartidas en 3 y 4 meses (46,00, 23,53, 25,67) ahora cuentan enteras en
+agosto de 2026.
+
+**Sigue (etapa 2):** que la cotización cobrada llegue con sus piezas y se
+complete con horas y costo real; fuera la ficha manual y las plantillas.
+Ver `docs/superpowers/specs/2026-09-27-recorte-a-lo-fundamental-design.md`.
+
+---
+
+## La sincronización
+
 Al 2026-09-04. **La sincronización funciona de punta a punta**, verificada
 contra el proyecto real y no en simulacro.
 

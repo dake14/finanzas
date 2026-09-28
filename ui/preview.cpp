@@ -150,11 +150,13 @@ namespace {
         window->setAttribute(Qt::WA_TranslucentBackground, false);
         return window;
     }
-    if (screen.startsWith(QLatin1String("reportes"))) {
-        // "reportes:1" abre la segunda pestaña.
+    if (screen.startsWith(QLatin1String("informes"))) {
+        // "informes-mes" abre la pestaña El mes; "informes" sola, el Resumen.
+        const QStringList tabs{QStringLiteral("resumen"), QStringLiteral("mes"), QStringLiteral("gastos"),
+                               QStringLiteral("trabajos"), QStringLiteral("sueldo")};
         auto page = std::make_unique<dake::ui::ReportsPage>();
         page->setSnapshot(snapshot);
-        page->showTab(screen.section(QLatin1Char(':'), 1).toInt());
+        page->showTab(std::max<int>(0, static_cast<int>(tabs.indexOf(screen.section(QLatin1Char('-'), 1)))));
         return page;
     }
     if (screen == QLatin1String("ajustes")) {
@@ -214,7 +216,7 @@ int main(int argc, char** argv) {
     if (arguments.size() < 2 || (arguments.size() < 3 && arguments.at(1) != QLatin1String("cotizaciones"))) {
         std::cout << "Uso: dake_uipreview <pantalla|todas> <salida.png|carpeta> "
                      "[ancho] [alto] [--oscuro]\n"
-                  << "Pantallas: hoy | reparaciones | movimientos | bolsillos | reportes | ajustes | todas\n";
+                  << "Pantallas: hoy | reparaciones | movimientos | bolsillos | informes[-mes|-gastos|-trabajos|-sueldo] | ajustes | captura | todas\n";
         return 2;
     }
 
@@ -337,8 +339,10 @@ int main(int argc, char** argv) {
         bool ok = true;
         for (const QString& one : {QStringLiteral("hoy"), QStringLiteral("reparaciones"),
                                    QStringLiteral("movimientos"), QStringLiteral("bolsillos"),
-                                   QStringLiteral("reportes"),
-                                   QStringLiteral("ajustes")}) {
+                                   QStringLiteral("informes-resumen"), QStringLiteral("informes-mes"),
+                                   QStringLiteral("informes-gastos"), QStringLiteral("informes-trabajos"),
+                                   QStringLiteral("informes-sueldo"), QStringLiteral("ajustes"),
+                                   QStringLiteral("captura")}) {
             ok = render(one, output + QLatin1Char('/') + one + QStringLiteral(".png"), width,
                         height, snapshot) &&
                  ok;

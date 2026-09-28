@@ -11,11 +11,13 @@
 // No guarda nada: emite `submitted` y la ventana principal guarda, que es el
 // unico camino de escritura de la aplicacion.
 //
+#include <QDate>
 #include <QWidget>
 
 #include "snapshot.hpp"
 
 class QComboBox;
+class QGridLayout;
 class QDateEdit;
 class QLabel;
 class QLineEdit;
@@ -84,6 +86,9 @@ private:
     QPushButton* submit_ = nullptr;
     QLabel* error_ = nullptr;
     QLabel* done_ = nullptr;
+    QGridLayout* grid_ = nullptr;
+    /// El "hoy" que se mostro la ultima vez: si la fecha sigue ahi, sigue a hoy.
+    QDate shownToday_;
 };
 
 } // namespace dake::ui
