@@ -24,8 +24,8 @@
 //      existe, con el detalle que trae la señal.
 //   3. Si vinieron correo y contrasena, signInWithPassword() y decir si entro,
 //      con que correo y con que user_id.
-//   4. Si la sesion quedo abierta, comprobar las TRES tablas —v2_pockets,
-//      v2_jobs, v2_movements— con un restGet de
+//   4. Si la sesion quedo abierta, comprobar las tablas —v2_pockets,
+//      v2_jobs, v2_movements y v2_quotes— con un restGet de
 //         /rest/v1/<tabla>?select=id&limit=1
 //      e informar el codigo HTTP de cada una. Las tres tienen que dar 200.
 //
@@ -139,8 +139,9 @@ int main(int argc, char** argv) {
                          print(QString());
                          print(QStringLiteral("Leyendo las tablas con la sesion…"));
 
-                         int* pending = new int(3);
-                         const char* const tables[] = {"v2_pockets", "v2_jobs", "v2_movements"};
+                         int* pending = new int(4);
+                         const char* const tables[] = {"v2_pockets", "v2_jobs", "v2_movements",
+                                                       "v2_quotes"};
                          
                          for (const char* tableName : tables) {
                              const QString table = QString::fromUtf8(tableName);
@@ -153,7 +154,11 @@ int main(int argc, char** argv) {
                                      reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
                                  const QByteArray body = reply->readAll();
 
-                                 if (status != 200) {
+                                 if (status == 404 && table == QLatin1String("v2_quotes")) {
+                                     print(QStringLiteral("FALLO  v2_quotes no existe: correr "
+                                                          "supabase_v4_cotizaciones.sql"));
+                                     exitCode = 1;
+                                 } else if (status != 200) {
                                      print(QStringLiteral("FALLO  Lectura HTTP %1 en %2: %3")
                                                .arg(status)
                                                .arg(table)

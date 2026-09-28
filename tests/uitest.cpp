@@ -46,6 +46,7 @@
 #include "categorybox.hpp"
 #include "dake/storage/database.hpp"
 #include "dake/storage/repository.hpp"
+#include "dake/sync/sync_engine.hpp"
 #include "dialogs.hpp"
 #include "entryform.hpp"
 #include "pendinglist.hpp"
@@ -223,6 +224,26 @@ int main(int argc, char** argv) {
     check(ui::theme::fontsLoaded(), "Inter y Anton quedaron registradas");
     check(ui::theme::bodyFont(10).family() == QStringLiteral("Inter"), "el texto sale en Inter");
     check(ui::theme::figureFont(21).family() == QStringLiteral("Anton"), "las cifras grandes en Anton");
+
+    std::printf("\n[sincronizacion]\n");
+    {
+        check(sync::desktopTables() ==
+                  QStringList({QStringLiteral("pockets"), QStringLiteral("jobs"),
+                               QStringLiteral("movements"), QStringLiteral("quotes")}),
+              "el escritorio baja las cotizaciones, al final");
+        check(!sync::phoneTables().contains(QStringLiteral("quotes")),
+              "el telefono de Finanzas no las baja");
+        storage::Database db(temp.path() + QStringLiteral("/sync.db"));
+        storage::Repository repo(db);
+        sync::SupabaseClient client(sync::SupabaseConfig{}, nullptr);
+        sync::SyncEngine engine(client, repo, sync::desktopTables());
+        check(engine.tables() == sync::desktopTables(), "el motor usa las tablas que se le dan");
+        QString error;
+        QObject::connect(&engine, &sync::SyncEngine::finished,
+                         [&error](int, int, const QString& e) { error = e; });
+        engine.sync();
+        check(!error.isEmpty(), "sin sesion, la corrida termina con error y no se cuelga");
+    }
 
     std::printf("\n[tema: un papel cambia de color con el tema]\n");
     {

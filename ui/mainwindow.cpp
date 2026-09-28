@@ -112,7 +112,7 @@ MainWindow::MainWindow(const QString& dbPath, QWidget* parent) : QMainWindow(par
     repository_->seedIfEmpty(snapshot_.currency);
 
     supabase_ = std::make_unique<sync::SupabaseClient>(sync::SupabaseConfig::load(), this);
-    syncEngine_ = std::make_unique<sync::SyncEngine>(*supabase_, *repository_, this);
+    syncEngine_ = std::make_unique<sync::SyncEngine>(*supabase_, *repository_, sync::desktopTables(), this);
 
     connect(supabase_.get(), &sync::SupabaseClient::signedIn, this, [this](const QString& email) {
         repository_->setSetting(QStringLiteral("sync.refresh_token"), supabase_->refreshToken());

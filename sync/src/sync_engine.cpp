@@ -13,9 +13,11 @@
 //
 // EL ORDEN DE LAS TABLAS
 //
-//   `kTables` = {"pockets", "jobs", "movements"}. Ese orden se respeta al subir
-//   y al bajar. Un movimiento referencia bolsillos y trabajos: si bajara antes
-//   que ellos, la referencia quedaria colgando.
+//   `tables_` viene del constructor: desktopTables() = {"pockets", "jobs",
+//   "movements", "quotes"} o phoneTables() = las tres primeras. Ese orden se
+//   respeta al subir y al bajar. Un movimiento referencia bolsillos y trabajos:
+//   si bajara antes que ellos, la referencia quedaria colgando. "quotes" solo
+//   baja: cada fila se guarda entera con applyRemoteQuote.
 //
 //   remoteTableFor("pockets") devuelve "v2_pockets". Es prefijo "v2_" y nada
 //   mas. Las tablas sin prefijo son de la aplicacion vieja y no se tocan.
@@ -44,7 +46,7 @@
 //
 // BAJADA
 //
-//   Para cada tabla, en el orden de kTables:
+//   Para cada tabla, en el orden de tables_:
 //     GET /rest/v1/<tabla remota>
 //         ?user_id=eq.<userId>
 //         &updated_at=gt.<cursor de esa tabla>
@@ -92,7 +94,8 @@
 //
 // ACEPTACION: compila sin advertencias con /W4; no aparece "QEventLoop" en el
 // archivo; no aparece ninguna cadena "movements" que no venga precedida de
-// "v2_" salvo dentro de kTables y de las claves sync.cursor.*; una corrida sin
+// "v2_" salvo en desktopTables/phoneTables, en el despacho por tabla y en las
+// claves sync.cursor.*; una corrida sin
 // credenciales termina con finished(0, 0, <error no vacio>) y sin colgarse.
 //
 #include "dake/sync/sync_engine.hpp"
@@ -139,14 +142,25 @@ constexpr int kMaxRetries = 3;
 
 } // namespace
 
+QStringList desktopTables() {
+    return {QStringLiteral("pockets"), QStringLiteral("jobs"), QStringLiteral("movements"),
+            QStringLiteral("quotes")};
+}
+
+QStringList phoneTables() {
+    return {QStringLiteral("pockets"), QStringLiteral("jobs"), QStringLiteral("movements")};
+}
+
 QString remoteTableFor(const QString& localTable) {
     return QStringLiteral("v2_") + localTable;
 }
 
 SyncEngine::SyncEngine(SupabaseClient& client,
                        storage::Repository& repository,
+                       QStringList tables,
                        QObject* parent)
-    : QObject(parent), client_(client), repository_(repository) {
+    : QObject(parent), client_(client), repository_(repository), tables_(std::move(tables)) {
+    cursors_.resize(static_cast<std::size_t>(tables_.size()));
     connect(&client_, &SupabaseClient::signedIn, this, [this]() {
         repository_.setSetting(QStringLiteral("sync.refresh_token"), client_.refreshToken());
         repository_.setSetting(QStringLiteral("sync.user_email"), client_.userEmail());
@@ -155,6 +169,10 @@ SyncEngine::SyncEngine(SupabaseClient& client,
         repository_.setSetting(QStringLiteral("sync.refresh_token"), QString());
         repository_.setSetting(QStringLiteral("sync.user_email"), QString());
     });
+}
+
+const QStringList& SyncEngine::tables() const noexcept {
+    return tables_;
 }
 
 bool SyncEngine::isRunning() const noexcept {
@@ -181,8 +199,8 @@ void SyncEngine::sync() {
     pulled_ = 0;
     inFlight_.clear();
 
-    for (std::size_t i = 0; i < kTables.size(); ++i) {
-        const QString key = QStringLiteral("sync.cursor.") + QString::fromLatin1(kTables[i]);
+    for (std::size_t i = 0; i < cursors_.size(); ++i) {
+        const QString key = QStringLiteral("sync.cursor.") + tables_.at(static_cast<qsizetype>(i));
         const std::optional<QString> c = repository_.setting(key);
         cursors_[i] = c.value_or(QString());
     }
@@ -359,12 +377,12 @@ void SyncEngine::startPull() {
 }
 
 void SyncEngine::pullNextPage() {
-    if (pullTableIndex_ >= kTables.size()) {
+    if (pullTableIndex_ >= cursors_.size()) {
         succeed();
         return;
     }
 
-    const QString localTable = QString::fromLatin1(kTables[pullTableIndex_]);
+    const QString localTable = tables_.at(static_cast<qsizetype>(pullTableIndex_));
     const QString remoteTable = remoteTableFor(localTable);
 
     QString path = QStringLiteral("/rest/v1/") + remoteTable +
@@ -428,21 +446,28 @@ void SyncEngine::pullNextPage() {
                 }
 
                 bool applied = false;
-                if (localTable == QLatin1String(kTables[0])) {
+                if (localTable == QLatin1String("pockets")) {
                     core::Pocket pocket = storage::pocketFrom(row);
                     if (!pocket.id.empty()) {
                         applied = repository_.applyRemote(pocket);
                     }
-                } else if (localTable == QLatin1String(kTables[1])) {
+                } else if (localTable == QLatin1String("jobs")) {
                     core::Job job = storage::jobFrom(row);
                     if (!job.id.empty()) {
                         applied = repository_.applyRemote(job);
                     }
-                } else if (localTable == QLatin1String(kTables[2])) {
+                } else if (localTable == QLatin1String("movements")) {
                     core::Movement movement = storage::movementFrom(row);
                     if (!movement.id.empty()) {
                         applied = repository_.applyRemote(movement);
                     }
+                } else if (localTable == QLatin1String("quotes")) {
+                    // Lo esencial de Cotizaciones. Se guarda la fila entera tal
+                    // como vino; quien la lee arma el documento.
+                    applied = repository_.applyRemoteQuote(
+                        row.value(QStringLiteral("id")).toString(), updatedAt,
+                        row.value(QStringLiteral("deleted")).toBool(),
+                        QString::fromUtf8(QJsonDocument(row).toJson(QJsonDocument::Compact)));
                 }
 
                 if (applied) {

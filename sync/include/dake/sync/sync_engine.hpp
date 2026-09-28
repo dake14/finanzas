@@ -5,7 +5,7 @@
 // Motor de sincronizacion entre la base local y Supabase.
 //
 // Portado del motor de finaldake-labs, con una diferencia de fondo: alla habia
-// una sola tabla (movements) y aca hay tres. Eso cambia el orden de todo.
+// una sola tabla (movements) y aca hay varias. Eso cambia el orden de todo.
 //
 // Una corrida hace dos cosas, en este orden:
 //
@@ -16,11 +16,12 @@
 // hecho podria quedar pisado por una version vieja del servidor que todavia no
 // lo conoce.
 //
-// Las TRES TABLAS se recorren siempre en este orden, tanto al subir como al
-// bajar: bolsillos, trabajos, movimientos. Un movimiento referencia un bolsillo
-// (`pocket_id`, `target_pocket_id`) y puede referenciar un trabajo (`job_id`),
-// asi que bajarlo antes que ellos dejaria la referencia colgando. El orden es
-// el de `kTables`, y no se altera.
+// Las tablas se recorren siempre en el orden en que se le dan, tanto al subir
+// como al bajar: bolsillos, trabajos, movimientos. Un movimiento referencia un
+// bolsillo (`pocket_id`, `target_pocket_id`) y puede referenciar un trabajo
+// (`job_id`), asi que bajarlo antes que ellos dejaria la referencia colgando.
+// En el escritorio va al final `quotes`, lo esencial de Cotizaciones, que solo
+// baja: Finanzas nunca la escribe, asi que nunca esta en la outbox.
 //
 // Nada se marca como enviado antes de que el servidor confirme. Si se corta la
 // red a mitad de camino, esos cambios siguen pendientes y salen en la proxima
@@ -39,7 +40,7 @@
 //
 #include <QObject>
 #include <QString>
-#include <array>
+#include <QStringList>
 #include <functional>
 #include <vector>
 
@@ -48,10 +49,14 @@
 
 namespace dake::sync {
 
-/// Las tres tablas, en orden de dependencia. El nombre es el mismo que usa la
-/// columna `table_name` de la outbox local y el mismo que la tabla remota sin
-/// el prefijo `v2_`.
-inline constexpr std::array<const char*, 3> kTables = {"pockets", "jobs", "movements"};
+/// Las tablas del escritorio, en orden de dependencia: bolsillos, trabajos y
+/// movimientos, y al final lo esencial de Cotizaciones, que solo baja (nunca
+/// hay cotizaciones en la outbox). El nombre es el de la tabla local, el que
+/// usa la columna `table_name` de la outbox, y el de la remota sin `v2_`.
+[[nodiscard]] QStringList desktopTables();
+
+/// Las del telefono de Finanzas: no importa cotizaciones, asi que no las baja.
+[[nodiscard]] QStringList phoneTables();
 
 /// Nombre de la tabla remota que corresponde a una local.
 [[nodiscard]] QString remoteTableFor(const QString& localTable);
@@ -60,13 +65,17 @@ class SyncEngine : public QObject {
     Q_OBJECT
 
 public:
+    /// `tables`: desktopTables() o phoneTables().
     SyncEngine(SupabaseClient& client,
                storage::Repository& repository,
+               QStringList tables,
                QObject* parent = nullptr);
+
+    [[nodiscard]] const QStringList& tables() const noexcept;
 
     [[nodiscard]] bool isRunning() const noexcept;
 
-    /// Cuantos cambios locales esperan subir, sumando las tres tablas.
+    /// Cuantos cambios locales esperan subir, sumando todas las tablas.
     [[nodiscard]] int pendingCount() const;
 
 public slots:
@@ -106,7 +115,7 @@ private:
     int pulled_ = 0;
     int totalToPush_ = 0;
 
-    /// Indice dentro de `kTables` de la tabla que se esta bajando. La subida no
+    /// Indice dentro de `tables_` de la tabla que se esta bajando. La subida no
     /// lo necesita porque la outbox ya viene ordenada por tabla.
     std::size_t pullTableIndex_ = 0;
 
@@ -116,7 +125,9 @@ private:
     /// Un cursor POR TABLA, no uno solo. Con un cursor compartido, bajar
     /// movimientos adelantaria el reloj de bolsillos y los cambios de bolsillo
     /// hechos en el medio no bajarian nunca.
-    std::array<QString, 3> cursors_;
+    std::vector<QString> cursors_;
+
+    QStringList tables_;
 };
 
 } // namespace dake::sync

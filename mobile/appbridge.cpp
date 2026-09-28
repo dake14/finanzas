@@ -107,7 +107,7 @@ QString AppBridge::abrir() {
     clock_ = std::make_unique<core::HlcClock>(deviceId_.toStdString());
 
     supabase_ = std::make_unique<sync::SupabaseClient>(sync::SupabaseConfig::load(), this);
-    syncEngine_ = std::make_unique<sync::SyncEngine>(*supabase_, *repository_, this);
+    syncEngine_ = std::make_unique<sync::SyncEngine>(*supabase_, *repository_, sync::phoneTables(), this);
 
     connect(supabase_.get(), &sync::SupabaseClient::signedIn, this, [this](const QString& email) {
         repository_->setSetting(QStringLiteral("sync.refresh_token"), supabase_->refreshToken());
