@@ -112,12 +112,6 @@ Flickable {
                 nota: "trabajo entregado, plata no"
                 tinte: Estilo.aviso
             }
-            Cifra {
-                rotulo: "MATERIAL POR DELANTE"
-                valor: App.summary.prepaid !== undefined ? App.summary.prepaid : "—"
-                nota: "pagado, sin consumir"
-                tinte: Estilo.textoSuave
-            }
         }
 
         // --- La frase ------------------------------------------------------

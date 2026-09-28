@@ -186,37 +186,14 @@ void deDondeSalioLaPlata() {
 }
 
 void repartoDelCosto() {
-    std::printf("\n-- reparto del costo --\n");
-
+    std::printf("\n-- un gasto cuenta entero en su mes --\n");
+    // Un movimiento viejo con "dura 4 meses" ya no se reparte: cuenta completo
+    // el mes en que se pago.
     const Movement pla = expense("pla", "2026-08-24", 46'00, "caja", 4);
-
-    const std::int64_t agosto = costInMonth(pla, kUsd, 2026, 8).minor();
-    const std::int64_t noviembre = costInMonth(pla, kUsd, 2026, 11).minor();
-    const std::int64_t diciembre = costInMonth(pla, kUsd, 2026, 12).minor();
-
-    checkMinor(agosto, 11'50, "cuatro kilos de PLA cargan un cuarto a agosto, no todo");
-    checkMinor(noviembre, 11'50, "y el ultimo cuarto cae en noviembre");
-    checkMinor(diciembre, 0, "en diciembre ya no queda nada por imputar");
-
-    std::int64_t suma = 0;
-    for (unsigned mes = 8; mes <= 11; ++mes) {
-        suma += costInMonth(pla, kUsd, 2026, mes).minor();
-    }
-    checkMinor(suma, 46'00, "la suma de los meses es exactamente lo pagado, sin centavos sueltos");
-
-    // Un importe que no divide exacto tampoco puede perder ni inventar plata.
-    const Movement impar = expense("impar", "2026-08-20", 25'67, "caja", 3);
-    std::int64_t sumaImpar = 0;
-    for (unsigned mes = 8; mes <= 10; ++mes) {
-        sumaImpar += costInMonth(impar, kUsd, 2026, mes).minor();
-    }
-    checkMinor(sumaImpar, 25'67, "25,67 repartido en tres meses sigue sumando 25,67");
-
-    const std::vector<Movement> movements{pla};
-    checkMinor(unusedPrepaid(movements, kUsd, Date::fromIso("2026-08-31")).minor(), 34'50,
-               "al cierre de agosto quedan tres cuartos del rollo por delante");
-    checkMinor(unusedPrepaid(movements, kUsd, Date::fromIso("2026-11-30")).minor(), 0,
-               "en noviembre ya no queda material comprado por delante");
+    checkMinor(costInMonth(pla, kUsd, 2026, 8).minor(), 46'00, "los 46,00 caen enteros en agosto");
+    checkMinor(costInMonth(pla, kUsd, 2026, 9).minor(), 0, "y septiembre no carga nada");
+    const auto flow = cashFlow({pla}, kUsd, Date::fromIso("2026-08-01"), Date::fromIso("2026-08-31"));
+    checkMinor(flow.cost.minor(), 46'00, "el costo de agosto es lo pagado");
 }
 
 void resultadoPorTrabajo() {
@@ -466,20 +443,10 @@ void elCasoDeAgosto() {
     checkMinor(flow.cashDelta.minor(), -20'02,
                "la caja bajo 20,02, que es exactamente la 'utilidad' que muestra la app actual");
 
-    // Con el material repartido entre los meses que dura, agosto no fue un mes
-    // en perdida: fue un mes en el que se repuso stock.
-    checkMinor(flow.cost.minor(), 49'82 + 8'56 + 7'85 + 11'50, "el costo que le toca a agosto");
-    checkMinor(flow.result.minor(), 47'27, "agosto cerro con 47,27 a favor, no con 20,02 en contra");
-
-    // Y los dos numeros coinciden en cuanto se deja de repartir: la diferencia
-    // no es una licencia contable, es la compra de stock.
-    std::vector<Movement> sinReparto = reales;
-    for (Movement& movement : sinReparto) {
-        movement.spreadMonths = 1;
-    }
-    const CashFlow plano = cashFlow(sinReparto, kUsd, from, to);
-    checkMinor(plano.result.minor(), plano.cashDelta.minor(),
-               "sin reparto, resultado y caja vuelven a ser el mismo numero");
+    // Desde el recorte (2026-09-27) nada se reparte en meses: el filamento
+    // cuenta entero en agosto aunque se haya anotado "dura 3 meses".
+    checkMinor(flow.cost.minor(), 145'02, "el costo de agosto es todo lo que se pago");
+    checkMinor(flow.result.minor(), -20'02, "y el resultado coincide con lo que bajo la caja");
 }
 
 void elCasoCompleto() {
@@ -510,8 +477,7 @@ void elCasoCompleto() {
     }
 
     const auto meses = summarizeByMonth(demo.pockets, demo.movements, kUsd);
-    check(meses.size() >= 4,
-          "el reparto del material hace que agosto siga costando hasta noviembre");
+    check(meses.size() == 1, "sin reparto, agosto es el unico mes con actividad");
 }
 
 } // namespace

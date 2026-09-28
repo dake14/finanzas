@@ -116,21 +116,12 @@ struct CashFlow {
                                 Date from,
                                 Date to);
 
-/// Parte del costo de `movement` que le toca al mes (year, month). Cero si el
-/// movimiento no es un gasto o si el mes cae fuera de su reparto.
-///
-/// El reparto usa Money::allocate, asi que la suma de todos los meses es
-/// EXACTAMENTE el importe original: ni un centavo se pierde ni se inventa.
+/// Lo que `movement` le cuesta al mes (year, month): el gasto entero en el mes
+/// de su fecha, cero en cualquier otro. Nada se reparte en meses.
 [[nodiscard]] Money costInMonth(const Movement& movement,
                                 Currency currency,
                                 int year,
                                 unsigned month);
-
-/// Valor de lo comprado y todavia no imputado: material pagado cuyo costo
-/// pertenece a meses que aun no llegaron. Es el "stock" sin llevar inventario.
-[[nodiscard]] Money unusedPrepaid(const std::vector<Movement>& movements,
-                                  Currency currency,
-                                  Date asOf);
 
 // ---------------------------------------------------------- 4. Por trabajo
 

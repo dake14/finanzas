@@ -155,8 +155,7 @@ void TodayPage::buildUi() {
     kpiCash_ = new KpiCard(QStringLiteral("CAJA DEL NEGOCIO"), theme::kOperacion, page);
     kpiReserves_ = new KpiCard(QStringLiteral("AHORRO E INVERSION"), theme::kAhorro, page);
     kpiPending_ = new KpiCard(QStringLiteral("HECHO Y SIN COBRAR"), theme::kAviso, page);
-    kpiPrepaid_ = new KpiCard(QStringLiteral("MATERIAL POR DELANTE"), theme::kTextMuted, page);
-    for (KpiCard* card : {kpiCash_, kpiReserves_, kpiPending_, kpiPrepaid_}) {
+    for (KpiCard* card : {kpiCash_, kpiReserves_, kpiPending_}) {
         kpiRow->addWidget(card);
     }
     layout->addLayout(kpiRow);
@@ -290,10 +289,6 @@ void TodayPage::setSnapshot(const Snapshot& snapshot) {
     kpiPending_->setValue(theme::formatMoney(pending));
     kpiPending_->setNote(QStringLiteral("trabajo entregado, plata no"), theme::kTextMuted);
 
-    const core::Money prepaid =
-        core::unusedPrepaid(snapshot.movements, currency, snapshot.today);
-    kpiPrepaid_->setValue(theme::formatMoney(prepaid));
-    kpiPrepaid_->setNote(QStringLiteral("material ya pagado, sin consumir"), theme::kTextMuted);
 
     // --- Segunda fila de indicadores --------------------------------------
     const core::BreakEven be = core::breakEven(snapshot.jobs, snapshot.movements, currency, from, to);

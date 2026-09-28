@@ -121,15 +121,8 @@ struct Movement {
     /// que es el unico numero por el que vale la pena cargar los datos.
     Id jobId;
 
-    /// En cuantos meses se reparte el COSTO de este gasto. 1 = todo cae en el
-    /// mes de la compra, que es lo que hace hoy la app.
-    ///
-    /// Cuatro kilos de PLA no son un gasto de agosto: son cuatro meses de
-    /// material comprados de golpe. Cargarlos enteros a agosto convierte un
-    /// mes normal en un mes en perdida, y un tablero que miente asi deja de
-    /// mirarse. El REPARTO no toca la caja: la plata salio hoy y el saldo del
-    /// bolsillo lo refleja hoy. Son dos preguntas distintas y la app responde
-    /// las dos por separado.
+    /// Legado: antes repartia un gasto en varios meses. Ya no se usa; se
+    /// guarda y se sincroniza para no romper al telefono viejo.
     int spreadMonths = 1;
 
     /// Ingreso: ya lo cobraste. Gasto: ya lo pagaste.

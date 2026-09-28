@@ -1287,11 +1287,12 @@ void utilidadNetaDelMes() {
     const CasoSueldo c = casoSueldo();
     const MonthNet junio = businessNet(c.movements, c.pockets, c.categories, c.tools, Date{2026, 6, 1}, kUsd);
     checkMinor(junio.income.minor(), 700'00, "ingresos de junio: 500 cobrados + 200 por cobrar");
-    checkMinor(junio.cost.minor(), 140'00,
-               "costo: 100 + 30 del filamento repartido + 10 de depreciacion (la compra no)");
-    checkMinor(junio.net.minor(), 560'00, "utilidad: el sueldo y el gasto personal no restan");
+    // El filamento dice "dura 4 meses", pero desde el recorte cuenta entero en junio.
+    checkMinor(junio.cost.minor(), 230'00,
+               "costo: 100 + 120 del filamento entero + 10 de depreciacion (la compra no)");
+    checkMinor(junio.net.minor(), 470'00, "utilidad: el sueldo y el gasto personal no restan");
     const MonthNet agosto = businessNet(c.movements, c.pockets, c.categories, c.tools, Date{2026, 8, 1}, kUsd);
-    checkMinor(agosto.net.minor(), -40'00, "agosto sin ingresos: filamento y depreciacion, -40");
+    checkMinor(agosto.net.minor(), -10'00, "agosto sin ingresos: solo la depreciacion, -10");
 }
 
 void sueldoRecomendado() {
@@ -1301,15 +1302,15 @@ void sueldoRecomendado() {
     const SalaryAdvice a =
         salaryAdvice(c.movements, c.pockets, c.categories, c.tools, split, Date{2026, 9, 25}, kUsd);
     check(a.closedMonths == 3 && !a.provisional, "tres meses cerrados: junio, julio, agosto");
-    check(a.average3 && a.average3->minor() == 260'00, "promedio de 3 meses: (560 + 260 - 40) / 3");
-    checkMinor(a.base.minor(), 260'00, "base 260");
-    checkMinor(a.salary.minor(), 143'00, "sueldo: 55%");
-    checkMinor(a.taxes.minor() + a.reinvest.minor() + a.emergency.minor() + a.salary.minor(), 260'00,
+    check(a.average3 && a.average3->minor() == 250'00, "promedio de 3 meses: (470 + 290 - 10) / 3");
+    checkMinor(a.base.minor(), 250'00, "base 250");
+    checkMinor(a.salary.minor(), 137'50, "sueldo: 55%");
+    checkMinor(a.taxes.minor() + a.reinvest.minor() + a.emergency.minor() + a.salary.minor(), 250'00,
                "el reparto suma la base entera");
-    checkMinor(a.taxes.minor(), 39'00, "impuestos 15%");
+    checkMinor(a.taxes.minor(), 37'50, "impuestos 15%");
     check(a.personalSpend && a.personalSpend->minor() == 56'67, "gasto personal: (50 + 80 + 40) / 3");
     checkMinor(a.paidAverage.minor(), 200'00, "te pagaste 200 por mes: (300 + 300 + 0) / 3");
-    check(a.margin() && a.margin()->minor() == 86'33, "te sobran 86,33");
+    check(a.margin() && a.margin()->minor() == 80'83, "te sobran 80,83");
     check(a.months.size() == 3 && a.months[0].month == (Date{2026, 8, 1}),
           "los meses, del mas nuevo al mas viejo");
 
@@ -1319,13 +1320,14 @@ void sueldoRecomendado() {
     conMayo.movements.push_back(mayo);
     const SalaryAdvice b = salaryAdvice(conMayo.movements, conMayo.pockets, conMayo.categories,
                                         conMayo.tools, split, Date{2026, 9, 25}, kUsd);
-    check(b.average6 && b.average6->minor() == 495'00, "promedio de 6 meses con lo que hay: 4 meses, 495");
-    checkMinor(b.base.minor(), 260'00, "se usa el menor: 260 y no 495");
+    check(b.average6 && b.average6->minor() == 487'50,
+          "promedio de 6 meses con lo que hay: 4 meses, 487,50");
+    checkMinor(b.base.minor(), 250'00, "se usa el menor: 250 y no 487,50");
 
     const SalaryAdvice p =
         salaryAdvice(c.movements, c.pockets, c.categories, c.tools, split, Date{2026, 8, 15}, kUsd);
-    check(p.provisional && p.closedMonths == 2 && p.average3 && p.average3->minor() == 410'00,
-          "con dos meses cerrados: provisional, (560 + 260) / 2");
+    check(p.provisional && p.closedMonths == 2 && p.average3 && p.average3->minor() == 380'00,
+          "con dos meses cerrados: provisional, (470 + 290) / 2");
 
     const SalaryAdvice none =
         salaryAdvice(c.movements, c.pockets, c.categories, c.tools, split, Date{2026, 6, 20}, kUsd);

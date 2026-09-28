@@ -309,8 +309,6 @@ void AppBridge::reload() {
         core::totalFor(balances, core::PocketKind::Operacion, currency_).isNegative();
     summary_["reserves"] = qs(core::formatAmount(fund.reserveBalance));
     summary_["pending"] = qs(core::formatAmount(pending));
-    summary_["prepaid"] =
-        qs(core::formatAmount(core::unusedPrepaid(movements, currency_, today_)));
     summary_["cashDelta"] = qs(core::formatAmount(flow.cashDelta));
     summary_["cashDeltaNegative"] = flow.cashDelta.isNegative();
     summary_["result"] = qs(core::formatAmount(flow.result));

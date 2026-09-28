@@ -83,7 +83,6 @@ private:
     KpiCard* kpiCash_ = nullptr;
     KpiCard* kpiReserves_ = nullptr;
     KpiCard* kpiPending_ = nullptr;
-    KpiCard* kpiPrepaid_ = nullptr;
 
     QLabel* fundingHeadline_ = nullptr;
     QLabel* fundingDetail_ = nullptr;

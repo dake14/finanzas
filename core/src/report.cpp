@@ -207,19 +207,11 @@ Money costInMonth(const Movement& movement, Currency currency, int year, unsigne
     if (movement.deleted || movement.kind != MovementKind::Gasto || !movement.isWellFormed()) {
         return Money::zero(currency);
     }
-
-    const std::int64_t offset = monthIndex(year, month) - monthIndex(movement.date);
-    if (offset < 0 || offset >= movement.spreadMonths) {
-        return Money::zero(currency);
-    }
-
-    const Money total = Money::fromMinor(movement.amountMinor, currency);
-    if (movement.spreadMonths == 1) {
-        return total;
-    }
-    // allocate reparte sin perder unidades minimas: la suma de los meses es
-    // exactamente el importe pagado, nunca un centavo mas ni menos.
-    return total.allocate(movement.spreadMonths)[static_cast<std::size_t>(offset)];
+    // Un gasto cuenta entero en el mes en que se pago. `spreadMonths` es
+    // legado: se guarda para no romper la sincronizacion, y no se mira.
+    return monthIndex(year, month) == monthIndex(movement.date)
+               ? Money::fromMinor(movement.amountMinor, currency)
+               : Money::zero(currency);
 }
 
 namespace {
@@ -283,27 +275,6 @@ CashFlow cashFlow(const std::vector<Movement>& movements,
     flow.cashDelta = flow.incomeCash - flow.outflow;
     flow.result = flow.incomeAccrued - flow.cost;
     return flow;
-}
-
-Money unusedPrepaid(const std::vector<Movement>& movements, Currency currency, Date asOf) {
-    Money total = Money::zero(currency);
-    const std::int64_t current = monthIndex(asOf);
-
-    for (const Movement& movement : movements) {
-        if (movement.deleted || movement.kind != MovementKind::Gasto ||
-            movement.spreadMonths <= 1 || !movement.isWellFormed()) {
-            continue;
-        }
-        const std::int64_t start = monthIndex(movement.date);
-        const auto parts = Money::fromMinor(movement.amountMinor, currency)
-                               .allocate(movement.spreadMonths);
-        for (std::size_t i = 0; i < parts.size(); ++i) {
-            if (start + static_cast<std::int64_t>(i) > current) {
-                total += parts[i];
-            }
-        }
-    }
-    return total;
 }
 
 // ---------------------------------------------------------- 4. Por trabajo
@@ -462,16 +433,6 @@ std::vector<Alert> alerts(const std::vector<Pocket>& pockets,
                             "Es el momento de facturar, no cuando la reserva se acabe."});
     }
 
-    // --- 5. Material comprado por delante ----------------------------------
-    const Money prepaid = unusedPrepaid(movements, currency, asOf);
-    if (!prepaid.isZero()) {
-        out.push_back(Alert{AlertLevel::Info,
-                            "Tienes " + plain(prepaid) + " en material ya pagado que le "
-                            "toca a meses que todavia no llegaron.",
-                            "Ese dinero ya salio de la caja, pero no es costo de este mes. "
-                            "Por eso el mes de la compra no tiene por que dar en perdida."});
-    }
-
     // --- 6. Silencio ------------------------------------------------------
     const int silence = daysSinceLastEntry(movements, asOf);
     if (silence >= 5) {
@@ -516,8 +477,7 @@ std::vector<MonthSummary> summarizeByMonth(const std::vector<Pocket>& pockets,
             continue;
         }
         const std::int64_t start = monthIndex(movement.date);
-        const std::int64_t span =
-            movement.kind == MovementKind::Gasto ? movement.spreadMonths : 1;
+        const std::int64_t span = 1;
         for (std::int64_t i = 0; i < span; ++i) {
             const std::int64_t index = start + i;
             auto it = byMonth.find(index);
