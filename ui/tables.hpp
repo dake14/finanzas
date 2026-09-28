@@ -11,12 +11,26 @@
 #include <QComboBox>
 #include <QHeaderView>
 #include <QStringList>
+#include <QStyledItemDelegate>
 #include <QTableWidget>
 #include <QTableWidgetItem>
 
 #include "theme.hpp"
 
 namespace dake::ui {
+
+/// El editor de una celda ocupa la celda entera. Sin esto, el relleno de la
+/// celda (la hoja global le pone 7 px arriba y abajo) achica el campo hasta
+/// dejarlo sin alto para el texto: se escribe sin ver nada.
+class CellDelegate : public QStyledItemDelegate {
+public:
+    using QStyledItemDelegate::QStyledItemDelegate;
+
+    void updateEditorGeometry(QWidget* editor, const QStyleOptionViewItem& option,
+                              const QModelIndex& /*index*/) const override {
+        editor->setGeometry(option.rect);
+    }
+};
 
 /// `stretchColumn` es la columna que se come el espacio sobrante; el resto se
 /// ajusta a su contenido. Repartir el ancho en partes iguales, que es el
@@ -39,6 +53,7 @@ namespace dake::ui {
     table->horizontalHeader()->setFont(theme::bodyFont(9, QFont::DemiBold));
     table->setFont(theme::bodyFont(9));
     table->verticalHeader()->setDefaultSectionSize(30);
+    table->setItemDelegate(new CellDelegate(table));
     return table;
 }
 

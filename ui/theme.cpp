@@ -521,6 +521,15 @@ QTableWidget::item:hover {
     background-color: %6;
 }
 
+/* El campo que se abre dentro de una celda: sin el relleno de los campos
+   normales, que en una fila de 30 px no deja alto para el texto. */
+QTableView QLineEdit, QTableView QComboBox, QTableView QAbstractSpinBox {
+    padding: 0px 4px;
+    margin: 0px;
+    border-radius: 0px;
+    min-height: 0px;
+}
+
 QHeaderView::section {
     background-color: %1;
     color: %4;

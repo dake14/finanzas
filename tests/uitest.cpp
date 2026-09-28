@@ -27,6 +27,8 @@
 #include <QTabWidget>
 #include <QTableWidget>
 #include <QHeaderView>
+#include <QStyle>
+#include <QStyleOptionFrame>
 #include <QTest>
 #include <QTimer>
 
@@ -566,6 +568,45 @@ int main(int argc, char** argv) {
             kind->setCurrentIndex(kind->findData(static_cast<int>(core::PocketKind::Ahorro)));
             check(!note->isVisibleTo(&dialog), "con otro tipo, el aviso no aparece");
         }
+    }
+
+    // --- Editar una celda se ve -------------------------------------------------
+    std::printf("\n[editar una celda se ve]\n");
+    {
+        QTest::keyClick(&window, Qt::Key_6, Qt::ControlModifier);  // Ajustes
+        settle();
+        QTableWidget* editable = nullptr;
+        for (auto* t : window.findChild<ui::SettingsPage*>()->findChildren<QTableWidget*>()) {
+            if (t->rowCount() > 0 && t->editTriggers() != QAbstractItemView::NoEditTriggers &&
+                t->item(0, 0) != nullptr && (t->item(0, 0)->flags() & Qt::ItemIsEditable)) {
+                editable = t;
+                break;
+            }
+        }
+        check(editable != nullptr, "hay una tabla editable en Ajustes");
+        if (editable != nullptr) {
+            editable->setCurrentCell(0, 0);
+            editable->editItem(editable->item(0, 0));
+            settle();
+            auto* editor = qobject_cast<QLineEdit*>(QApplication::focusWidget());
+            if (editor == nullptr) editor = editable->findChild<QLineEdit*>();
+            check(editor != nullptr, "doble clic abre el campo dentro de la celda");
+            if (editor != nullptr) {
+                QStyleOptionFrame opt;
+                opt.initFrom(editor);
+                opt.rect = editor->rect();
+                opt.lineWidth = editor->style()->pixelMetric(QStyle::PM_DefaultFrameWidth, &opt, editor);
+                const QRect text = editor->style()->subElementRect(QStyle::SE_LineEditContents, &opt, editor);
+                std::printf("      (campo %dx%d, texto %d de alto, letra %d)\n", editor->width(),
+                            editor->height(), text.height(), editor->fontMetrics().height());
+                check(text.height() >= editor->fontMetrics().height(),
+                      "y el texto que se escribe entra y se ve");
+                QTest::keyClick(editor, Qt::Key_Escape);
+                settle();
+            }
+        }
+        QTest::keyClick(&window, Qt::Key_1, Qt::ControlModifier);
+        settle();
     }
 
     // --- DakeLabs Cotizaciones -----------------------------------------------
