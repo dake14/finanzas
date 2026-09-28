@@ -12,6 +12,7 @@
 
 #include "snapshot.hpp"
 
+class QCheckBox;
 class QComboBox;
 class QLabel;
 class QLineEdit;
@@ -32,6 +33,9 @@ public:
     [[nodiscard]] core::Id templateId() const;
     [[nodiscard]] QString client() const;
     [[nodiscard]] QString device() const;
+    /// Se agrega un trabajo que ya se entrego y se cobro: despues de crearla
+    /// se piden las horas y el precio, y queda cobrada.
+    [[nodiscard]] bool alreadyCharged() const;
     /// Lo que tardo desde que se abrio hasta Crear.
     [[nodiscard]] qint64 elapsedMs() const noexcept { return elapsed_; }
 
@@ -47,6 +51,7 @@ private:
     QLabel* templateList_ = nullptr;
     QLineEdit* client_ = nullptr;
     QLineEdit* device_ = nullptr;
+    QCheckBox* alreadyCharged_ = nullptr;
     QLabel* error_ = nullptr;
     QElapsedTimer clock_;
     qint64 elapsed_ = 0;

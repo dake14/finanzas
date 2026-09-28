@@ -1394,6 +1394,10 @@ void MainWindow::newRepair() {
     showPage(1);
     repairs_->selectRepair(job.id);
     repairs_->focusList();
+    if (dialog.alreadyCharged()) {
+        // Un trabajo ya hecho y pagado: horas, precio y fecha, y queda cobrada.
+        deliverRepair(job.id);
+    }
 }
 
 void MainWindow::editRepair(const core::Repair& repair, const QString& client) {

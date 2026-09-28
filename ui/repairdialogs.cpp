@@ -1,5 +1,6 @@
 #include "repairdialogs.hpp"
 
+#include <QCheckBox>
 #include <QComboBox>
 #include <QCompleter>
 #include <QDate>
@@ -64,9 +65,8 @@ NewRepairDialog::NewRepairDialog(const Snapshot& snapshot, QWidget* parent) : QD
 
     auto* layout = new QVBoxLayout(this);
     layout->setSpacing(10);
-    layout->addWidget(hint(QStringLiteral("La plantilla trae el precio, las horas, los "
-                                          "consumibles y los repuestos típicos. Después se "
-                                          "ajusta lo que cambió."),
+    layout->addWidget(hint(QStringLiteral("La plantilla trae el precio, las horas y los "
+                                          "repuestos típicos. Después se ajusta lo que cambió."),
                            this));
 
     auto* form = new QFormLayout();
@@ -101,6 +101,13 @@ NewRepairDialog::NewRepairDialog(const Snapshot& snapshot, QWidget* parent) : QD
     form->addRow(QStringLiteral("Equipo"), device_);
     layout->addLayout(form);
 
+    // Para anotar un trabajo que ya se hizo y se pago: al crearla se piden las
+    // horas y el precio, como al entregar, y queda cobrada.
+    alreadyCharged_ = new QCheckBox(QStringLiteral("&Ya está cobrada (entregada y pagada)"), this);
+    alreadyCharged_->setObjectName(QStringLiteral("AlreadyCharged"));
+    alreadyCharged_->setFont(theme::bodyFont(10));
+    layout->addWidget(alreadyCharged_);
+
     error_ = errorLabel(this);
     layout->addWidget(error_);
 
@@ -120,6 +127,10 @@ NewRepairDialog::NewRepairDialog(const Snapshot& snapshot, QWidget* parent) : QD
     connect(client_, &QLineEdit::returnPressed, device_, qOverload<>(&QWidget::setFocus));
     connect(device_, &QLineEdit::returnPressed, this, &NewRepairDialog::tryAccept);
     template_->setFocus();
+}
+
+bool NewRepairDialog::alreadyCharged() const {
+    return alreadyCharged_->isChecked();
 }
 
 core::Id NewRepairDialog::templateId() const {

@@ -14,6 +14,7 @@
 
 #include <QApplication>
 #include <QAbstractItemView>
+#include <QCheckBox>
 #include <QComboBox>
 #include <QCompleter>
 #include <QDateEdit>
@@ -503,6 +504,48 @@ int main(int argc, char** argv) {
             if (created != nullptr && j.id == created->jobId) closed = j.closed;
         }
         check(closed, "el trabajo que ve el telefono queda cerrado");
+    }
+
+    // --- Una reparacion que se agrega ya cobrada -------------------------------
+    std::printf("\n[agregar una reparacion ya cobrada]\n");
+    {
+        onNextDialog([](QWidget* dialog) {
+            auto* charged = dialog->findChild<QCheckBox*>(QStringLiteral("AlreadyCharged"));
+            check(charged != nullptr && !charged->isChecked(), "Nueva reparacion ofrece 'Ya esta cobrada', sin marcar");
+            typeAndEnter(dialog, QStringLiteral("placa"));
+            typeAndEnter(dialog, QStringLiteral("Marta"));
+            QTest::keyClicks(dialog->focusWidget(), QStringLiteral("Asus B450"));
+            // Sin pantalla el dialogo no queda como ventana activa y los atajos
+            // Alt+letra no le llegan: se marca con Tab y espacio, que tambien
+            // es teclado.
+            QTest::keyClick(dialog->focusWidget(), Qt::Key_Tab);
+            check(dialog->focusWidget() == charged, "Tab desde el equipo llega a 'Ya esta cobrada'");
+            QTest::keyClick(dialog->focusWidget(), Qt::Key_Space);
+            settle();
+            check(charged != nullptr && charged->isChecked(), "espacio la marca");
+            // Despues de crear se abre el de entregar y cobrar: horas y precio.
+            onNextDialog([](QWidget* deliver) {
+                typeTabThenEnter(deliver, QStringLiteral("1,5"), QStringLiteral("60"));
+            });
+            QTest::keyClick(dialog->focusWidget(), Qt::Key_Return);
+        });
+        QTest::keyClick(&window, Qt::Key_R, Qt::ControlModifier);
+        reactivate(&window);
+        reactivate(&window);
+
+        const auto repairs = repository.loadRepairs();
+        const core::Repair* placa = findRepair(repairs, "Asus B450");
+        check(placa != nullptr && placa->status == core::RepairStatus::Cobrada &&
+                  placa->realMinutes == 90,
+              "queda cobrada, con 1,5 horas reales");
+        bool income = false;
+        for (const core::Movement& m : repository.loadMovements()) {
+            if (placa != nullptr && m.jobId == placa->jobId && m.kind == core::MovementKind::Ingreso &&
+                m.amountMinor == 60'00 && m.settled) {
+                income = true;
+            }
+        }
+        check(income, "y con el ingreso de 60,00 cobrado");
     }
 
     // --- La pastilla de estado ------------------------------------------------
