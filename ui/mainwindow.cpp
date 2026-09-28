@@ -406,7 +406,9 @@ void MainWindow::buildUi() {
                     if (!addMovement(m, c)) {
                         return;
                     }
-                    const QString summary = savedSummary(m);
+                    // CONTRATO (unidad U-C, parte 4): summary es
+                    // savedSummary(m) seguido de saveNote_.
+                    const QString summary = savedSummary(m) + saveNote_;
                     form->confirmSaved(summary);
                     if (mini && !keepOpen) {
                         captureWindow_->hide();
@@ -569,6 +571,16 @@ void MainWindow::buildUi() {
                 repository_->setSetting(QStringLiteral("config.reparto.impuestos"), QString::number(split.taxesBps));
                 repository_->setSetting(QStringLiteral("config.reparto.reinversion"), QString::number(split.reinvestBps));
                 repository_->setSetting(QStringLiteral("config.reparto.emergencia"), QString::number(split.emergencyBps));
+                reload();
+            },
+            Qt::QueuedConnection);
+    // CONTRATO (unidad U-C, parte 2): conectar SettingsPage::personalSavingsChanged
+    // igual que splitChanged de arriba (Qt::QueuedConnection): guardar el bps
+    // en el setting "config.ahorro_personal" con QString::number y llamar a
+    // reload().
+    connect(settings_, &SettingsPage::personalSavingsChanged, this,
+            [this](int bps) {
+                repository_->setSetting(QStringLiteral("config.ahorro_personal"), QString::number(bps));
                 reload();
             },
             Qt::QueuedConnection);
@@ -791,6 +803,15 @@ void MainWindow::reload() {
         split.emergencyBps = repository_->setting(QStringLiteral("config.reparto.emergencia")).value_or(QStringLiteral("1000")).toInt();
         snapshot_.split = split.valid() ? split : core::ProfitSplit{};
     }
+    // CONTRATO (unidad U-C, parte 1): snapshot_.personalSavingsBps = el
+    // setting "config.ahorro_personal" como entero; si falta, no es un numero
+    // o queda fuera de 0 a 10000, core::kDefaultPersonalSavingsBps.
+    bool ok = false;
+    int val = 0;
+    if (auto s = repository_->setting(QStringLiteral("config.ahorro_personal"))) {
+        val = s->toInt(&ok);
+    }
+    snapshot_.personalSavingsBps = (ok && val >= 0 && val <= 10000) ? val : core::kDefaultPersonalSavingsBps;
     snapshot_.salary = core::salaryAdvice(snapshot_.movements, snapshot_.pockets, snapshot_.categories,
                                           snapshot_.tools, snapshot_.split, snapshot_.today,
                                           snapshot_.currency);
@@ -870,6 +891,7 @@ void MainWindow::reload() {
 // ---------------------------------------------------------------- Acciones
 
 bool MainWindow::addMovement(const core::Movement& draft, const core::Category& newCategory) {
+    saveNote_.clear();
     const core::Account account = !newCategory.name.empty()
                                       ? newCategory.account
                                       : snapshot_.categoryAccount(draft.category, draft.pocketId);
@@ -878,6 +900,38 @@ bool MainWindow::addMovement(const core::Movement& draft, const core::Category& 
     // un sueldo y un gasto personal. El negocio no registra un almuerzo.
     std::vector<core::Movement> parts =
         core::splitCrossExpense(draft, snapshot_.pockets, account, snapshot_.personalPocket());
+    // CONTRATO (unidad U-C, parte 3):
+    //  a) saveNote_.clear() al entrar a esta funcion (antes de todo lo demas).
+    //  b) Si parts tiene un solo elemento: savings = core::personalSavingsPocket(
+    //     snapshot_.pockets); parts = core::splitPersonalIncome(draft, account,
+    //     savings, snapshot_.personalSavingsBps).
+    //  c) Si ese paso partio en dos: saveNote_ = " · " + <monto de parts[1]
+    //     con theme::formatMoney(core::Money::fromMinor(..., snapshot_.currency))>
+    //     + " a " + snapshot_.pocketName(savings).
+    //     Si no partio, pero draft es Ingreso, draft.settled, account es
+    //     Personal, snapshot_.personalSavingsBps > 0 y savings esta vacio:
+    //     saveNote_ = " · Crea un bolsillo de Ahorro personal para apartar el "
+    //     + QString::number(snapshot_.personalSavingsBps / 100.0, 'g', 4) con
+    //     el punto cambiado por coma + " %".
+    //  d) Mas abajo, `main` (lo que va a rememberUndo) deja de ser parts.back():
+    //     es el primer elemento de parts cuyo kind es draft.kind, y undoAlso_
+    //     son todos los demas elementos de parts, en su orden. La compra de
+    //     herramienta sigue usando parts.back() (ese caso es siempre un Gasto).
+    //  Si el guardado falla, saveNote_ puede quedar con cualquier valor.
+    if (parts.size() == 1) {
+        core::Id savings = core::personalSavingsPocket(snapshot_.pockets);
+        parts = core::splitPersonalIncome(draft, account, savings, snapshot_.personalSavingsBps);
+        if (parts.size() == 2) {
+            saveNote_ = QStringLiteral(" · %1 a %2")
+                            .arg(theme::formatMoney(core::Money::fromMinor(parts[1].amountMinor, snapshot_.currency)),
+                                 snapshot_.pocketName(savings));
+        } else if (draft.kind == core::MovementKind::Ingreso && draft.settled &&
+                   account == core::Account::Personal && snapshot_.personalSavingsBps > 0 &&
+                   savings.empty()) {
+            saveNote_ = QStringLiteral(" · Crea un bolsillo de Ahorro personal para apartar el %1 %")
+                            .arg(QString::number(snapshot_.personalSavingsBps / 100.0, 'g', 4).replace(QLatin1Char('.'), QLatin1Char(',')));
+        }
+    }
     for (core::Movement& part : parts) {
         part.id = stamp(part.hlc, part.deviceId);
     }
@@ -919,10 +973,16 @@ bool MainWindow::addMovement(const core::Movement& draft, const core::Category& 
         return false;
     }
 
-    const core::Movement& main = parts.back();
+    auto mainIt = std::find_if(parts.begin(), parts.end(),
+                               [&draft](const core::Movement& m) { return m.kind == draft.kind; });
+    const core::Movement& main = (mainIt != parts.end()) ? *mainIt : parts.front();
     rememberUndo(std::nullopt, main,
                  QStringLiteral("anotar «%1»").arg(QString::fromStdString(main.name)));
-    undoAlso_.assign(parts.begin(), parts.end() - 1);
+    for (auto it = parts.begin(); it != parts.end(); ++it) {
+        if (it != mainIt) {
+            undoAlso_.push_back(*it);
+        }
+    }
     afterLocalChange();
     return true;
 }

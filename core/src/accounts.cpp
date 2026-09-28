@@ -156,6 +156,52 @@ std::vector<Movement> splitCrossExpense(const Movement& draft,
     return {salary, expense};
 }
 
+// ------------------------------------------------ Ingreso fuera del negocio
+//
+// CONTRATO: el de accounts.hpp, al pie de la letra. Dependencias: solo lo que
+// este archivo ya incluye.
+
+Id personalSavingsPocket(const std::vector<Pocket>& pockets) {
+    for (const Pocket& pocket : pockets) {
+        if (!pocket.archived && pocket.kind == PocketKind::Ahorro && accountOf(pocket) == Account::Personal) {
+            return pocket.id;
+        }
+    }
+    return {};
+}
+
+std::vector<Movement> splitPersonalIncome(const Movement& draft,
+                                          Account incomeAccount,
+                                          const Id& savingsPocketId,
+                                          int savingsBps) {
+    if (draft.kind != MovementKind::Ingreso ||
+        !draft.settled ||
+        incomeAccount != Account::Personal ||
+        savingsBps < 1 || savingsBps > 10000 ||
+        savingsPocketId.empty() ||
+        savingsPocketId == draft.pocketId) {
+        return {draft};
+    }
+
+    // Redondeo al entero mas cercano: (x + 5000) / 10000
+    const std::int64_t part = (draft.amountMinor * static_cast<std::int64_t>(savingsBps) + 5000) / 10000;
+    if (part <= 0) {
+        return {draft};
+    }
+
+    Movement saving = draft;
+    saving.kind = MovementKind::Traspaso;
+    saving.targetPocketId = savingsPocketId;
+    saving.amountMinor = part;
+    saving.name = "Ahorro: " + draft.name;
+    saving.category.clear();
+    saving.jobId.clear();
+    saving.spreadMonths = 1;
+    saving.settled = true;
+
+    return {draft, saving};
+}
+
 // ----------------------------------------------------- Gasto por categoria
 
 SpendingReport spendingByCategory(const std::vector<Movement>& movements,

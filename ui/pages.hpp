@@ -291,6 +291,9 @@ signals:
     void toolRemoved(const dake::core::Id& id);
     void fallbackHoursChanged(int minutesPerMonth);
     void splitChanged(const dake::core::ProfitSplit& split);
+    /// Otro porcentaje para apartar de los ingresos fuera del negocio, en
+    /// puntos basicos (0 a 10000).
+    void personalSavingsChanged(int bps);
     /// Se eligio otro tema en la tarjeta Apariencia.
     void themeChanged(dake::ui::theme::Tema tema);
 
@@ -299,6 +302,7 @@ private:
     void refillTemplates();
     void emitCosts();
     void emitSplit();
+    void emitPersonalSavings();
     void emitTemplate(int row);
     void refillFixed();
     void emitRecurring(int row);
@@ -318,6 +322,7 @@ private:
     QLineEdit* splitReinvest_ = nullptr;
     QLineEdit* splitEmergency_ = nullptr;
     QLabel* splitNote_ = nullptr;
+    QLineEdit* personalSavings_ = nullptr;
     QTableWidget* templates_ = nullptr;
     QLabel* quoteStatus_ = nullptr;
     QPushButton* quoteReview_ = nullptr;

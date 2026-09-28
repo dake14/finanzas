@@ -33,6 +33,10 @@ namespace {
     return {};
 }
 
+[[nodiscard]] QString formatBps(int bps) {
+    return QString::number(bps / 100.0, 'g', 4).replace(QLatin1Char('.'), QLatin1Char(','));
+}
+
 constexpr core::CategoryClass kClasses[] = {core::CategoryClass::General,
                                             core::CategoryClass::Fija,
                                             core::CategoryClass::Variable,
@@ -178,6 +182,24 @@ void SettingsPage::buildUi() {
     splitNote_->setFont(theme::bodyFont(9));
     splitNote_->setWordWrap(true);
     costsCard->addContent(splitNote_);
+
+    // Lo que se aparta a ahorro de un ingreso que no es del negocio.
+    auto* savingsRow = new QWidget(costsCard);
+    auto* savingsLayout = new QHBoxLayout(savingsRow);
+    savingsLayout->setContentsMargins(0, 0, 0, 0);
+    savingsLayout->setSpacing(8);
+    auto* savingsTitle = new QLabel(QStringLiteral("Apartar a ahorro de un ingreso personal %:"), savingsRow);
+    savingsTitle->setFont(theme::bodyFont(10));
+    theme::setLabelColor(savingsTitle, theme::kTextMuted);
+    personalSavings_ = new QLineEdit(savingsRow);
+    personalSavings_->setObjectName(QStringLiteral("PersonalSavings"));
+    personalSavings_->setFixedWidth(52);
+    personalSavings_->setToolTip(QStringLiteral("Va al primer bolsillo de Ahorro marcado como personal."));
+    connect(personalSavings_, &QLineEdit::editingFinished, this, &SettingsPage::emitPersonalSavings);
+    savingsLayout->addWidget(savingsTitle);
+    savingsLayout->addWidget(personalSavings_);
+    savingsLayout->addStretch(1);
+    costsCard->addContent(savingsRow);
     connect(targetMargin_, &QLineEdit::editingFinished, this, &SettingsPage::emitCosts);
     layout->addWidget(costsCard);
 
@@ -355,6 +377,14 @@ void SettingsPage::setSnapshot(const Snapshot& snapshot) {
                                        "promedio por el porcentaje de sueldo."));
     theme::setLabelColor(splitNote_, theme::kTextFaint);
 
+    // CONTRATO (unidad U-B, parte 1): si personalSavings_ no tiene el foco,
+    // ponerle snapshot.personalSavingsBps como porcentaje, con el mismo
+    // formato que los campos del reparto de arriba (2000 -> "20", 1250 ->
+    // "12,5").
+    if (!personalSavings_->hasFocus()) {
+        personalSavings_->setText(formatBps(snapshot.personalSavingsBps));
+    }
+
     const int holds = snapshot.quoteHolds();
     quoteReview_->setText(holds > 0 ? QStringLiteral("Revisar (%1)").arg(holds) : QStringLiteral("Revisar"));
     quoteReview_->setEnabled(holds > 0);
@@ -449,6 +479,25 @@ void SettingsPage::emitCosts() {
     if (settings.hourlyRateMinor != snapshot_.costs.hourlyRateMinor ||
         settings.targetMarginBps != snapshot_.costs.targetMarginBps) {
         emit costSettingsChanged(settings);
+    }
+}
+
+// CONTRATO (unidad U-B, parte 2): leer personalSavings_ como emitSplit lee
+// sus campos (acepta coma o punto; bps = valor * 100 redondeado). Si no se
+// puede leer o queda fuera de 0 a 10000 bps, no emitir nada y volver a poner
+// en el campo snapshot_.personalSavingsBps con el formato de la parte 1. Si
+// es valido y distinto de snapshot_.personalSavingsBps, emitir
+// personalSavingsChanged(bps). Nunca lanza.
+void SettingsPage::emitPersonalSavings() {
+    bool ok = false;
+    const double value = personalSavings_->text().trimmed().replace(QLatin1Char(','), QLatin1Char('.')).toDouble(&ok);
+    const int bps = ok ? static_cast<int>(value * 100.0 + 0.5) : -1;
+    if (!ok || bps < 0 || bps > 10000) {
+        personalSavings_->setText(formatBps(snapshot_.personalSavingsBps));
+        return;
+    }
+    if (bps != snapshot_.personalSavingsBps) {
+        emit personalSavingsChanged(bps);
     }
 }
 

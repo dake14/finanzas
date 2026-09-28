@@ -83,6 +83,44 @@ struct Category {
                                                       Account categoryAccount,
                                                       const Id& personalPocketId);
 
+// ------------------------------------------------ Ingreso fuera del negocio
+
+/// Lo que se aparta por defecto de un ingreso personal: 20 %.
+inline constexpr int kDefaultPersonalSavingsBps = 2000;
+
+/// Adonde va la parte que se aparta de un ingreso personal: el id del primer
+/// bolsillo, en el orden de `pockets`, que no esta archivado, es de tipo
+/// Ahorro y cuya cuenta (accountOf) es Personal. Vacio si no hay ninguno.
+///
+/// Un Ahorro del negocio no sirve: plata personal que entra ahi se leeria
+/// como un aporte al negocio.
+[[nodiscard]] Id personalSavingsPocket(const std::vector<Pocket>& pockets);
+
+/// Un ingreso que no es del negocio: un regalo, una venta personal.
+///
+/// Si se cumplen TODAS estas condiciones:
+///   - `draft.kind` es Ingreso y `draft.settled` es true;
+///   - `incomeAccount` es Personal;
+///   - `savingsBps` esta entre 1 y 10000;
+///   - `savingsPocketId` no esta vacio y es distinto de `draft.pocketId`;
+///   - la parte a apartar, (amountMinor * savingsBps + 5000) / 10000 en
+///     enteros de 64 bits (redondeo al centavo, la mitad hacia arriba), no
+///     es cero;
+/// devuelve DOS movimientos, en este orden:
+///   1. `draft` tal cual;
+///   2. una copia de `draft` convertida en traspaso: kind Traspaso,
+///      pocketId = draft.pocketId, targetPocketId = savingsPocketId,
+///      amountMinor = la parte a apartar, name = "Ahorro: " + draft.name,
+///      category vacia, jobId vacio, spreadMonths 1, settled true. La fecha
+///      y el resto de los campos, los del ingreso.
+///
+/// En cualquier otro caso devuelve `draft` solo. Nunca lanza. Los ids quedan
+/// como vienen: los pone quien guarda.
+[[nodiscard]] std::vector<Movement> splitPersonalIncome(const Movement& draft,
+                                                        Account incomeAccount,
+                                                        const Id& savingsPocketId,
+                                                        int savingsBps);
+
 // ----------------------------------------------------- Gasto por categoria
 
 struct CategorySpend {

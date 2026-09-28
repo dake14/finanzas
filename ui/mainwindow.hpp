@@ -245,6 +245,11 @@ private:
     /// usa cuando lo ultimo fue una creacion.
     std::vector<dake::core::Movement> undoAlso_;
 
+    /// Lo que addMovement agrega al resumen de lo anotado: cuanto se aparto a
+    /// ahorro, o el aviso de que falta el bolsillo de ahorro personal. Vacio
+    /// si no hay nada que agregar. Lo pone addMovement en cada guardado.
+    QString saveNote_;
+
     Snapshot snapshot_;
 
     /// Paginas del stack: Hoy, Reparaciones, Movimientos, Bolsillos, Informes,

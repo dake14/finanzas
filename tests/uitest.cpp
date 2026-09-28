@@ -730,6 +730,115 @@ int main(int argc, char** argv) {
         settle();
     }
 
+    // --- Ingreso fuera del negocio: una parte a ahorro ------------------------
+    //
+    // Dos bases propias: la primera sin bolsillo de Ahorro personal (solo el
+    // ingreso, y el aviso), la segunda con el (ingreso + traspaso del 20 %).
+    std::printf("\n[ingreso fuera del negocio]\n");
+    for (const bool withSavings : {false, true}) {
+        const QString savingsPath =
+            temp.path() + (withSavings ? QStringLiteral("/ahorro-si.db") : QStringLiteral("/ahorro-no.db"));
+        {
+            storage::Database setup(savingsPath);
+            storage::Repository repo(setup);
+            repo.seedIfEmpty(core::Currency::usd());
+            repo.saveCategory({"Regalo", core::Account::Personal, core::CategoryClass::General,
+                               core::MovementKind::Ingreso});
+            if (withSavings) {
+                core::Pocket mio;
+                mio.id = "p-ahorro-mio";
+                mio.name = "Ahorro mio";
+                mio.kind = core::PocketKind::Ahorro;
+                repo.save(mio);
+                repo.setPocketAccount(mio.id, core::Account::Personal);
+            }
+        }
+        qputenv("DAKE_TEST_DB_PATH", savingsPath.toLocal8Bit());
+        ui::MainWindow savingsWindow(savingsPath);
+        savingsWindow.show();
+        (void)QTest::qWaitForWindowExposed(&savingsWindow);
+        savingsWindow.activateWindow();
+        settle();
+
+        storage::Database sdb(savingsPath);
+        storage::Repository srepo(sdb);
+        auto* amount = savingsWindow.findChild<QLineEdit*>(QStringLiteral("EntryAmount"));
+        auto* category = savingsWindow.findChild<ui::CategoryBox*>(QStringLiteral("EntryCategory"));
+        auto* done = savingsWindow.findChild<QLabel*>(QStringLiteral("EntryDone"));
+        QTest::keyClick(&savingsWindow, Qt::Key_1, Qt::ControlModifier);
+        settle();
+        QTest::keyClick(amount, Qt::Key_I, Qt::AltModifier);
+        settle();
+        auto* pocketBox = savingsWindow.findChild<QComboBox*>(QStringLiteral("EntryPocket"));
+        pocketBox->setCurrentIndex(pocketBox->findData(QStringLiteral("p-personal")));
+        amount->setFocus();
+        QTest::keyClicks(amount, QStringLiteral("20"));
+        category->setCategory(QStringLiteral("Regalo"));
+        QTest::keyClick(amount, Qt::Key_Return);
+        settle();
+
+        const auto movements = srepo.loadMovements();
+        int incomes = 0;
+        int transfers = 0;
+        for (const core::Movement& m : movements) {
+            if (m.kind == core::MovementKind::Ingreso && m.category == "Regalo" && m.amountMinor == 20'00 &&
+                m.pocketId == "p-personal") {
+                ++incomes;
+            }
+            if (m.kind == core::MovementKind::Traspaso && m.pocketId == "p-personal" &&
+                m.targetPocketId == "p-ahorro-mio" && m.amountMinor == 4'00 && m.name == "Ahorro: Regalo") {
+                ++transfers;
+            }
+        }
+        if (!withSavings) {
+            check(incomes == 1 && transfers == 0, "sin ahorro personal: se guarda solo el ingreso de 20,00");
+            check(done != nullptr && done->text().contains(QStringLiteral("Crea un bolsillo de Ahorro personal")),
+                  "y avisa que falta el bolsillo de ahorro personal");
+            continue;
+        }
+        check(incomes == 1, "el regalo entra entero, 20,00, a tu bolsillo");
+        check(transfers == 1, "y 4,00 (20 %) pasan solos a tu ahorro personal");
+        check(done != nullptr && done->text().contains(QStringLiteral("4,00")),
+              "el resumen dice cuanto se aparto");
+
+        // Deshacer se lleva los dos.
+        QTest::keyClick(&savingsWindow, Qt::Key_Z, Qt::ControlModifier);
+        settle();
+        int alive = 0;
+        for (const core::Movement& m : srepo.loadMovements()) {
+            if (m.category == "Regalo" || m.name == "Ahorro: Regalo") ++alive;
+        }
+        check(alive == 0, "Ctrl+Z borra el ingreso y el traspaso juntos");
+
+        // Un ingreso del negocio no se toca.
+        const std::size_t before = srepo.loadMovements().size();
+        pocketBox->setCurrentIndex(pocketBox->findData(QStringLiteral("p-caja")));
+        amount->setFocus();
+        QTest::keyClicks(amount, QStringLiteral("50"));
+        category->setCategory(QStringLiteral("Reparaciones"));
+        QTest::keyClick(amount, Qt::Key_Return);
+        settle();
+        check(srepo.loadMovements().size() == before + 1, "un ingreso del negocio queda como uno solo");
+
+        // El porcentaje se cambia en Ajustes.
+        auto* field = savingsWindow.findChild<QLineEdit*>(QStringLiteral("PersonalSavings"));
+        check(field != nullptr && field->text() == QStringLiteral("20"), "Ajustes muestra el 20 %");
+        if (field != nullptr) {
+            field->setText(QStringLiteral("25"));
+            emit field->editingFinished();
+            settle();
+            check(srepo.setting(QStringLiteral("config.ahorro_personal")).value_or(QString()) ==
+                      QStringLiteral("2500"),
+                  "y guardarlo en 25 lo deja en 2500 puntos basicos");
+            field->setText(QStringLiteral("150"));
+            emit field->editingFinished();
+            settle();
+            check(srepo.setting(QStringLiteral("config.ahorro_personal")).value_or(QString()) ==
+                      QStringLiteral("2500"),
+                  "un porcentaje fuera de 0 a 100 no se guarda");
+        }
+    }
+
     // --- DakeLabs Cotizaciones -----------------------------------------------
     //
     // Otra base y otra ventana, con filas como las que baja la sincronizacion:

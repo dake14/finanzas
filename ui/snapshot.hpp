@@ -39,6 +39,9 @@ struct Snapshot {
     std::vector<core::MovementMeta> metas;
     core::FixedRate fixedRate;
     core::ProfitSplit split;
+    /// Cuanto se aparta a ahorro de un ingreso que no es del negocio, en
+    /// puntos basicos (2000 = 20 %). De `config.ahorro_personal`.
+    int personalSavingsBps = core::kDefaultPersonalSavingsBps;
     core::SalaryAdvice salary;
     int fallbackMinutesPerMonth = 4800;
     std::vector<core::InboxItem> inbox;

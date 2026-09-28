@@ -166,6 +166,70 @@ void gastoCruzado() {
           "sin bolsillo personal no hay a donde traspasar: queda como esta");
 }
 
+void ingresoFueraDelNegocio() {
+    std::printf("\n[ingreso fuera del negocio: una parte a ahorro]\n");
+    const auto ps = bolsillos();
+    checkText(personalSavingsPocket(ps), "ahorro-mio", "el ahorro es el Ahorro marcado personal");
+    check(personalSavingsPocket({pocket("caja", PocketKind::Operacion), pocket("ahorro", PocketKind::Ahorro)})
+              .empty(),
+          "un Ahorro del negocio no sirve");
+    {
+        Pocket viejo = pocket("viejo", PocketKind::Ahorro);
+        viejo.accountOverride = Account::Personal;
+        viejo.archived = true;
+        Pocket nuevo = pocket("nuevo", PocketKind::Ahorro);
+        nuevo.accountOverride = Account::Personal;
+        checkText(personalSavingsPocket({viejo, nuevo}), "nuevo", "uno archivado no cuenta");
+    }
+
+    Movement regalo = gasto("2026-10-02", 20'00, "mio", "Regalo");
+    regalo.kind = MovementKind::Ingreso;
+
+    const auto partes = splitPersonalIncome(regalo, Account::Personal, "ahorro-mio", 2000);
+    check(partes.size() == 2, "se parte en dos movimientos");
+    if (partes.size() == 2) {
+        check(partes[0].kind == MovementKind::Ingreso && partes[0].amountMinor == 20'00 &&
+                  partes[0].pocketId == "mio" && partes[0].category == "Regalo",
+              "primero el ingreso tal cual, entero");
+        check(partes[1].kind == MovementKind::Traspaso, "despues un traspaso");
+        checkText(partes[1].pocketId, "mio", "que sale del bolsillo del ingreso");
+        checkText(partes[1].targetPocketId, "ahorro-mio", "y entra al ahorro personal");
+        checkMinor(partes[1].amountMinor, 4'00, "por el 20 %");
+        checkText(partes[1].name, "Ahorro: Regalo", "con un nombre que dice de donde sale");
+        check(partes[1].date == regalo.date && partes[1].settled, "el mismo dia, hecho");
+        check(partes[1].category.empty() && partes[1].jobId.empty(), "sin categoria ni trabajo");
+        check(!isSalary(partes[1], ps), "no es sueldo");
+        check(partes[0].isWellFormed() && partes[1].isWellFormed(), "los dos bien formados");
+    }
+
+    Movement moneda = regalo;
+    moneda.amountMinor = 1'25;
+    const auto mitad = splitPersonalIncome(moneda, Account::Personal, "ahorro-mio", 5000);
+    check(mitad.size() == 2 && mitad[1].amountMinor == 63, "la mitad de un centavo redondea hacia arriba");
+    moneda.amountMinor = 2;
+    check(splitPersonalIncome(moneda, Account::Personal, "ahorro-mio", 2000).size() == 1,
+          "si la parte da cero centavos, queda solo el ingreso");
+
+    check(splitPersonalIncome(regalo, Account::Negocio, "ahorro-mio", 2000).size() == 1,
+          "un ingreso del negocio queda como esta");
+    check(splitPersonalIncome(regalo, Account::Personal, "", 2000).size() == 1,
+          "sin ahorro personal, queda solo el ingreso");
+    check(splitPersonalIncome(regalo, Account::Personal, "mio", 2000).size() == 1,
+          "si el ingreso ya entra al ahorro, no hay nada que apartar");
+    check(splitPersonalIncome(regalo, Account::Personal, "ahorro-mio", 0).size() == 1,
+          "con 0 %, queda solo el ingreso");
+    Movement porCobrar = regalo;
+    porCobrar.settled = false;
+    check(splitPersonalIncome(porCobrar, Account::Personal, "ahorro-mio", 2000).size() == 1,
+          "lo que todavia no entro no se aparta");
+    check(splitPersonalIncome(gasto("2026-10-02", 20'00, "mio", "Comida"), Account::Personal, "ahorro-mio", 2000)
+                  .size() == 1,
+          "un gasto queda como esta");
+    Movement paso = traspaso("2026-10-02", 20'00, "caja", "mio");
+    check(splitPersonalIncome(paso, Account::Personal, "ahorro-mio", 2000).size() == 1,
+          "un traspaso queda como esta");
+}
+
 void categorias() {
     std::printf("\n[categorias]\n");
     const std::vector<Category> cats{{"Luz", Account::Negocio, CategoryClass::Fija},
@@ -1331,6 +1395,7 @@ int main() {
     cuentaDeCadaBolsillo();
     sueldoEsUnTraspaso();
     gastoCruzado();
+    ingresoFueraDelNegocio();
     categorias();
     categoriasDeducidas();
     gastoPorCategoria();
