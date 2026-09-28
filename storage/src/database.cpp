@@ -16,7 +16,7 @@
 namespace dake::storage {
 namespace {
 
-constexpr int kTargetVersion = 3;
+constexpr int kTargetVersion = 4;
 
 /// Copia la base a un `.bak` fechado antes de tocarle el esquema.
 ///
@@ -79,6 +79,11 @@ constexpr const char* kUpgrades[] = {
     // solo tiene que existir para que el bucle tenga que correr. Se aprovecha
     // para algo inofensivo que igual hace falta.
     "CREATE INDEX IF NOT EXISTS movement_meta_by_ref ON movement_meta(external_ref)",
+    // 3 -> 4: lo esencial de Cotizaciones, que baja de v2_quotes. Igual que el
+    // paso anterior, la tabla ya la crea el esquema; el paso existe para que
+    // el bucle corra.
+    "CREATE TABLE IF NOT EXISTS quotes (id TEXT PRIMARY KEY, updated_at TEXT NOT NULL DEFAULT '', "
+    "deleted INTEGER NOT NULL DEFAULT 0, data TEXT NOT NULL)",
 };
 
 [[nodiscard]] QString describe(const QSqlQuery& query) {
@@ -278,6 +283,17 @@ CREATE TABLE IF NOT EXISTS timings (
     what   TEXT NOT NULL,
     millis INTEGER NOT NULL,
     at     TEXT NOT NULL
+);
+
+-- Lo esencial de cada documento de DakeLabs Cotizaciones, tal como bajo de
+-- v2_quotes. Finanzas solo lo lee: nunca escribe ni encola nada aca. Se
+-- guarda el JSON entero de la fila: si Cotizaciones suma una columna, no hay
+-- que migrar esta tabla.
+CREATE TABLE IF NOT EXISTS quotes (
+    id         TEXT PRIMARY KEY,
+    updated_at TEXT NOT NULL DEFAULT '',
+    deleted    INTEGER NOT NULL DEFAULT 0,
+    data       TEXT NOT NULL
 );
 )SQL";
 

@@ -10,6 +10,8 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QSqlQuery>
 #include <QVariant>
 #include <QTemporaryDir>
@@ -25,7 +27,7 @@
 #include "dake/core/demo.hpp"
 #include "dake/core/report.hpp"
 #include "dake/storage/exchange.hpp"
-#include "dake/storage/quotefolder.hpp"
+#include "dake/storage/quoterows.hpp"
 #include "dake/storage/repository.hpp"
 
 namespace {
@@ -323,7 +325,7 @@ int main(int argc, char** argv) {
         QSqlQuery version(db.handle());
         version.exec(QStringLiteral("PRAGMA user_version"));
         version.next();
-        checkMinor(version.value(0).toInt(), 3, "la base vieja sube a la version 3");
+        checkMinor(version.value(0).toInt(), 4, "la base vieja sube a la version 4");
         check(repository.loadMovements().size() == 10, "sin perder ningun movimiento");
         QSqlQuery tabla(db.handle());
         tabla.exec(QStringLiteral(
@@ -512,58 +514,61 @@ int main(int argc, char** argv) {
         check(s.fixedPerHourMinor == 0, "la tasa de fijos no se guarda: se calcula");
     }
 
-    // --- La carpeta de DakeLabs Cotizaciones -------------------------------
+    // --- Lo esencial de DakeLabs Cotizaciones, desde la base -----------------
     //
-    // Documentos sinteticos con la misma forma que los de verdad, escritos en
-    // una carpeta temporal. La carpeta real de David no se lee aca.
+    // Filas sinteticas con la misma forma que las de v2_quotes. Ni la cuenta
+    // ni los documentos de David se tocan aca.
     {
-        const QString folder = temp.path() + QStringLiteral("/cotizaciones");
-        QDir().mkpath(folder + QStringLiteral("/documentos"));
-        auto write = [&folder](const char* name, const char* json) {
-            QFile file(folder + QStringLiteral("/documentos/") + QString::fromLatin1(name));
-            file.open(QIODevice::WriteOnly);
-            file.write(json);
+        storage::Database db(path + QStringLiteral(".cot"));
+        storage::Repository repository(db);
+        auto put = [&repository](const char* json, const char* updatedAt) {
+            const QJsonObject row = QJsonDocument::fromJson(QByteArray(json)).object();
+            return repository.applyRemoteQuote(row.value(QStringLiteral("id")).toString(),
+                                               QString::fromLatin1(updatedAt),
+                                               row.value(QStringLiteral("deleted")).toBool(),
+                                               QString::fromUtf8(json));
         };
-        write("INF-2026-004.json", R"({
-          "id": "i4", "numero": "INF-2026-004", "tipo": "informe", "forma": "servicio",
-          "estado": "pagado", "fechaEmision": "2026-09-19", "fechaEntrega": "2026-09-19",
-          "clienteCongelado": {"nombre": "Josue Rodríguez"},
-          "equipo": {"descripcion": "asus x556U", "fechaIngreso": "2026-07-17"},
-          "categorias": [
-            {"nombre": "Mano de obra", "lineas": [{"concepto": "Diagnostico y Reparación", "cantidad": 1, "valorUnitario": 3000}]},
-            {"nombre": "Repuestos y materiales", "lineas": [{"concepto": "Insumos", "cantidad": 1, "valorUnitario": 500}]}
-          ],
-          "descuento": {"tipo": "porcentaje", "valor": 7144},
-          "abono": 400,
-          "origenId": "c1",
-          "historial": [
-            {"fecha": "2026-09-19", "tipo": "estado", "detalle": "Entregado · N° INF-2026-004"},
-            {"fecha": "2026-09-22", "tipo": "estado", "detalle": "Pagado"}
-          ]
-        })");
-        write("COT-2026-001.json", R"({
-          "id": "c1", "numero": "COT-2026-001", "tipo": "cotizacion", "forma": "servicio",
-          "estado": "aceptada", "fechaEmision": "2026-09-19", "fechaEntrega": null,
-          "clienteCongelado": {"nombre": "Josue Rodríguez"},
-          "equipo": {"descripcion": "asus x556U", "fechaIngreso": "2026-07-17"},
-          "categorias": [{"nombre": "Mano de obra", "lineas": [{"concepto": "Reparacion", "cantidad": 2, "valorUnitario": 500}]}],
-          "descuento": null, "abono": 0, "origenId": null, "historial": []
-        })");
-        write("roto.json", "{ esto no es json");
+        const char* i4 = R"({"id":"i4","numero":"INF-2026-004","tipo":"informe","forma":"servicio",
+          "cliente":"Josue Rodríguez","equipo":"asus x556U",
+          "lineas":[{"seccion":"Mano de obra","concepto":"Diagnostico y Reparación","cantidad":1,"valorUnitario":3000},
+                    {"seccion":"Repuestos y materiales","concepto":"Insumos","cantidad":1,"valorUnitario":500}],
+          "descuento_tipo":"porcentaje","descuento_valor":7144,"abono_minor":400,
+          "fecha_emision":"2026-09-19","fecha_ingreso":"2026-07-17","origen_id":"c1","hecho_en":"pc",
+          "estado":"pagado","fecha_entrega":"2026-09-19","fecha_pago":"2026-09-22","motivo_rechazo":"",
+          "deleted":false})";
+        const char* c1 = R"({"id":"c1","numero":"COT-2026-001","tipo":"cotizacion","forma":"servicio",
+          "cliente":"Josue Rodríguez","equipo":"asus x556U",
+          "lineas":[{"seccion":"Mano de obra","concepto":"Reparacion","cantidad":2,"valorUnitario":500}],
+          "descuento_tipo":"","descuento_valor":0,"abono_minor":0,"fecha_emision":"2026-09-19",
+          "fecha_ingreso":"2026-07-17","origen_id":"","hecho_en":"pc","estado":"aceptada",
+          "fecha_entrega":"","fecha_pago":"","motivo_rechazo":"","deleted":false})";
+        check(put(i4, "2026-09-27T10:00:00+00:00"), "una fila nueva entra");
+        check(put(c1, "2026-09-27T10:00:01+00:00"), "y otra");
+        check(!put(i4, "2026-09-27T09:00:00+00:00"), "una version mas vieja no pisa a la nueva");
+        check(!put(i4, "2026-09-27T10:00:00+00:00"), "la misma version otra vez no cambia nada");
+        // Una fila rara: sin lineas, con nulos. Se lee con vacios, sin lanzar.
+        check(put(R"({"id":"raro","numero":null,"tipo":"informe","lineas":null,"estado":"entregado","deleted":false})",
+                  "2026-09-27T10:00:02+00:00"),
+              "una fila con nulos tambien entra");
+        check(put(R"({"id":"borrado","tipo":"informe","estado":"entregado","deleted":true})",
+                  "2026-09-27T10:00:03+00:00"),
+              "una lapida entra");
+        check(put(R"({"sin":"id"})", "2026-09-27T10:00:04+00:00") == false,
+              "una fila sin id no entra");
 
-        const storage::QuoteFolderRead read = storage::readQuoteFolder(folder);
-        check(read.folderFound, "la carpeta se encuentra");
-        checkMinor(static_cast<int>(read.docs.size()), 2, "se leen los dos documentos buenos");
-        check(read.errors.size() == 1 && read.errors.front().startsWith(QStringLiteral("roto.json")),
-              "y el roto queda anotado como error, sin frenar a los demas");
+        const storage::QuoteRowsRead read = storage::readQuoteRows(repository);
+        checkMinor(static_cast<int>(read.docs.size()), 3, "tres vivas: la lapida no se lee");
+        check(read.errors.isEmpty(), "sin errores");
 
         const core::QuoteDoc* inf = nullptr;
         const core::QuoteDoc* cot = nullptr;
+        const core::QuoteDoc* raro = nullptr;
         for (const auto& d : read.docs) {
             if (d.id == "i4") inf = &d;
             if (d.id == "c1") cot = &d;
+            if (d.id == "raro") raro = &d;
         }
-        check(inf != nullptr && cot != nullptr, "cada uno con su id");
+        check(inf != nullptr && cot != nullptr && raro != nullptr, "cada una con su id");
         if (inf != nullptr) {
             check(inf->kind == core::QuoteKind::Informe && inf->status == "pagado" &&
                       inf->number == "INF-2026-004",
@@ -573,9 +578,10 @@ int main(int argc, char** argv) {
             checkMinor(inf->baseMinor, 10'00, "35 con 71,44% de descuento: 10");
             checkMinor(inf->depositMinor, 4'00, "el abono");
             checkMinor(inf->balanceMinor(), 6'00, "el saldo");
+            check(inf->issued == (core::Date{2026, 9, 19}), "emision");
             check(inf->received == (core::Date{2026, 7, 17}), "ingreso del equipo");
             check(inf->delivered == (core::Date{2026, 9, 19}), "fecha de entrega");
-            check(inf->paid == (core::Date{2026, 9, 22}), "la fecha de pago sale del historial");
+            check(inf->paid == (core::Date{2026, 9, 22}), "la fecha de pago");
             check(inf->originId == "c1", "su cotizacion de origen");
             check(inf->lines.size() == 2 && inf->lines[1].section == "Repuestos y materiales" &&
                       inf->lines[1].item == "Insumos" && inf->lines[1].totalMinor == 5'00,
@@ -587,11 +593,13 @@ int main(int argc, char** argv) {
             checkMinor(cot->baseMinor, 10'00, "2 x 5, sin descuento");
             check(cot->originId.empty() && !cot->delivered && !cot->paid, "sin origen ni fechas de mas");
         }
-
-        const storage::QuoteFolderRead nothing = storage::readQuoteFolder(temp.path() + QStringLiteral("/no-existe"));
-        check(!nothing.folderFound && nothing.docs.empty(), "sin carpeta: nada, y lo dice");
-        check(storage::defaultQuoteFolder().endsWith(QStringLiteral("/DakeLabs Cotizaciones")),
-              "la carpeta por defecto es la de Cotizaciones en Documentos");
+        if (raro != nullptr) {
+            check(raro->number == "raro" && raro->lines.empty() && raro->baseMinor == 0 &&
+                      raro->client.empty() && !raro->paid,
+                  "la fila con nulos: numero = id, sin lineas ni montos");
+        }
+        repository.wipe();
+        check(repository.loadQuoteRows().empty(), "wipe vacia tambien las cotizaciones");
     }
 
     // --- Recurrentes, herramientas y metadatos ------------------------------

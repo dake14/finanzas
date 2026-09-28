@@ -153,6 +153,16 @@ public:
     bool applyRemote(const core::Job& incoming);
     bool applyRemote(const core::Movement& incoming);
 
+    /// Una fila de v2_quotes tal como bajo del servidor. Finanzas nunca escribe
+    /// cotizaciones, asi que no hay reloj propio que comparar: manda la fila que
+    /// el servidor marco mas tarde (`updated_at`). Devuelve true si entro o
+    /// cambio algo; false si era mas vieja, igual, o no tenia id.
+    bool applyRemoteQuote(const QString& id, const QString& updatedAt, bool deleted,
+                          const QString& json);
+
+    /// El JSON de cada cotizacion viva, por id.
+    [[nodiscard]] std::vector<QString> loadQuoteRows();
+
     /// Hasta `limit` filas sin enviar, ordenadas por tabla —bolsillos,
     /// trabajos, movimientos— y despues por orden de insercion.
     [[nodiscard]] std::vector<OutboxEntry> pendingOutbox(int limit);

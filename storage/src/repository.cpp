@@ -418,6 +418,44 @@ bool Repository::applyRemote(const core::Movement& incoming) {
     return true;
 }
 
+bool Repository::applyRemoteQuote(const QString& id, const QString& updatedAt, bool deleted,
+                                  const QString& json) {
+    if (id.isEmpty()) {
+        return false;
+    }
+    QSqlQuery check(db_.handle());
+    check.prepare(QStringLiteral("SELECT updated_at, data FROM quotes WHERE id = ?"));
+    check.addBindValue(id);
+    run(check);
+    if (check.next()) {
+        const QString localUpdated = check.value(0).toString();
+        if (updatedAt < localUpdated ||
+            (updatedAt == localUpdated && check.value(1).toString() == json)) {
+            return false;
+        }
+    }
+    QSqlQuery write(db_.handle());
+    write.prepare(QStringLiteral(
+        "INSERT OR REPLACE INTO quotes (id, updated_at, deleted, data) VALUES (?, ?, ?, ?)"));
+    write.addBindValue(id);
+    write.addBindValue(updatedAt);
+    write.addBindValue(deleted ? 1 : 0);
+    write.addBindValue(json);
+    run(write);
+    return true;
+}
+
+std::vector<QString> Repository::loadQuoteRows() {
+    QSqlQuery query(db_.handle());
+    query.prepare(QStringLiteral("SELECT data FROM quotes WHERE deleted = 0 ORDER BY id"));
+    run(query);
+    std::vector<QString> out;
+    while (query.next()) {
+        out.push_back(query.value(0).toString());
+    }
+    return out;
+}
+
 std::vector<Repository::OutboxEntry> Repository::pendingOutbox(int limit) {
     QSqlQuery query(db_.handle());
     query.prepare(QStringLiteral(
@@ -972,7 +1010,8 @@ void Repository::wipe() {
         throw StorageError(QStringLiteral("No se pudo abrir la transaccion de borrado."));
     }
     for (const QString& table :
-         {QStringLiteral("movements"), QStringLiteral("jobs"), QStringLiteral("pockets")}) {
+         {QStringLiteral("quotes"), QStringLiteral("movements"), QStringLiteral("jobs"),
+          QStringLiteral("pockets")}) {
         QSqlQuery query(db_.handle());
         query.prepare(QStringLiteral("DELETE FROM %1").arg(table));
         if (!query.exec()) {
