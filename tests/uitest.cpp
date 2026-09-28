@@ -427,6 +427,23 @@ int main(int argc, char** argv) {
                       }) == 1,
                   "farmacia pagada con la caja: sueldo de 12 y gasto personal de 12");
 
+            // 7b. El bolsillo por defecto es el ultimo usado para ese tipo, al
+            //     toque: un gasto desde Mio, ida y vuelta a Ingreso, y vuelve Mio.
+            QTest::keyClick(amount, Qt::Key_G, Qt::AltModifier);
+            settle();
+            from->setCurrentIndex(from->findData(QStringLiteral("p-personal")));
+            category->lineEdit()->clear();
+            type(amount, QStringLiteral("4"));
+            type(category->lineEdit(), QStringLiteral("Farmacia"));
+            QTest::keyClick(amount, Qt::Key_Return);
+            settle();
+            QTest::keyClick(amount, Qt::Key_I, Qt::AltModifier);
+            settle();
+            QTest::keyClick(amount, Qt::Key_G, Qt::AltModifier);
+            settle();
+            check(from->currentData().toString() == QStringLiteral("p-personal"),
+                  "volver a Gasto propone el bolsillo del ultimo gasto");
+
             // 8. Un bolsillo archivado no se ofrece.
             bool archivedOffered = false;
             for (const core::Pocket& pk : repository.loadPockets()) {

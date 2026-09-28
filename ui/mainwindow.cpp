@@ -407,10 +407,12 @@ void MainWindow::buildUi() {
     const auto wire = [this](EntryForm* form, bool mini) {
         connect(form, &EntryForm::submitted, this,
                 [this, form, mini](const core::Movement& m, const core::Category& c, bool keepOpen) {
+                    // Antes de guardar: guardar recarga, y la recarga tiene que
+                    // ver ya el bolsillo recien usado para ese tipo.
+                    rememberPockets(m);
                     if (!addMovement(m, c)) {
                         return;
                     }
-                    rememberPockets(m);
                     const QString summary = savedSummary(m);
                     form->confirmSaved(summary);
                     if (mini && !keepOpen) {
