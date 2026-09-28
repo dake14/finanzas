@@ -30,7 +30,6 @@ namespace dake::ui {
 
 class TodayPage;
 class RepairsPage;
-class ReviewPage;
 class MovementsPage;
 class PocketsPage;
 class CaptureWindow;
@@ -95,17 +94,10 @@ private slots:
     /// si cambio el dia con la aplicacion abierta) y al editar un recurrente.
     void generateRecurring();
 
-    /// Si ya paso la hora del recordatorio de esta semana y hay pendientes,
-    /// avisa en la bandeja del sistema. Una vez por semana.
-    void checkReminder();
-
-    void setMovementCategory(const dake::core::Id& movementId, const QString& category);
     void confirmRecurring(const dake::core::Id& movementId, qint64 amountMinor);
-    void setToolLife(const dake::core::Id& movementId, int months);
     void setRealHours(const dake::core::Id& jobId, int minutes);
     void setPartCost(const dake::core::Id& partId, qint64 costMinor);
     void snooze(const std::string& id, int days);
-    void deleteMovementById(const dake::core::Id& movementId);
 
     void reconcile(const dake::core::Id& pocketId);
     void editMovement(const dake::core::Id& movementId);
@@ -253,7 +245,6 @@ private:
     QList<QPushButton*> navButtons_;
     TodayPage* today_ = nullptr;
     RepairsPage* repairs_ = nullptr;
-    ReviewPage* review_ = nullptr;
     QTimer* hourlyTimer_ = nullptr;
     MovementsPage* movements_ = nullptr;
     PocketsPage* pockets_ = nullptr;

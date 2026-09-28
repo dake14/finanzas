@@ -21,7 +21,8 @@ set(DAKE_UI_SOURCES
     movementspage.cpp
     pocketspage.cpp
     reportspage.cpp
-    reviewpage.cpp
+    pendinglist.cpp
+    pendinglist.hpp
     settingspage.cpp
     entryform.cpp
     entryform.hpp

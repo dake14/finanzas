@@ -19,6 +19,7 @@
 #include "dake/core/repairs.hpp"
 #include "pages.hpp"
 #include "entryform.hpp"
+#include "pendinglist.hpp"
 #include "theme.hpp"
 
 namespace dake::ui {
@@ -137,6 +138,12 @@ void TodayPage::buildUi() {
     entry_ = new EntryForm(entryCard_);
     entryCard_->addContent(entry_);
     layout->addWidget(entryCard_);
+
+    // --- Lo que pide accion ------------------------------------------------
+    auto* pendingCard = new Card(QStringLiteral("PENDIENTES"), page);
+    pending_ = new PendingList(pendingCard);
+    pendingCard->addContent(pending_);
+    layout->addWidget(pendingCard);
 
     // --- Las tres preguntas ----------------------------------------------------
     auto* questions = new QHBoxLayout();
@@ -429,6 +436,7 @@ void TodayPage::setSnapshot(const Snapshot& snapshot) {
     }
 
     entry_->setSnapshot(snapshot);
+    pending_->setSnapshot(snapshot);
 
     // ¿Subir precios? El peor tipo de los ultimos seis meses, si hay alguno
     // bajo el objetivo.

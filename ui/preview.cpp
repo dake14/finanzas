@@ -153,19 +153,6 @@ namespace {
         page->showTab(screen.section(QLatin1Char(':'), 1).toInt());
         return page;
     }
-    if (screen == QLatin1String("revision")) {
-        dake::ui::Snapshot withInbox = snapshot;
-        dake::core::InboxInput in;
-        in.movements = snapshot.movements;
-        in.repairs = snapshot.repairs;
-        in.parts = snapshot.parts;
-        in.quoteHolds = 2;
-        in.today = snapshot.today;
-        withInbox.inbox = dake::core::inbox(in);
-        auto page = std::make_unique<dake::ui::ReviewPage>();
-        page->setSnapshot(withInbox);
-        return page;
-    }
     if (screen == QLatin1String("ajustes")) {
         auto page = std::make_unique<dake::ui::SettingsPage>();
         page->setSnapshot(snapshot);
@@ -223,7 +210,7 @@ int main(int argc, char** argv) {
     if (arguments.size() < 2 || (arguments.size() < 3 && arguments.at(1) != QLatin1String("cotizaciones"))) {
         std::cout << "Uso: dake_uipreview <pantalla|todas> <salida.png|carpeta> "
                      "[ancho] [alto] [--oscuro]\n"
-                  << "Pantallas: hoy | reparaciones | movimientos | bolsillos | revision | reportes | ajustes | todas\n";
+                  << "Pantallas: hoy | reparaciones | movimientos | bolsillos | reportes | ajustes | todas\n";
         return 2;
     }
 
@@ -312,7 +299,7 @@ int main(int argc, char** argv) {
         bool ok = true;
         for (const QString& one : {QStringLiteral("hoy"), QStringLiteral("reparaciones"),
                                    QStringLiteral("movimientos"), QStringLiteral("bolsillos"),
-                                   QStringLiteral("revision"), QStringLiteral("reportes"),
+                                   QStringLiteral("reportes"),
                                    QStringLiteral("ajustes")}) {
             ok = render(one, output + QLatin1Char('/') + one + QStringLiteral(".png"), width,
                         height, snapshot) &&

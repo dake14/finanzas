@@ -115,20 +115,18 @@ struct FixedRate {
 // ------------------------------------------------------------------ Bandeja
 
 enum class InboxKind {
-    SinCategoria,      ///< un movimiento sin categoria
     PorConfirmar,      ///< un recurrente generado solo
-    Sugerido,          ///< un importado con categoria sugerida
-    VidaUtil,          ///< una herramienta nueva: cuantos meses dura
     Cotizaciones,      ///< documentos de Cotizaciones esperando decision
     PorCobrar,         ///< entregada hace mas de 7 dias y sin cobrar
     SinEntregar,       ///< en proceso hace mas de 14 dias
     SinHoras,          ///< entregada sin horas reales
-    CostoRepuesto      ///< un repuesto sin costo
+    CostoRepuesto,     ///< un repuesto sin costo
+    SinCuadrar         ///< un bolsillo que no se cuadra hace mas de 30 dias
 };
 
 struct InboxItem {
-    InboxKind kind = InboxKind::SinCategoria;
-    Id refId;  ///< el movimiento, la reparacion (jobId) o el repuesto
+    InboxKind kind = InboxKind::PorConfirmar;
+    Id refId;  ///< el movimiento, la reparacion (jobId), el repuesto o el bolsillo
     int days = 0;  ///< dias de atraso, cuando aplica
 };
 
@@ -137,15 +135,22 @@ struct InboxInput {
     std::vector<MovementMeta> metas;
     std::vector<Repair> repairs;
     std::vector<RepairPart> parts;
+    std::vector<Pocket> pockets;
+    /// La ultima vez que se cuadro cada bolsillo.
+    std::vector<std::pair<Id, Date>> lastReconciled;
+    /// Desde cuando se cuenta un bolsillo que nunca se cuadro.
+    Date reconcileSince;
     int quoteHolds = 0;
-    /// Lo pospuesto: id -> hasta cuando no se muestra.
+    /// Lo pospuesto: clave -> hasta cuando no se muestra. La clave es el id,
+    /// salvo "jobId:horas", "pocketId:cuadrar" y "cotizaciones".
     std::vector<std::pair<Id, Date>> snoozed;
     Date today;
 };
 
 /// En el orden en que conviene resolverlo: primero lo que ensucia los
-/// numeros (sin categoria, por confirmar), despues lo que cuesta plata (por
-/// cobrar), al final lo que solo afina (horas, costos de repuestos).
+/// numeros (por confirmar, cotizaciones), despues lo que cuesta plata (por
+/// cobrar), despues lo que solo afina (horas, costos de repuestos), y al final
+/// los bolsillos que hace mas de 30 dias que no se comparan con la realidad.
 [[nodiscard]] std::vector<InboxItem> inbox(const InboxInput& input);
 
 } // namespace dake::core

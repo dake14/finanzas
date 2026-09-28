@@ -144,23 +144,12 @@ std::vector<InboxItem> inbox(const InboxInput& input) {
 
     // Lo que ensucia los numeros.
     for (const Movement& m : input.movements) {
-        const bool uncategorized = m.category.empty() || m.category == kUncategorized;
-        if (!m.deleted && m.kind != MovementKind::Traspaso && uncategorized && !isSnoozed(input, m.id)) {
-            add(InboxKind::SinCategoria, m.id);
+        const MovementMeta* meta = metaOf(input.metas, m.id);
+        if (!m.deleted && meta != nullptr && meta->review == "confirmar" && !isSnoozed(input, m.id)) {
+            add(InboxKind::PorConfirmar, m.id);
         }
     }
-    for (const std::pair<const char*, InboxKind> review :
-         {std::pair{"confirmar", InboxKind::PorConfirmar}, std::pair{"sugerido", InboxKind::Sugerido},
-          std::pair{"vida", InboxKind::VidaUtil}}) {
-        for (const Movement& m : input.movements) {
-            const MovementMeta* meta = metaOf(input.metas, m.id);
-            if (!m.deleted && meta != nullptr && meta->review == review.first &&
-                !isSnoozed(input, m.id)) {
-                add(review.second, m.id);
-            }
-        }
-    }
-    if (input.quoteHolds > 0) {
+    if (input.quoteHolds > 0 && !isSnoozed(input, "cotizaciones")) {
         add(InboxKind::Cotizaciones, Id(), input.quoteHolds);
     }
 
@@ -190,6 +179,20 @@ std::vector<InboxItem> inbox(const InboxInput& input) {
         if (!p.costKnown && !isSnoozed(input, p.id)) {
             add(InboxKind::CostoRepuesto, p.id);
         }
+    }
+
+    // Lo unico que se puede contar a mano: si hace mas de 30 dias que no se
+    // compara, el saldo deja de ser creible.
+    for (const Pocket& p : input.pockets) {
+        if (p.archived || isSnoozed(input, p.id + ":cuadrar")) {
+            continue;
+        }
+        Date last = input.reconcileSince;
+        for (const auto& [id, date] : input.lastReconciled) {
+            if (id == p.id) last = date;
+        }
+        const auto days = static_cast<int>(today - last.toEpochDays());
+        if (days > 30) add(InboxKind::SinCuadrar, p.id, days);
     }
     return out;
 }

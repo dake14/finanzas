@@ -42,11 +42,6 @@ struct Snapshot {
     core::SalaryAdvice salary;
     int fallbackMinutesPerMonth = 4800;
     std::vector<core::InboxItem> inbox;
-    int reminderWeekday = 6;  ///< 0 = lunes; 6 = domingo
-    int reminderHour = 18;
-    /// Mediana de lo que tarda una revision completa, en ms. -1 sin datos.
-    qint64 reviewMedianMs = -1;
-    qint64 repairMedianMs = -1;
 
     [[nodiscard]] const core::Movement* movement(const core::Id& id) const {
         const auto it = std::find_if(movements.begin(), movements.end(),

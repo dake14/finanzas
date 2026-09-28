@@ -211,8 +211,8 @@ void SettingsPage::buildUi() {
     // --- Gastos fijos y herramientas ---------------------------------------------
     auto* fixedCard = new Card(QStringLiteral("GASTOS FIJOS DEL TALLER"), page);
     fixedCard->setSubtitle(
-        QStringLiteral("Se anotan solos cada mes con el monto estimado y quedan por confirmar en la "
-                       "Revisión. Si pagas algo fijo que no está acá, agrégalo: sin eso, la tasa de "
+        QStringLiteral("Se anotan solos cada mes con el monto estimado y quedan por confirmar en los "
+                       "pendientes de Hoy. Si pagas algo fijo que no está acá, agrégalo: sin eso, la tasa de "
                        "fijos por hora sale baja."));
     fixedSummary_ = new QLabel(fixedCard);
     fixedSummary_->setWordWrap(true);
@@ -276,38 +276,6 @@ void SettingsPage::buildUi() {
     hoursLayout->addStretch(1);
     fixedCard->addContent(hoursRow);
     layout->addWidget(fixedCard);
-
-    // --- Revision de la semana ---------------------------------------------------
-    auto* reviewCard = new Card(QStringLiteral("REVISIÓN DE LA SEMANA"), page);
-    reviewCard->setSubtitle(QStringLiteral("Un aviso en la bandeja del sistema si hay pendientes. Si la "
-                                           "computadora estaba apagada, avisa al encenderla."));
-    auto* reminderRow = new QWidget(reviewCard);
-    auto* reminderLayout = new QHBoxLayout(reminderRow);
-    reminderLayout->setContentsMargins(0, 0, 0, 0);
-    reminderDay_ = new QComboBox(reminderRow);
-    reminderDay_->addItems({QStringLiteral("lunes"), QStringLiteral("martes"), QStringLiteral("miércoles"),
-                            QStringLiteral("jueves"), QStringLiteral("viernes"), QStringLiteral("sábado"),
-                            QStringLiteral("domingo")});
-    reminderHour_ = new QComboBox(reminderRow);
-    for (int h = 6; h <= 22; ++h) reminderHour_->addItem(QStringLiteral("%1:00").arg(h), h);
-    auto emitReminder = [this] {
-        if (!filling_) emit reminderChanged(reminderDay_->currentIndex(), reminderHour_->currentData().toInt());
-    };
-    connect(reminderDay_, &QComboBox::currentIndexChanged, this, emitReminder);
-    connect(reminderHour_, &QComboBox::currentIndexChanged, this, emitReminder);
-    auto* every = new QLabel(QStringLiteral("Cada"), reminderRow);
-    every->setFont(theme::bodyFont(10));
-    theme::setLabelColor(every, theme::kTextMuted);
-    reminderLayout->addWidget(every);
-    reminderLayout->addWidget(reminderDay_);
-    reminderLayout->addWidget(reminderHour_);
-    reminderLayout->addStretch(1);
-    reviewCard->addContent(reminderRow);
-    timings_ = new QLabel(reviewCard);
-    timings_->setWordWrap(true);
-    timings_->setFont(theme::bodyFont(10));
-    reviewCard->addContent(timings_);
-    layout->addWidget(reviewCard);
 
     // --- DakeLabs Cotizaciones ------------------------------------------------
     auto* quotesCard = new Card(QStringLiteral("DAKELABS COTIZACIONES"), page);
@@ -698,20 +666,7 @@ void SettingsPage::refillFixed() {
     }
 
     if (!hoursPerMonth_->hasFocus()) hoursPerMonth_->setText(hoursText(snapshot_.fallbackMinutesPerMonth));
-    reminderDay_->setCurrentIndex(std::clamp(snapshot_.reminderWeekday, 0, 6));
-    reminderHour_->setCurrentIndex(std::max(0, reminderHour_->findData(snapshot_.reminderHour)));
 
-    QStringList lines;
-    lines << (snapshot_.repairMedianMs < 0
-                  ? QStringLiteral("Alta de reparación: sin medir todavía (meta: menos de 30 s).")
-                  : QStringLiteral("Alta de reparación: %1 s de mediana (meta: menos de 30).")
-                        .arg(seconds(snapshot_.repairMedianMs)));
-    lines << (snapshot_.reviewMedianMs < 0
-                  ? QStringLiteral("Revisión completa: sin medir todavía (meta: menos de 5 minutos).")
-                  : QStringLiteral("Revisión completa: %1 s de mediana (meta: menos de 300).")
-                        .arg(seconds(snapshot_.reviewMedianMs)));
-    timings_->setText(lines.join(QLatin1Char('\n')));
-    theme::setLabelColor(timings_, theme::kTextMuted);
     filling_ = false;
 }
 

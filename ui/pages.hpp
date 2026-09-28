@@ -35,6 +35,7 @@ class Card;
 class CategoryBox;
 class KpiCard;
 class EntryForm;
+class PendingList;
 
 /// Barra apilada de una sola linea: con que se pago el mes. Se pinta a mano
 /// porque son dos rectangulos y una leyenda, y traer una libreria de graficos
@@ -65,11 +66,13 @@ public:
 
     void setSnapshot(const Snapshot& snapshot);
     [[nodiscard]] EntryForm* entry() const noexcept { return entry_; }
+    [[nodiscard]] PendingList* pending() const noexcept { return pending_; }
 
 private:
     void buildUi();
 
     EntryForm* entry_ = nullptr;
+    PendingList* pending_ = nullptr;
     Card* entryCard_ = nullptr;
 
     // --- Las tres preguntas ------------------------------------------------
@@ -262,61 +265,6 @@ private:
     QLabel* salaryMonths_ = nullptr;
 };
 
-/// La revision de la semana: un pendiente por vez, con la sugerencia puesta.
-class ReviewPage : public QWidget {
-    Q_OBJECT
-
-public:
-    explicit ReviewPage(QWidget* parent = nullptr);
-
-    void setSnapshot(const Snapshot& snapshot);
-    /// Empieza una revision: olvida lo saltado y arranca el cronometro.
-    void startReview();
-
-signals:
-    void categorySet(const dake::core::Id& movementId, const QString& category);
-    void recurringConfirmed(const dake::core::Id& movementId, qint64 amountMinor);
-    void toolLifeSet(const dake::core::Id& movementId, int months);
-    void quotesReviewRequested();
-    void chargeRequested(const dake::core::Id& jobId);
-    void repairOpened(const dake::core::Id& jobId);
-    void realHoursSet(const dake::core::Id& jobId, int minutes);
-    void partCostSet(const dake::core::Id& partId, qint64 costMinor);
-    void snoozed(const std::string& id, int days);
-    void movementDeleted(const dake::core::Id& movementId);
-    /// La bandeja quedo vacia: lo que tardo la revision, para el criterio de
-    /// los cinco minutos.
-    void reviewFinished(qint64 elapsedMs);
-
-protected:
-    bool eventFilter(QObject* watched, QEvent* event) override;
-
-private:
-    void buildUi();
-    void showCurrent();
-    void focusInput();
-    void acceptCurrent();
-    void skipCurrent();
-    void snoozeCurrent();
-    void deleteCurrent();
-    [[nodiscard]] const core::InboxItem* current() const;
-    [[nodiscard]] static std::string keyOf(const core::InboxItem& item);
-
-    Snapshot snapshot_;
-    std::set<std::string> skipped_;
-    QElapsedTimer clock_;
-
-    QLabel* summary_ = nullptr;
-    Card* card_ = nullptr;
-    QLabel* kind_ = nullptr;
-    QLabel* title_ = nullptr;
-    QLabel* detail_ = nullptr;
-    CategoryBox* category_ = nullptr;
-    QLineEdit* value_ = nullptr;
-    QPushButton* accept_ = nullptr;
-    QLabel* upcoming_ = nullptr;
-};
-
 /// Todo lo que se configura una vez y no se vuelve a mirar.
 class SettingsPage : public QWidget {
     Q_OBJECT
@@ -344,7 +292,6 @@ signals:
     void toolAdded();
     void toolRemoved(const dake::core::Id& id);
     void fallbackHoursChanged(int minutesPerMonth);
-    void reminderChanged(int weekday, int hour);
     void splitChanged(const dake::core::ProfitSplit& split);
     /// Se eligio otro tema en la tarjeta Apariencia.
     void themeChanged(dake::ui::theme::Tema tema);
@@ -381,9 +328,6 @@ private:
     QTableWidget* recurring_ = nullptr;
     QTableWidget* tools_ = nullptr;
     QLineEdit* hoursPerMonth_ = nullptr;
-    QComboBox* reminderDay_ = nullptr;
-    QComboBox* reminderHour_ = nullptr;
-    QLabel* timings_ = nullptr;
     bool filling_ = false;
 };
 

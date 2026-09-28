@@ -4,6 +4,7 @@
 // Mismo estilo que selftest.cpp: sin framework, una linea por comprobacion, y
 // devuelve 0 si todo pasa.
 
+#include <algorithm>
 #include <cstdio>
 
 #if defined(_MSC_VER) && defined(_DEBUG)
@@ -1098,12 +1099,14 @@ void bandeja() {
         if (kind == MovementKind::Traspaso) m.targetPocketId = "mio";
         return m;
     };
-    Movement borrado = mov("borrado", "");
+    Movement borrado = mov("borrado", "Luz");
     borrado.deleted = true;
+    // "sin" (sin categoria), "sug" (sugerido del banco) y "vida" (vida util)
+    // ya no son pendientes: esos tipos se fueron con el recorte.
     in.movements = {mov("sin", ""), mov("conf", "Luz"), mov("sug", "Comida"), mov("vida", "Herramientas"),
                     mov("sueldo", "", MovementKind::Traspaso), borrado};
     in.metas = {{"conf", "Recurrente", "confirmar"}, {"sug", "Importado", "sugerido"},
-                {"vida", "Manual", "vida"}};
+                {"vida", "Manual", "vida"}, {"borrado", "Recurrente", "confirmar"}};
     auto rep = [](const char* id, RepairStatus status, const char* received, const char* delivered,
                   std::optional<int> real) {
         Repair r;
@@ -1125,42 +1128,65 @@ void bandeja() {
     in.parts = {sinCosto};
     in.quoteHolds = 2;
 
+    // Bolsillos: la caja nunca se cuadro, el viejo esta archivado y el fondo
+    // se cuadro hace exactamente 30 dias.
+    auto pocketNamed = [](const char* id) {
+        Pocket p;
+        p.id = id;
+        p.name = id;
+        p.kind = PocketKind::Operacion;
+        return p;
+    };
+    in.pockets = {pocketNamed("caja"), pocketNamed("viejo"), pocketNamed("fondo")};
+    in.pockets[1].archived = true;
+    in.reconcileSince = Date{2026, 8, 1};
+    in.lastReconciled = {{"fondo", Date{2026, 8, 26}}};
+
     const auto items = inbox(in);
     std::vector<InboxKind> kinds;
     for (const auto& item : items) kinds.push_back(item.kind);
-    const std::vector<InboxKind> want{InboxKind::SinCategoria, InboxKind::PorConfirmar,
-                                      InboxKind::Sugerido,     InboxKind::VidaUtil,
-                                      InboxKind::Cotizaciones, InboxKind::PorCobrar,
-                                      InboxKind::SinEntregar,  InboxKind::SinHoras,
-                                      InboxKind::CostoRepuesto};
-    check(kinds == want, "nueve pendientes, en el orden en que conviene resolverlos");
-    if (items.size() == 9) {
-        check(items[0].refId == "sin", "sin categoria: el gasto, no el traspaso ni el borrado");
-        check(items[5].refId == "A" && items[5].days == 15,
+    const std::vector<InboxKind> want{InboxKind::PorConfirmar, InboxKind::Cotizaciones,
+                                      InboxKind::PorCobrar,    InboxKind::SinEntregar,
+                                      InboxKind::SinHoras,     InboxKind::CostoRepuesto,
+                                      InboxKind::SinCuadrar};
+    check(kinds == want, "siete pendientes; sin categoria, sugerido y vida util ya no existen");
+    if (items.size() == 7) {
+        check(items[0].refId == "conf", "por confirmar: el recurrente, no el borrado");
+        check(items[2].refId == "A" && items[2].days == 15,
               "por cobrar: la entregada hace 15 dias, no la de hace 5");
-        check(items[6].refId == "C" && items[6].days == 24, "en proceso hace 24 dias");
-        check(items[7].refId == "D", "cobrada sin horas reales");
-        check(items[8].refId == "p1", "un repuesto sin costo");
+        check(items[3].refId == "C" && items[3].days == 24, "en proceso hace 24 dias");
+        check(items[4].refId == "D", "cobrada sin horas reales");
+        check(items[5].refId == "p1", "un repuesto sin costo");
+        check(items[6].refId == "caja" && items[6].days == 55,
+              "la caja nunca se cuadro: cuenta desde el inicio, 55 dias");
     }
+    auto has = [](const std::vector<InboxItem>& list, InboxKind kind, const char* id) {
+        return std::any_of(list.begin(), list.end(), [&](const InboxItem& i) {
+            return i.kind == kind && i.refId == id;
+        });
+    };
+    check(!has(items, InboxKind::SinCuadrar, "viejo"), "un bolsillo archivado nunca queda sin cuadrar");
+    check(!has(items, InboxKind::SinCuadrar, "fondo"), "cuadrado hace 30 dias: todavia no");
 
-    in.snoozed = {{"A", Date{2026, 9, 30}}};
-    in.quoteHolds = 0;
-    const auto later = inbox(in);
-    bool hasA = false;
-    bool hasQuotes = false;
-    for (const auto& item : later) {
-        hasA = hasA || item.refId == "A";
-        hasQuotes = hasQuotes || item.kind == InboxKind::Cotizaciones;
-    }
-    check(!hasA, "lo pospuesto hasta el 30 no aparece el 25");
+    InboxInput later = in;
+    later.lastReconciled = {{"fondo", Date{2026, 8, 25}}};
+    check(has(inbox(later), InboxKind::SinCuadrar, "fondo"), "a los 31 dias, si");
 
-    InboxInput viejo;
-    viejo.today = Date{2026, 9, 25};
-    viejo.movements = {mov("legado", "Sin categoria")};
-    const auto legado = inbox(viejo);
-    check(legado.size() == 1 && legado[0].kind == InboxKind::SinCategoria,
-          "un movimiento con \"Sin categoria\" escrito tambien esta sin categoria");
-    check(!hasQuotes, "sin documentos esperando, no hay renglon de Cotizaciones");
+    later.snoozed = {{"A", Date{2026, 9, 30}}, {"caja:cuadrar", Date{2026, 9, 30}},
+                     {"cotizaciones", Date{2026, 9, 30}}};
+    const auto snoozed = inbox(later);
+    check(!has(snoozed, InboxKind::PorCobrar, "A"), "lo pospuesto hasta el 30 no aparece el 25");
+    check(!has(snoozed, InboxKind::SinCuadrar, "caja"), "tampoco un bolsillo pospuesto");
+    check(std::none_of(snoozed.begin(), snoozed.end(),
+                       [](const InboxItem& i) { return i.kind == InboxKind::Cotizaciones; }),
+          "ni las cotizaciones pospuestas");
+
+    InboxInput sinDocs = in;
+    sinDocs.quoteHolds = 0;
+    const auto noQuotes = inbox(sinDocs);
+    check(std::none_of(noQuotes.begin(), noQuotes.end(),
+                       [](const InboxItem& i) { return i.kind == InboxKind::Cotizaciones; }),
+          "sin documentos esperando, no hay renglon de Cotizaciones");
 }
 
 

@@ -22,6 +22,7 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QMessageBox>
+#include <QPushButton>
 #include <QTemporaryDir>
 #include <QTest>
 #include <QTimer>
@@ -40,6 +41,7 @@
 #include "dake/storage/database.hpp"
 #include "dake/storage/repository.hpp"
 #include "entryform.hpp"
+#include "pendinglist.hpp"
 #include "mainwindow.hpp"
 #include "pages.hpp"
 #include "theme.hpp"
@@ -581,8 +583,8 @@ int main(int argc, char** argv) {
         check(findMovement(qrepo.loadMovements(), "cot-i2-saldo") == nullptr, "y no entra");
     }
 
-    // --- Revision de la semana -------------------------------------------------
-    std::printf("\n[revision de la semana, con el teclado]\n");
+    // --- Pendientes en Hoy ------------------------------------------------------
+    std::printf("\n[pendientes en Hoy]\n");
     {
         const QString reviewPath = temp.path() + QStringLiteral("/revision.db");
         const QDate now = QDate::currentDate();
@@ -604,6 +606,8 @@ int main(int argc, char** argv) {
             repo.saveRecurring(luz);
             repo.saveCategory({"Herramientas", core::Account::Negocio, core::CategoryClass::Activo,
                                core::MovementKind::Gasto});
+            repo.setSetting(QStringLiteral("recorte.inicio"),
+                            QString::fromStdString(today.addDays(-40).toIso()));
         }
         qputenv("DAKE_TEST_DB_PATH", reviewPath.toLocal8Bit());
         ui::MainWindow reviewWindow(reviewPath);
@@ -635,67 +639,89 @@ int main(int argc, char** argv) {
         check(tools.size() == 1 && tools[0].costMinor == 300'00 && tools[0].lifeMonths == 24,
               "una compra de Herramientas se da de alta como herramienta, a 24 meses");
 
-        // A la revision, con Ctrl+4.
-        QTest::keyClick(&reviewWindow, Qt::Key_4, Qt::ControlModifier);
-        settle();
-        auto* review = reviewWindow.findChild<ui::ReviewPage*>();
-        check(review != nullptr && review->isVisible(), "Ctrl+4 abre la revision");
-
-        auto typeInFocus = [](const QString& text) {
-            QWidget* focus = QApplication::focusWidget();
-            if (focus == nullptr) {
-                check(false, "sin foco para escribir " + text.toStdString());
-                return;
-            }
-            if (auto* edit = qobject_cast<QLineEdit*>(focus)) edit->selectAll();
-            if (!text.isEmpty()) QTest::keyClicks(focus, text);
-            QTest::keyClick(QApplication::focusWidget(), Qt::Key_Return);
-            settle();
-        };
-
-        // El caso sembrado trae movimientos sin categoria; se resuelven todos
-        // con la sugerencia o con "Varios". Despues la luz y la herramienta.
-        int guard = 0;
-        for (;;) {
-            const auto metas = rrepo.loadMovementMeta();
-            bool uncategorized = false;
-            for (const core::Movement& m : rrepo.loadMovements()) {
-                if (m.kind != core::MovementKind::Traspaso && m.category.empty()) uncategorized = true;
-            }
-            if (!uncategorized || ++guard > 20) break;
-            typeInFocus(QStringLiteral("Varios"));
+        // --- Hoy: los pendientes, todos a la vista --------------------------
+        QList<QPushButton*> nav;
+        for (QPushButton* b : reviewWindow.findChildren<QPushButton*>(QStringLiteral("NavButton"))) {
+            if (!b->isCheckable()) continue;  // Conectar y Sincronizar no son secciones
+            nav << b;
         }
-        check(guard <= 20, "los movimientos sin categoria se resuelven escribiendola y Enter");
+        bool reviewInNav = false;
+        for (QPushButton* b : nav) reviewInNav = reviewInNav || b->text().startsWith(QStringLiteral("Revisi"));
+        {
+            QStringList navTexts;
+            for (QPushButton* b : nav) navTexts << b->text();
+            std::printf("      (barra: %s)\n", navTexts.join(QStringLiteral(" | ")).toStdString().c_str());
+        }
+        check(nav.size() == 6 && !reviewInNav, "la barra tiene seis secciones y ya no esta Revision");
+        check(reviewWindow.findChild<ui::PendingList*>() != nullptr, "los pendientes estan en Hoy");
 
-        typeInFocus(QStringLiteral("45"));  // primer mes: la factura vino por 45
-        typeInFocus(QString());             // los otros dos: Enter
-        typeInFocus(QString());
+        auto rows = [&reviewWindow](const QString& kind) {
+            QList<QWidget*> out;
+            for (QWidget* w : reviewWindow.findChildren<QWidget*>(QStringLiteral("Pending:") + kind)) {
+                if (w->isVisibleTo(&reviewWindow)) out << w;
+            }
+            return out;
+        };
+        const int pocketsOpen = static_cast<int>(rrepo.loadPockets().size());
+        check(rows(QStringLiteral("PorConfirmar")).size() == 3,
+              "los tres meses de luz estan a la vista a la vez, no de a uno");
+        check(rows(QStringLiteral("SinCuadrar")).size() == pocketsOpen,
+              "y cada bolsillo sin cuadrar hace mas de 30 dias");
+
+        // Confirmar el primero con otro monto, desde su fila.
+        if (!rows(QStringLiteral("PorConfirmar")).isEmpty()) {
+            auto* value = rows(QStringLiteral("PorConfirmar")).front()->findChild<QLineEdit*>(QStringLiteral("PendingValue"));
+            check(value != nullptr, "la fila trae el monto para corregir");
+            if (value != nullptr) {
+                value->setFocus();
+                value->selectAll();
+                QTest::keyClicks(value, QStringLiteral("45"));
+                QTest::keyClick(value, Qt::Key_Return);
+                settle();
+            }
+        }
         int pendingLight = 0;
-        std::int64_t firstAmount = 0;
+        int at45 = 0;
         for (const core::MovementMeta& m : rrepo.loadMovementMeta()) {
             if (m.recurringId == "R-luz" && m.review == "confirmar") ++pendingLight;
         }
         for (const core::Movement& m : rrepo.loadMovements()) {
-            if (m.id == "rec-R-luz-" + core::periodOf(today.firstDayOfMonth().addMonths(-2))) {
-                firstAmount = m.amountMinor;
-            }
+            if (m.name == "Luz" && m.amountMinor == 45'00) ++at45;
         }
-        check(pendingLight == 0, "la luz queda confirmada los tres meses");
-        check(firstAmount == 45'00, "el primer mes, con el monto corregido");
+        check(pendingLight == 2 && at45 == 1, "un mes de luz queda confirmado en 45,00; los otros dos siguen");
         const auto recurring = rrepo.loadRecurring();
         check(!recurring.empty() && recurring[0].amountMinor == 45'00,
               "y 45 pasa a ser el estimado del mes que viene");
+        check(rows(QStringLiteral("PorConfirmar")).size() == 2 &&
+                  rows(QStringLiteral("SinCuadrar")).size() == pocketsOpen,
+              "la fila resuelta desaparece y las demas siguen en su lugar");
 
-        // Lo que queda (reparaciones del caso sembrado sin horas, un cobro
-        // atrasado) se pospone una semana con Ctrl+P.
-        for (int i = 0; i < 20 && rrepo.timingMedian(QStringLiteral("revision")) < 0; ++i) {
-            QTest::keyClick(&reviewWindow, Qt::Key_P, Qt::ControlModifier);
+        // Cuadrar un bolsillo desde su fila: el dialogo de siempre, Enter.
+        if (!rows(QStringLiteral("SinCuadrar")).isEmpty()) {
+            onNextDialog([](QWidget* dialog) { QTest::keyClick(dialog, Qt::Key_Return); });
+            auto* action = rows(QStringLiteral("SinCuadrar")).front()->findChild<QPushButton*>(QStringLiteral("PendingAction"));
+            check(action != nullptr && action->text() == QStringLiteral("Cuadrar"), "la fila dice Cuadrar");
+            if (action != nullptr) QTest::mouseClick(action, Qt::LeftButton);
+            reactivate(&reviewWindow);
+        }
+        bool stamped = false;
+        for (const core::Pocket& pk : rrepo.loadPockets()) {
+            stamped = stamped || rrepo.setting(QStringLiteral("bolsillo.%1.cuadrado")
+                                                   .arg(QString::fromStdString(pk.id)))
+                                     .has_value();
+        }
+        check(stamped && rows(QStringLiteral("SinCuadrar")).size() == pocketsOpen - 1,
+              "cuadrado aunque no haya diferencia: queda la fecha y la fila se va");
+
+        // Despues: una semana.
+        if (!rows(QStringLiteral("SinCuadrar")).isEmpty()) {
+            auto* later = rows(QStringLiteral("SinCuadrar")).front()->findChild<QPushButton*>(QStringLiteral("PendingLater"));
+            if (later != nullptr) QTest::mouseClick(later, Qt::LeftButton);
             settle();
         }
-        check(rrepo.setting(QStringLiteral("bandeja.pospuestos")).has_value(),
-              "Ctrl+P pospone lo que no se quiere resolver hoy");
-        check(rrepo.timingMedian(QStringLiteral("revision")) >= 0,
-              "con la bandeja vacia, la revision quedo cronometrada");
+        check(rows(QStringLiteral("SinCuadrar")).size() == pocketsOpen - 2 &&
+                  rrepo.setting(QStringLiteral("bandeja.pospuestos")).value_or(QString()).contains(QStringLiteral(":cuadrar")),
+              "Despues pospone esa fila una semana");
     }
 
     std::printf("\n[la ventana chica usa el mismo formulario]\n");
