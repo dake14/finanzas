@@ -128,9 +128,6 @@ private:
     QLineEdit* client_ = nullptr;
     QLineEdit* device_ = nullptr;
     QComboBox* type_ = nullptr;
-    QLineEdit* price_ = nullptr;
-    QLineEdit* shipping_ = nullptr;
-    QLineEdit* consumables_ = nullptr;
     QLineEdit* estHours_ = nullptr;
     QLineEdit* realHours_ = nullptr;
     QPushButton* deliver_ = nullptr;

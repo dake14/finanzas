@@ -128,9 +128,7 @@ RepairCosting costRepair(const Repair& repair, const std::vector<RepairPart>& pa
             c.partsIncomplete = true;
         }
     }
-    c.consumables = Money::fromMinor(repair.consumablesMinor, currency);
-    c.shipping = Money::fromMinor(repair.shippingMinor, currency);
-    c.direct = c.parts + c.consumables + c.shipping;
+    c.direct = c.parts;
 
     c.hoursEstimated = !repair.realMinutes.has_value();
     c.minutes = repair.realMinutes.value_or(repair.estMinutes);

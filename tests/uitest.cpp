@@ -520,6 +520,13 @@ int main(int argc, char** argv) {
             check(pill != nullptr && pill->text() == QStringLiteral("Cobrada") &&
                       pill->property("pill").toString() == QStringLiteral("cobrada"),
                   "la ficha muestra la pastilla 'Cobrada'");
+            QStringList fields;
+            for (QLabel* l : repairsPage->findChildren<QLabel*>()) {
+                if (l->isVisibleTo(repairsPage)) fields << l->text();
+            }
+            check(!fields.contains(QStringLiteral("PRECIO")) && !fields.contains(QStringLiteral("CONSUMIBLES")) &&
+                      !fields.contains(QStringLiteral("ENVÍO")) && fields.contains(QStringLiteral("HORAS REALES")),
+                  "la ficha ya no pide precio, consumibles ni envio; si las horas");
         }
     }
 

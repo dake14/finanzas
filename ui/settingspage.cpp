@@ -188,14 +188,13 @@ void SettingsPage::buildUi() {
                        "separados por punto y coma, con su costo al final: \"Esferas BGA 4,00; "
                        "Flux 2,50\". Doble clic para editar."));
     templates_ = makeTable({QStringLiteral("Nombre"), QStringLiteral("Tipo"), QStringLiteral("Precio"),
-                            QStringLiteral("Horas"), QStringLiteral("Consumibles"),
-                            QStringLiteral("Envío"), QStringLiteral("Repuestos típicos"), QString()},
-                           6);
+                            QStringLiteral("Horas"), QStringLiteral("Repuestos típicos"), QString()},
+                           4);
     templates_->setMinimumHeight(200);
     templates_->setEditTriggers(QAbstractItemView::DoubleClicked | QAbstractItemView::EditKeyPressed |
                                 QAbstractItemView::AnyKeyPressed);
     fixColumn(templates_, 1, 130);
-    fixColumn(templates_, 7, 76);
+    fixColumn(templates_, 5, 76);
     connect(templates_, &QTableWidget::itemChanged, this, [this](QTableWidgetItem* item) {
         if (!filling_) emitTemplate(item->row());
     });
@@ -559,16 +558,14 @@ void SettingsPage::refillTemplates() {
 
         setNumber(templates_, row, 2, moneyFieldText(tpl.priceMinor, snapshot_.currency));
         setNumber(templates_, row, 3, tpl.estMinutes > 0 ? hoursText(tpl.estMinutes) : QString());
-        setNumber(templates_, row, 4, moneyFieldText(tpl.consumablesMinor, snapshot_.currency));
-        setNumber(templates_, row, 5, moneyFieldText(tpl.shippingMinor, snapshot_.currency));
-        setText(templates_, row, 6, partsText(tpl.parts, snapshot_.currency));
+        setText(templates_, row, 4, partsText(tpl.parts, snapshot_.currency));
 
         auto* remove = new QPushButton(QStringLiteral("Quitar"), templates_);
         remove->setObjectName(QStringLiteral("GhostButton"));
         remove->setFont(theme::bodyFont(8));
         const core::Id id = tpl.id;
         connect(remove, &QPushButton::clicked, this, [this, id] { emit templateRemoved(id); });
-        templates_->setCellWidget(row, 7, remove);
+        templates_->setCellWidget(row, 5, remove);
     }
     filling_ = false;
 }
@@ -587,9 +584,7 @@ void SettingsPage::emitTemplate(int row) {
     }
     tpl.priceMinor = parseMoneyText(text(2), snapshot_.currency).value_or(0);
     tpl.estMinutes = parseHoursText(text(3)).value_or(0);
-    tpl.consumablesMinor = parseMoneyText(text(4), snapshot_.currency).value_or(0);
-    tpl.shippingMinor = parseMoneyText(text(5), snapshot_.currency).value_or(0);
-    tpl.parts = parsePartsText(text(6), snapshot_.currency);
+    tpl.parts = parsePartsText(text(4), snapshot_.currency);
     emit templateChanged(tpl);
 }
 

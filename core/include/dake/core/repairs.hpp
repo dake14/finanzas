@@ -99,9 +99,9 @@ struct RepairCosting {
     Id jobId;
     Money price;
     Money parts;         ///< repuestos con costo conocido
-    Money consumables;
-    Money shipping;
-    Money direct;        ///< repuestos + consumibles + envio
+    /// Lo directo son solo los repuestos: consumibles y envio ya no se cargan
+    /// por reparacion. Los campos de la ficha quedan en la base y no cuentan.
+    Money direct;
     Money labor;         ///< horas x tarifa
     Money fixedShare;    ///< horas x tasa de fijos
     Money cost;          ///< direct + labor + fixedShare

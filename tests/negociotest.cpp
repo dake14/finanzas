@@ -424,17 +424,19 @@ void costoDeUnaReparacion() {
     checkMinor(c.price.minor(), 90'00, "sin ingreso anotado, el precio es el de la ficha");
     checkMinor(c.parts.minor(), 14'50, "repuestos: 5 + 8 + 1,50");
     check(c.partsIncomplete, "hay un repuesto sin costo: se avisa");
-    checkMinor(c.direct.minor(), 19'50, "directo: repuestos + consumibles 2 + envio 3");
+    // Consumibles y envio ya no se cargan por reparacion (se quitaron de la
+    // ficha): aunque la ficha vieja los tenga, no cuentan.
+    checkMinor(c.direct.minor(), 14'50, "directo: solo los repuestos, sin consumibles ni envio");
     checkMinor(c.labor.minor(), 37'50, "horas: 2,5 h reales x 15");
     checkMinor(c.fixedShare.minor(), 10'00, "fijos: 2,5 h x 4");
-    checkMinor(c.cost.minor(), 67'00, "costo total");
-    checkMinor(c.profit.minor(), 23'00, "ganancia: 90 - 67");
-    check(c.marginBps == 2556, "margen 25,56%");
-    check(c.profitPerHour && c.profitPerHour->minor() == 28'20,
-          "ganancia por hora: (90 - 19,50) / 2,5 h = 28,20");
-    check(c.suggestedPrice && c.suggestedPrice->minor() == 95'71,
-          "precio sugerido: 67 / (1 - 30%) = 95,71");
-    check(c.belowTarget(3000), "queda bajo el objetivo");
+    checkMinor(c.cost.minor(), 62'00, "costo total");
+    checkMinor(c.profit.minor(), 28'00, "ganancia: 90 - 62");
+    check(c.marginBps == 3111, "margen 31,11%");
+    check(c.profitPerHour && c.profitPerHour->minor() == 30'20,
+          "ganancia por hora: (90 - 14,50) / 2,5 h = 30,20");
+    check(c.suggestedPrice && c.suggestedPrice->minor() == 88'57,
+          "precio sugerido: 62 / (1 - 30%) = 88,57");
+    check(!c.belowTarget(3000), "queda sobre el objetivo");
     check(!c.hoursEstimated && c.minutes == 150, "con las horas reales");
 
     std::vector<Movement> conCobro = ms;

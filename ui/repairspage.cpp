@@ -242,9 +242,6 @@ QWidget* RepairsPage::buildPanel() {
     for (const core::RepairType type : core::allRepairTypes()) {
         type_->addItem(typeLabel(type));
     }
-    price_ = new QLineEdit(body);
-    shipping_ = new QLineEdit(body);
-    consumables_ = new QLineEdit(body);
     estHours_ = new QLineEdit(body);
     realHours_ = new QLineEdit(body);
     realHours_->setPlaceholderText(QStringLiteral("sin cargar"));
@@ -258,16 +255,12 @@ QWidget* RepairsPage::buildPanel() {
     place(QStringLiteral("EQUIPO"), device_, 1);
     row += 2;
     place(QStringLiteral("TIPO"), type_, 0);
-    place(QStringLiteral("PRECIO"), price_, 1);
-    row += 2;
-    place(QStringLiteral("CONSUMIBLES"), consumables_, 0);
-    place(QStringLiteral("ENVÍO"), shipping_, 1);
     row += 2;
     place(QStringLiteral("HORAS ESTIMADAS"), estHours_, 0);
     place(QStringLiteral("HORAS REALES"), realHours_, 1);
     bodyLayout->addLayout(grid);
 
-    for (QLineEdit* edit : {client_, device_, price_, shipping_, consumables_, estHours_, realHours_}) {
+    for (QLineEdit* edit : {client_, device_, estHours_, realHours_}) {
         edit->setFont(theme::bodyFont(10));
         connect(edit, &QLineEdit::editingFinished, this, &RepairsPage::saveEdits);
     }
@@ -489,16 +482,13 @@ void RepairsPage::showRepair(const core::Id& jobId) {
     locked_->setVisible(fromQuotes);
     locked_->setText(QStringLiteral("Viene de DakeLabs Cotizaciones: cliente, equipo y precio se "
                                     "corrigen allá, y la entrega y el cobro se marcan allá."));
-    for (QLineEdit* edit : {client_, device_, price_}) {
+    for (QLineEdit* edit : {client_, device_}) {
         edit->setReadOnly(fromQuotes);
     }
 
     client_->setText(QString::fromStdString(job->client));
     device_->setText(QString::fromStdString(repair->device));
     type_->setCurrentIndex(static_cast<int>(repair->type));
-    price_->setText(moneyFieldText(repair->priceMinor, snapshot_.currency));
-    shipping_->setText(moneyFieldText(repair->shippingMinor, snapshot_.currency));
-    consumables_->setText(moneyFieldText(repair->consumablesMinor, snapshot_.currency));
     estHours_->setText(repair->estMinutes > 0 ? hoursText(repair->estMinutes) : QString());
     realHours_->setText(repair->realMinutes ? hoursText(*repair->realMinutes) : QString());
 
@@ -541,8 +531,6 @@ void RepairsPage::showRepair(const core::Id& jobId) {
                           (c.hoursEstimated ? QStringLiteral(" estimadas") : QString());
     QString html = QStringLiteral("<table cellspacing='0'>");
     html += line(QStringLiteral("Repuestos"), money(c.parts), theme::kTextMuted);
-    html += line(QStringLiteral("Consumibles"), money(c.consumables), theme::kTextMuted);
-    html += line(QStringLiteral("Envío"), money(c.shipping), theme::kTextMuted);
     html += line(QStringLiteral("Costo directo"), money(c.direct), theme::kText, true);
     html += line(QStringLiteral("Tus horas (%1 × %2)")
                      .arg(hours, money(core::Money::fromMinor(snapshot_.costs.hourlyRateMinor,
@@ -599,17 +587,11 @@ void RepairsPage::saveEdits() {
     core::Repair repair = *original;
     repair.device = device_->text().trimmed().toStdString();
     repair.type = core::allRepairTypes()[static_cast<std::size_t>(std::max(0, type_->currentIndex()))];
-    repair.priceMinor = parseMoneyText(price_->text(), snapshot_.currency).value_or(0);
-    repair.shippingMinor = parseMoneyText(shipping_->text(), snapshot_.currency).value_or(0);
-    repair.consumablesMinor = parseMoneyText(consumables_->text(), snapshot_.currency).value_or(0);
     repair.estMinutes = parseHoursText(estHours_->text()).value_or(0);
     repair.realMinutes = parseHoursText(realHours_->text());
     const QString client = client_->text().trimmed();
 
     const bool changed = repair.device != original->device || repair.type != original->type ||
-                         repair.priceMinor != original->priceMinor ||
-                         repair.shippingMinor != original->shippingMinor ||
-                         repair.consumablesMinor != original->consumablesMinor ||
                          repair.estMinutes != original->estMinutes ||
                          repair.realMinutes != original->realMinutes ||
                          client != QString::fromStdString(job->client);
