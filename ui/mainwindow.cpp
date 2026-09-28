@@ -29,6 +29,9 @@
 #include <QStackedWidget>
 #include <QTimer>
 #include <QVBoxLayout>
+#include <QDialog>
+#include <QDialogButtonBox>
+#include <QFormLayout>
 #include <QInputDialog>
 #include <QLineEdit>
 
@@ -104,11 +107,6 @@ MainWindow::MainWindow(const QString& dbPath, QWidget* parent) : QMainWindow(par
     const QDate now = QDate::currentDate();
     snapshot_.today = core::Date::fromYmd(now.year(), static_cast<unsigned>(now.month()),
                                           static_cast<unsigned>(now.day()));
-
-    // Solo corre sobre una base sin un solo movimiento, o sea en la primera
-    // apertura. Sobre datos existentes no hace nada, asi que no puede pisar lo
-    // anotado ni cuando se sincroniza.
-    repository_->seedIfEmpty(snapshot_.currency);
 
     supabase_ = std::make_unique<sync::SupabaseClient>(sync::SupabaseConfig::load(), this);
     syncEngine_ = std::make_unique<sync::SyncEngine>(*supabase_, *repository_, sync::desktopTables(), this);
@@ -204,6 +202,16 @@ MainWindow::MainWindow(const QString& dbPath, QWidget* parent) : QMainWindow(par
     const auto token = repository_->setting(QStringLiteral("sync.refresh_token"));
     if (token) {
         supabase_->restoreSession(*token);
+    }
+}
+
+void MainWindow::askSignInIfNeeded() {
+    // Sin sesion guardada la base local esta vacia: lo que hay que ver esta en
+    // la nube. Lo llama main() con la ventana ya abierta, no el constructor,
+    // para que construir una ventana nunca deje un dialogo esperando.
+    if (!supabase_->isSignedIn() && repository_->setting(QStringLiteral("sync.refresh_token")).value_or(QString()).isEmpty()
+        && supabase_->config().isValid()) {
+        toggleSignIn();
     }
 }
 
@@ -681,14 +689,6 @@ void MainWindow::buildSidebar(QWidget* parent) {
     layout->addWidget(cloudStatus_);
 
     layout->addSpacing(18);
-
-    auto* reset = new QPushButton(QStringLiteral("Borrar todo"), parent);
-    reset->setCursor(Qt::PointingHandCursor);
-    reset->setFont(theme::bodyFont(9));
-    reset->setToolTip(QStringLiteral("Borra tus bolsillos, trabajos y movimientos, "
-                                     "acá y en el teléfono."));
-    connect(reset, &QPushButton::clicked, this, &MainWindow::deleteEverything);
-    layout->addWidget(reset);
 
     footer_ = new QLabel(parent);
     footer_->setFont(theme::bodyFont(8));
@@ -1650,37 +1650,6 @@ void MainWindow::editMovement(const core::Id& movementId) {
     afterLocalChange();
 }
 
-void MainWindow::deleteEverything() {
-    // El aviso nombra el archivo y el telefono a proposito. La version
-    // anterior de este boton decia que la base real no se tocaba —cierto
-    // cuando esto era un banco de pruebas, falso desde que es la aplicacion— y
-    // un aviso que tranquiliza sobre algo que ya no es verdad es peor que no
-    // tener aviso.
-    const auto answer = QMessageBox::warning(
-        this, QStringLiteral("Borrar todo"),
-        QStringLiteral("Esto borra TODOS tus bolsillos, trabajos y movimientos.\n\n"
-                       "%1\n\n"
-                       "El borrado se sincroniza: también desaparecen del teléfono y "
-                       "del servidor la próxima vez que se conecten. No hay forma de "
-                       "deshacerlo desde la aplicación.")
-            .arg(db_->path()),
-        QMessageBox::Yes | QMessageBox::Cancel, QMessageBox::Cancel);
-    if (answer != QMessageBox::Yes) {
-        return;
-    }
-
-    try {
-        const std::size_t borrados = repository_->deleteEverything();
-        afterLocalChange();
-        QMessageBox::information(this, QStringLiteral("Borrado"),
-                                 QStringLiteral("Se borraron %1 registros.")
-                                     .arg(borrados));
-    } catch (const std::exception& error) {
-        QMessageBox::critical(this, QStringLiteral("No se pudo borrar"),
-                              QString::fromUtf8(error.what()));
-    }
-}
-
 // -------------------------------------------------------------------- Nube
 
 void MainWindow::toggleSignIn() {
@@ -1691,20 +1660,30 @@ void MainWindow::toggleSignIn() {
         return;
     }
 
-    bool ok;
-    QString email = QInputDialog::getText(this, QStringLiteral("Conectar"),
-                                          QStringLiteral("Correo:"), QLineEdit::Normal,
-                                          QString(), &ok);
-    if (!ok || email.isEmpty()) {
+    QDialog dialog(this);
+    dialog.setWindowTitle(QStringLiteral("Iniciar sesión"));
+    auto* form = new QFormLayout(&dialog);
+    auto* intro = new QLabel(
+        QStringLiteral("Entrá con tu cuenta para traer tus datos de la nube."), &dialog);
+    intro->setWordWrap(true);
+    form->addRow(intro);
+    auto* emailEdit = new QLineEdit(
+        repository_->setting(QStringLiteral("sync.user_email")).value_or(QString()), &dialog);
+    auto* pwdEdit = new QLineEdit(&dialog);
+    pwdEdit->setEchoMode(QLineEdit::Password);
+    form->addRow(QStringLiteral("Correo:"), emailEdit);
+    form->addRow(QStringLiteral("Contraseña:"), pwdEdit);
+    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+    form->addRow(buttons);
+    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    (emailEdit->text().isEmpty() ? emailEdit : pwdEdit)->setFocus();
+    if (dialog.exec() != QDialog::Accepted || emailEdit->text().trimmed().isEmpty()
+        || pwdEdit->text().isEmpty()) {
         return;
     }
-
-    QString pwd = QInputDialog::getText(this, QStringLiteral("Conectar"),
-                                        QStringLiteral("Contraseña:"), QLineEdit::Password,
-                                        QString(), &ok);
-    if (!ok || pwd.isEmpty()) {
-        return;
-    }
+    const QString email = emailEdit->text();
+    const QString pwd = pwdEdit->text();
 
     // trimmed() en el correo: un espacio al final, que es trivial al escribir o
     // al pegar, da exactamente el mismo "invalid login credentials" que una

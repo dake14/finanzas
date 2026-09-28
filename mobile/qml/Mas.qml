@@ -180,33 +180,6 @@ Flickable {
             }
         }
 
-        // --- Borrar todo ---------------------------------------------------------
-        //
-        // Esta abajo de todo y a un paso mas de distancia que cualquier otra
-        // cosa, con el nombre escrito a mano para confirmar. No alcanza con un
-        // "seguro?": un dialogo de si o no se acepta sin leerlo, y esto no
-        // tiene vuelta desde el telefono.
-        Button {
-            Layout.fillWidth: true
-            Layout.preferredHeight: 50
-            Layout.topMargin: 14
-            flat: true
-            background: Rectangle {
-                color: parent.pressed ? "#2a1216" : "transparent"
-                radius: 10
-                border.color: Estilo.negativo
-            }
-            contentItem: Label {
-                text: "Borrar todo"
-                color: Estilo.negativo
-                font.pixelSize: 14
-                font.weight: Font.DemiBold
-                horizontalAlignment: Text.AlignHCenter
-                verticalAlignment: Text.AlignVCenter
-            }
-            onClicked: dialogoBorrar.open()
-        }
-
         Label {
             Layout.fillWidth: true
             Layout.topMargin: 14
@@ -235,84 +208,5 @@ Flickable {
         fileMode: FileDialog.OpenFile
         nameFilters: ["Cambios de DakeLabs (*.jsonl)", "Todos los archivos (*)"]
         onAccepted: pagina.mensaje(App.importFrom(selectedFile), Estilo.positivo)
-    }
-
-    Dialog {
-        id: dialogoBorrar
-
-        modal: true
-        anchors.centerIn: Overlay.overlay
-        width: Math.min(pagina.width - 2 * Estilo.margen, 420)
-        title: "Borrar todo"
-        standardButtons: Dialog.Cancel
-
-        background: Rectangle {
-            color: Estilo.tarjeta
-            radius: Estilo.radio
-            border.color: Estilo.negativo
-        }
-
-        onOpened: {
-            confirmacion.text = ""
-            confirmacion.forceActiveFocus()
-        }
-
-        ColumnLayout {
-            width: parent.width
-            spacing: Estilo.espacio
-
-            Label {
-                Layout.fillWidth: true
-                text: "Se van todos los bolsillos, trabajos y movimientos. Cada uno queda con "
-                      + "lapida, asi que el borrado tambien viaja a la nube y a la computadora: "
-                      + "no es solo en este telefono.\n\n"
-                      + "Antes de hacerlo, exporta."
-                color: Estilo.textoSuave
-                font.pixelSize: 12
-                wrapMode: Text.WordWrap
-            }
-
-            Label {
-                Layout.fillWidth: true
-                text: "Escribi BORRAR para confirmar:"
-                color: Estilo.texto
-                font.pixelSize: 13
-            }
-
-            TextField {
-                id: confirmacion
-                Layout.fillWidth: true
-                Layout.preferredHeight: Estilo.toque
-                placeholderText: "BORRAR"
-                color: Estilo.texto
-                placeholderTextColor: Estilo.textoTenue
-                font.pixelSize: 16
-            }
-
-            Button {
-                Layout.fillWidth: true
-                Layout.preferredHeight: 50
-                enabled: confirmacion.text === "BORRAR"
-                opacity: enabled ? 1.0 : 0.4
-                background: Rectangle {
-                    color: parent.pressed ? "#2a1216" : "transparent"
-                    radius: 10
-                    border.color: Estilo.negativo
-                }
-                contentItem: Label {
-                    text: "Borrar todo, sin vuelta atras"
-                    color: Estilo.negativo
-                    font.pixelSize: 14
-                    font.weight: Font.DemiBold
-                    horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
-                }
-                onClicked: {
-                    const resultado = App.eraseAll()
-                    dialogoBorrar.close()
-                    pagina.mensaje(resultado, Estilo.aviso)
-                }
-            }
-        }
     }
 }

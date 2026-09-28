@@ -178,11 +178,6 @@ public:
     /// {etiqueta, texto}).
     Q_INVOKABLE QVariantMap closing(int index) const;
 
-    /// Borra bolsillos, trabajos y movimientos dejando lapida de cada uno, para
-    /// que el borrado tambien viaje a la nube y a la computadora. Devuelve ""
-    /// si salio bien.
-    Q_INVOKABLE QString eraseAll();
-
     /// Anota la diferencia entre lo que dice la app y lo que hay de verdad,
     /// como un movimiento visible y no como un saldo corregido por debajo.
     Q_INVOKABLE QString reconcile(const QString& pocketId, const QString& realAmount);

@@ -44,18 +44,11 @@ Atajos: `Ctrl+N` va a anotar, `Ctrl+F` va a buscar.
 
 ## Los datos con los que arranca
 
-La primera vez siembra el **caso real de agosto de 2026**: los seis movimientos
-que están de verdad en la base de la aplicación instalada, más lo que el modelo
-viejo no podía representar (de qué bolsillo salió cada peso, a qué trabajo
-pertenece cada gasto, cuántos meses dura un rollo de filamento) y dos
-movimientos de ejemplo para mostrar el "entregado y sin cobrar".
+Arranca vacía. Si no hay sesión guardada, al abrir pide correo y contraseña:
+los datos están en la nube y bajan con la primera sincronización.
 
-**Los saldos iniciales de ahorro (400,00) e inversión (600,00) son inventados**:
-la aplicación actual nunca los preguntó, así que no existen en ningún lado.
-Cambiarlos por los de verdad es la primera cosa que habría que hacer para que
-los números signifiquen algo.
-
-El botón *Volver al caso de agosto* borra todo y vuelve a sembrar.
+El **caso real de agosto de 2026** (`core::realCaseAugust2026`) quedó solo para
+las pruebas y la vista previa; la aplicación ya no lo siembra.
 
 ---
 

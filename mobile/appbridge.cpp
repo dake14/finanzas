@@ -155,12 +155,6 @@ QString AppBridge::abrir() {
     today_ = core::Date::fromYmd(now.year(), static_cast<unsigned>(now.month()),
                                  static_cast<unsigned>(now.day()));
 
-    // Igual que en la version de escritorio: arrancar en blanco no deja nada
-    // contra que comparar. Solo corre sobre una base sin un solo movimiento:
-    // sobre datos existentes no hace nada, asi que no puede pisar lo anotado.
-    bitacora::anotar(QStringLiteral("Sembrando si hace falta."));
-    repository_->seedIfEmpty(currency_);
-
     bitacora::anotar(QStringLiteral("Calculando las pantallas."));
     reload();
     return {};
@@ -708,19 +702,6 @@ QString AppBridge::setJobClosed(const QString& id, bool closed) {
         return {};
     }
     return QStringLiteral("Ese trabajo ya no esta.");
-}
-
-QString AppBridge::eraseAll() {
-    if (!repository_) {
-        return fatalError_;
-    }
-    try {
-        const std::size_t borrados = repository_->deleteEverything();
-        afterLocalChange();
-        return QStringLiteral("Se borraron %1 registros.").arg(borrados);
-    } catch (const std::exception& error) {
-        return QStringLiteral("No se pudo borrar: ") + QString::fromUtf8(error.what());
-    }
 }
 
 // ------------------------------------------------------- Cierre de mes ----

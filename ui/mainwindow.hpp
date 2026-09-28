@@ -47,6 +47,9 @@ public:
     /// Abre la ventana mini de anotar, encima de lo que se este haciendo.
     void showCapture();
 
+    /// Si no hay sesion guardada, abre el dialogo de inicio de sesion.
+    void askSignInIfNeeded();
+
     /// Trae la ventana principal al frente, este escondida o minimizada.
     void showMainWindow();
 
@@ -108,10 +111,6 @@ private slots:
     void editMovement(const dake::core::Id& movementId);
     void togglePocketAccount(const dake::core::Id& pocketId);
     void saveCategory(const dake::core::Category& category);
-
-    /// Borra bolsillos, trabajos y movimientos, con lapida y encolado, previo
-    /// aviso que nombra el archivo y dice que tambien desaparecen del telefono.
-    void deleteEverything();
 
     /// Deshace el ultimo cambio hecho en esta maquina: un movimiento anotado se
     /// borra, uno editado o borrado vuelve como estaba.

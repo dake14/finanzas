@@ -262,6 +262,11 @@ int main(int argc, char** argv) {
         ui::theme::setTheme(ui::theme::Tema::Claro);
     }
 
+    {
+        // La ventana ya no siembra sola: la prueba parte del caso de agosto.
+        storage::Database setup(path);
+        storage::Repository(setup).seedIfEmpty(core::Currency::usd());
+    }
     ui::MainWindow window(path);
     window.show();
     check(QTest::qWaitForWindowExposed(&window), "la ventana principal se abre");
@@ -849,6 +854,7 @@ int main(int argc, char** argv) {
         {
             storage::Database setup(quotesPath);
             storage::Repository repo(setup);
+            repo.seedIfEmpty(core::Currency::usd());
             putQuote(repo, quoteRow("c1", "COT-2026-001", "cotizacion", "aceptada", "Josue Rodríguez",
                                     "asus x556U", 0, nullptr, nullptr), "2026-09-27T10:00:00+00:00");
             putQuote(repo, quoteRow("i4", "INF-2026-004", "informe", "entregado", "Josue Rodríguez",

@@ -79,6 +79,7 @@ int main(int argc, char** argv) {
         if (capture) {
             window.showCapture();
         }
+        window.askSignInIfNeeded();
         return QApplication::exec();
     } catch (const std::exception& error) {
         // Un fallo al abrir o migrar la base tiene que verse, no morir en
