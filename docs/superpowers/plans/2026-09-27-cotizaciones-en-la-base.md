@@ -934,7 +934,7 @@ import { aplicarAccion } from '../renderer/src/dominio/estados'
 import type { Documento } from '../renderer/src/dominio/tipos'
 
 function informe(): Documento {
-  const d = documentoEnBlanco(configDeEjemplo, [], { tipo: 'informe', forma: 'servicio', hoy: '2026-09-19', nuevoId: () => 'i4' })
+  const d = documentoEnBlanco(configDeEjemplo(), [], { tipo: 'informe', forma: 'servicio', hoy: '2026-09-19', nuevoId: () => 'i4' })
   return {
     ...d,
     numero: 'INF-2026-004',
@@ -981,7 +981,7 @@ describe('lo esencial de un documento', () => {
   })
 
   it('un borrador no lleva fecha de emisión ni de entrega', () => {
-    const d = documentoEnBlanco(configDeEjemplo, [], { tipo: 'informe', forma: 'servicio', hoy: '2026-09-19' })
+    const d = documentoEnBlanco(configDeEjemplo(), [], { tipo: 'informe', forma: 'servicio', hoy: '2026-09-19' })
     expect(contenidoDe(d, 'pc').fecha_emision).toBe('')
     expect(estadoDe(d).fecha_entrega).toBe('')
   })
@@ -992,7 +992,7 @@ describe('lo esencial de un documento', () => {
   })
 
   it('en un proyecto, el equipo es el título', () => {
-    const p = documentoEnBlanco(configDeEjemplo, [], { tipo: 'cotizacion', forma: 'proyecto', hoy: '2026-09-19' })
+    const p = documentoEnBlanco(configDeEjemplo(), [], { tipo: 'cotizacion', forma: 'proyecto', hoy: '2026-09-19' })
     expect(contenidoDe({ ...p, proyecto: { ...p.proyecto!, titulo: 'Red de la oficina' } }, 'pc').equipo).toBe('Red de la oficina')
   })
 })
@@ -1005,7 +1005,7 @@ describe('lo que llega del teléfono', () => {
     expect(doc.historial.at(-1)).toEqual({ fecha: '2026-09-21', tipo: 'estado', detalle: 'Pagado' })
   })
   it('aceptar y rechazar una cotización enviada', () => {
-    const d = documentoEnBlanco(configDeEjemplo, [], { tipo: 'cotizacion', forma: 'servicio', hoy: '2026-09-19' })
+    const d = documentoEnBlanco(configDeEjemplo(), [], { tipo: 'cotizacion', forma: 'servicio', hoy: '2026-09-19' })
     const enviada = { ...d, estado: 'enviada' as const, numero: 'COT-2026-001' }
     const vacio = { fecha_entrega: '', fecha_pago: '', motivo_rechazo: '' }
     expect(pasoHacia(enviada, { ...vacio, estado: 'aceptada' }, '2026-09-27')?.accion).toBe('aceptar')
@@ -1026,7 +1026,7 @@ describe('lo que llega del teléfono', () => {
         { seccion: 'Repuestos y materiales', concepto: 'Pantalla', cantidad: 1, valorUnitario: 4000 }
       ]
     }
-    const blanco = documentoEnBlanco(configDeEjemplo, [], { tipo: 'cotizacion', forma: 'servicio', hoy: '2026-09-27' })
+    const blanco = documentoEnBlanco(configDeEjemplo(), [], { tipo: 'cotizacion', forma: 'servicio', hoy: '2026-09-27' })
     const doc = borradorDeFila(fila, blanco)
     expect(doc.id).toBe('t1')
     expect(doc.estado).toBe('borrador')
@@ -1088,7 +1088,7 @@ Agregar a `indice.test.ts`:
 
 ```ts
 it('marca del teléfono un borrador creado allí', () => {
-  const d = documentoEnBlanco(configDeEjemplo, [], { tipo: 'cotizacion', forma: 'servicio', hoy: '2026-09-27' })
+  const d = documentoEnBlanco(configDeEjemplo(), [], { tipo: 'cotizacion', forma: 'servicio', hoy: '2026-09-27' })
   const tel = { ...d, historial: [{ fecha: '2026-09-27', tipo: 'creado' as const, detalle: CREADO_EN_TELEFONO }] }
   expect(entradaDeDocumento(tel).delTelefono).toBe(true)
   expect(entradaDeDocumento(d).delTelefono).toBeFalsy()
@@ -1795,12 +1795,12 @@ class DocsFalsos implements DocumentosPc {
   async escribir(d: Documento) { this.docs.set(d.id, d) }
   async borrar(id: string) { this.docs.delete(id) }
   async enBlanco(tipo: Documento['tipo'], forma: Documento['forma'], id: string) {
-    return documentoEnBlanco(configDeEjemplo, [], { tipo, forma, hoy: '2026-09-27', nuevoId: () => id })
+    return documentoEnBlanco(configDeEjemplo(), [], { tipo, forma, hoy: '2026-09-27', nuevoId: () => id })
   }
 }
 
 function informeEntregado(id: string): Documento {
-  const d = documentoEnBlanco(configDeEjemplo, [], { tipo: 'informe', forma: 'servicio', hoy: '2026-09-19', nuevoId: () => id })
+  const d = documentoEnBlanco(configDeEjemplo(), [], { tipo: 'informe', forma: 'servicio', hoy: '2026-09-19', nuevoId: () => id })
   return { ...d, estado: 'entregado', numero: `INF-${id}`, fechaEntrega: '2026-09-19', clienteCongelado: { ...d.clienteCongelado, nombre: 'Ana' },
     categorias: [{ id: 'c', nombre: 'Mano de obra', lineas: [{ id: 'l', concepto: 'Reparación', cantidad: 1, valorUnitario: 3000 }] }] }
 }
@@ -1841,7 +1841,7 @@ describe('sincronizar la PC', () => {
 
   it('un cambio de estado del teléfono no pisa las líneas que la PC corrigió', async () => {
     const { servidor, docs, estado, correr } = preparar()
-    const d = documentoEnBlanco(configDeEjemplo, [], { tipo: 'cotizacion', forma: 'servicio', hoy: '2026-09-19', nuevoId: () => 'c1' })
+    const d = documentoEnBlanco(configDeEjemplo(), [], { tipo: 'cotizacion', forma: 'servicio', hoy: '2026-09-19', nuevoId: () => 'c1' })
     await docs.escribir({ ...d, estado: 'enviada', numero: 'COT-1' })
     await correr()
     // La PC corrige una línea (la marca la pone ipcNube al guardar) y, en el medio, el teléfono acepta.
