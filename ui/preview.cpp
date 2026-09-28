@@ -17,6 +17,7 @@
 #include <QDir>
 #include <QFile>
 #include <QElapsedTimer>
+#include <QSqlQuery>
 #include <QTemporaryDir>
 #include <QFileInfo>
 #include <QPixmap>
@@ -239,6 +240,39 @@ int main(int argc, char** argv) {
         for (const QString& error : read.errors) {
             std::cout << "ERROR " << error.toStdString() << "\n";
         }
+        return 0;
+    }
+
+    // "vaciar <base>": deja la base como recien instalada, para empezar de
+    // cero. Bolsillos, trabajos y movimientos se borran con lapida, igual que
+    // el boton "Borrar todo": el borrado sube a la nube y llega al telefono,
+    // y como las lapidas cuentan, no vuelve la siembra de agosto. Lo que vive
+    // solo en la PC se vacia. Se conservan el aparato, la sesion de la nube y
+    // las preferencias de la ventana. Con la aplicacion CERRADA, y con un
+    // respaldo hecho antes.
+    if (arguments.at(1) == QLatin1String("vaciar") && arguments.size() > 2) {
+        dake::storage::Database db(arguments.at(2));
+        dake::storage::Repository repository(db);
+        const std::size_t borrados = repository.deleteEverything();
+        std::cout << "con lapida: " << borrados << "\n";
+        QSqlQuery query(db.handle());
+        for (const char* table : {"repairs", "repair_parts", "repair_templates", "categories",
+                                  "recurring", "tools", "movement_meta", "pocket_meta", "timings",
+                                  "quotes"}) {
+            if (!query.exec(QStringLiteral("DELETE FROM %1").arg(QLatin1String(table)))) {
+                std::cout << "no se pudo vaciar " << table << "\n";
+                return 1;
+            }
+            std::cout << "vaciada " << table << " (" << query.numRowsAffected() << ")\n";
+        }
+        if (!query.exec(QStringLiteral(
+                "DELETE FROM settings WHERE key NOT LIKE 'sync.%' AND key NOT IN "
+                "('device_id', 'ui.tema', 'config.arranque', 'config.aviso_bandeja')"))) {
+            std::cout << "no se pudieron limpiar los ajustes\n";
+            return 1;
+        }
+        std::cout << "ajustes borrados: " << query.numRowsAffected() << "\n";
+        std::cout << "vacia para la siembra: " << (repository.isEmpty() ? "SI (mal)" : "no") << "\n";
         return 0;
     }
 
